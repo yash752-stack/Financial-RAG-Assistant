@@ -33,9 +33,9 @@ if "vectorstore" not in st.session_state:
 # Sidebar
 with st.sidebar:
     st.markdown("## ⚙️ Setup")
-    api_key = st.text_input("OpenAI API Key", type="password", value=os.getenv("OPENAI_API_KEY",""))
+    api_key = st.text_input("Groq API Key", type="password", value=os.getenv("GROQ_API_KEY",""))
     if api_key:
-        os.environ["OPENAI_API_KEY"] = api_key
+        os.environ["GROQ_API_KEY"] = api_key
 
     st.markdown("---")
     st.markdown("## 📂 Upload Documents")
@@ -117,7 +117,7 @@ if question or prefill:
         with st.spinner("Searching and generating answer..."):
             try:
                 from openai import OpenAI
-                client_oai = OpenAI(api_key=api_key)
+                client_oai = OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
 
                 context = "No documents ingested yet. Please upload financial documents first."
                 sources = []
@@ -133,7 +133,7 @@ if question or prefill:
                     sources = [(m["filename"], round(1-d/2,3), c[:200]) for c,m,d in zip(chunks,metas,dists)]
 
                 response = client_oai.chat.completions.create(
-                    model="gpt-3.5-turbo",
+                    model="llama3-8b-8192",
                     messages=[
                         {"role":"system","content":"You are an expert financial analyst. Answer questions based only on the provided context. Always cite specific numbers and dates. If information is missing, say so clearly."},
                         {"role":"user","content":f"Context:\n{context}\n\nQuestion: {q}"}
@@ -149,7 +149,7 @@ if question or prefill:
                         for fname, score, preview in sources:
                             st.markdown(f'<div class="source-card"><b>{fname}</b> — relevance: <code>{score}</code><br><i>{preview}...</i></div>', unsafe_allow_html=True)
 
-                st.caption(f"gpt-3.5-turbo | {response.usage.total_tokens} tokens")
+                st.caption(f"llama3-8b-8192 | {response.usage.total_tokens} tokens")
                 st.session_state.messages.append({"role":"assistant","content":answer})
 
             except Exception as e:
