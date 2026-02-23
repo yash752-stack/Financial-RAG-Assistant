@@ -22,9 +22,6 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# --- API Key from Streamlit secrets or .env ---
-GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY", ""))
-
 # Session state
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -35,12 +32,24 @@ if "ingested_files" not in st.session_state:
 
 # Sidebar
 with st.sidebar:
+    st.markdown("## ⚙️ Setup")
+
+    # API Key — use secret if available, otherwise show input box
+    default_key = st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY", ""))
+    if default_key:
+        GROQ_API_KEY = default_key
+        st.success("✅ API Key configured", icon="🔑")
+    else:
+        GROQ_API_KEY = st.text_input("🔑 Groq API Key", type="password", placeholder="gsk_...")
+        st.markdown("<small>Get your free key at [console.groq.com](https://console.groq.com)</small>", unsafe_allow_html=True)
+
+    st.markdown("---")
     st.markdown("## 📂 Upload Financial Documents")
     uploaded_files = st.file_uploader("Upload Financial PDFs/TXTs", type=["pdf","txt"], accept_multiple_files=True)
 
     if uploaded_files and st.button("📥 Ingest Documents", use_container_width=True):
         if not GROQ_API_KEY:
-            st.error("API key not configured. Contact the app owner.")
+            st.error("Please enter your Groq API key first.")
         else:
             with st.spinner("Processing documents..."):
                 try:
@@ -125,7 +134,7 @@ if question or prefill:
     q = question or prefill
 
     if not GROQ_API_KEY:
-        st.error("API key not configured.")
+        st.error("Please enter your Groq API key in the sidebar.")
         st.stop()
 
     st.session_state.messages.append({"role":"user","content":q})
