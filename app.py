@@ -3,7 +3,8 @@ import sys
 import streamlit as st
 from pathlib import Path
 from dotenv import load_dotenv
-
+from langchain.text_splitter 
+import RecursiveCharacterTextSplitter
 load_dotenv()
 
 st.set_page_config(page_title="Financial RAG Assistant", page_icon="📊", layout="wide")
