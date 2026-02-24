@@ -6,6 +6,7 @@ Built with ChromaDB, Sentence Transformers, OpenAI GPT-3.5, and Streamlit.
 
 ## 🚀 Demo
 Upload any financial PDF → Ask natural language questions → Get cited answers powered by RAG + GPT
+https://financial-rag-assistant.streamlit.app/
 
 ## 🛠️ Tech Stack
 - **LLM**: OpenAI GPT-3.5-turbo
