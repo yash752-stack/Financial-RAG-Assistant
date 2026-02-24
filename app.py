@@ -35,21 +35,21 @@ with st.sidebar:
     st.markdown("## ⚙️ Setup")
 
     # API Key — use secret if available, otherwise show input box
-    default_key = st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY", ""))
+    default_key = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", ""))
     if default_key:
-        GROQ_API_KEY = default_key
+        GEMINI_API_KEY = default_key
         st.success("✅ API Key configured", icon="🔑")
     else:
-        GROQ_API_KEY = st.text_input("🔑 Groq API Key", type="password", placeholder="gsk_...")
-        st.markdown("<small>Get your free key at [console.groq.com](https://console.groq.com)</small>", unsafe_allow_html=True)
+        GEMINI_API_KEY = st.text_input("🔑 Gemini API Key", type="password", placeholder="AIza...")
+        st.markdown("<small>Get your free key at [aistudio.google.com](https://aistudio.google.com)</small>", unsafe_allow_html=True)
 
     st.markdown("---")
     st.markdown("## 📂 Upload Financial Documents")
     uploaded_files = st.file_uploader("Upload Financial PDFs/TXTs", type=["pdf","txt"], accept_multiple_files=True)
 
     if uploaded_files and st.button("📥 Ingest Documents", use_container_width=True):
-        if not GROQ_API_KEY:
-            st.error("Please enter your Groq API key first.")
+        if not GEMINI_API_KEY:
+            st.error("Please enter your Gemini API key first.")
         else:
             with st.spinner("Processing documents..."):
                 try:
@@ -117,7 +117,7 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("---")
-    st.markdown("<div style='text-align:center;color:#888;font-size:0.8rem'>Built by <b>Yash Chaudhary</b><br>Powered by Groq · LLaMA 3.3 · ChromaDB</div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align:center;color:#888;font-size:0.8rem'>Built by <b>Yash Chaudhary</b><br>Powered by Gemini · ChromaDB</div>", unsafe_allow_html=True)
 
 # Chat
 if not st.session_state.vectorstore:
@@ -133,8 +133,8 @@ question = st.chat_input("Ask a question about your financial documents...")
 if question or prefill:
     q = question or prefill
 
-    if not GROQ_API_KEY:
-        st.error("Please enter your Groq API key in the sidebar.")
+    if not GEMINI_API_KEY:
+        st.error("Please enter your Gemini API key in the sidebar.")
         st.stop()
 
     st.session_state.messages.append({"role":"user","content":q})
@@ -144,8 +144,13 @@ if question or prefill:
     with st.chat_message("assistant"):
         with st.spinner("Searching and generating answer..."):
             try:
-                from openai import OpenAI
-                client_oai = OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
+                import google.generativeai as genai
+
+                genai.configure(api_key=GEMINI_API_KEY)
+                gemini = genai.GenerativeModel(
+                    model_name="gemini-1.5-flash",
+                    system_instruction="You are an expert financial analyst. Answer questions based only on the provided context. Always cite specific numbers and dates. When comparing multiple documents, clearly label which figures come from which source. If information is missing, say so clearly."
+                )
 
                 context = "No documents ingested yet. Please upload financial documents first."
                 sources = []
@@ -160,16 +165,9 @@ if question or prefill:
                     context = "\n---\n".join(f"[{m['filename']}]\n{c}" for c,m in zip(chunks,metas))
                     sources = [(m["filename"], round(1-d/2,3), c[:200]) for c,m,d in zip(chunks,metas,dists)]
 
-                response = client_oai.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=[
-                        {"role":"system","content":"You are an expert financial analyst. Answer questions based only on the provided context. Always cite specific numbers and dates. When comparing multiple documents, clearly label which figures come from which source. If information is missing, say so clearly."},
-                        {"role":"user","content":f"Context:\n{context}\n\nQuestion: {q}"}
-                    ],
-                    temperature=0.1,
-                    max_tokens=1500
-                )
-                answer = response.choices[0].message.content
+                prompt = f"Context:\n{context}\n\nQuestion: {q}"
+                response = gemini.generate_content(prompt)
+                answer = response.text
                 st.markdown(answer)
 
                 if sources:
@@ -177,7 +175,7 @@ if question or prefill:
                         for fname, score, preview in sources:
                             st.markdown(f'<div class="source-card"><b>{fname}</b> — relevance: <code>{score}</code><br><i>{preview}...</i></div>', unsafe_allow_html=True)
 
-                st.caption(f"llama-3.3-70b-versatile | {response.usage.total_tokens} tokens")
+                st.caption("gemini-1.5-flash | Google AI")
                 st.session_state.messages.append({"role":"assistant","content":answer})
 
             except Exception as e:
