@@ -11,7 +11,6 @@ from pathlib import Path
 import streamlit as st
 from dotenv import load_dotenv
 
-sys.path.append(os.path.join(os.path.dirname(__file__), "src"))
 load_dotenv()
 
 st.set_page_config(
@@ -25,28 +24,10 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Syne:wght@400;500;600;700&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap');
 
-/* ═══════════════════════════════════════════
-   VELVET & BLACK — COLOUR SYSTEM
-   ═══════════════════════════════════════════
-   Velvet:  #6B2D6B (deep purple-violet)
-   Velvet Light: #8B3A8B
-   Velvet Glow: #B06BB0
-   Velvet Mist: rgba(107,45,107,0.15)
-   Black Base: #050507
-   Black Card: #0C0B0F
-   Black Mid:  #120F17
-   Black Panel:#0F0D14
-   Text:       #EDE8F5
-   Text Dim:   #7A7088
-   Text Ghost: #3A3448
-   Accent:     #C084C8  (lilac highlight)
-   ═══════════════════════════════════════════ */
-
 :root {
     --velvet: #6B2D6B;
     --velvet-l: #8B3A8B;
     --velvet-glow: #B06BB0;
-    --velvet-mist: rgba(107,45,107,0.12);
     --accent: #C084C8;
     --black: #050507;
     --card: #0C0B0F;
@@ -65,7 +46,6 @@ html, body { background: var(--black) !important; }
     background:
         radial-gradient(ellipse 100% 60% at 0% 0%, rgba(107,45,107,0.18) 0%, transparent 55%),
         radial-gradient(ellipse 70% 50% at 100% 100%, rgba(107,45,107,0.12) 0%, transparent 55%),
-        radial-gradient(ellipse 50% 30% at 50% 50%, rgba(107,45,107,0.04) 0%, transparent 70%),
         var(--black) !important;
     color: var(--text) !important;
 }
@@ -76,47 +56,24 @@ html, body { background: var(--black) !important; }
     box-shadow: 4px 0 40px rgba(107,45,107,0.08) !important;
 }
 
-[data-testid="stSidebar"]::before {
-    content: '';
-    position: fixed;
-    top: 0; left: 0;
-    width: 280px; height: 100vh;
-    background: linear-gradient(180deg, rgba(107,45,107,0.08) 0%, transparent 40%);
-    pointer-events: none;
-    z-index: 0;
-}
-
 #MainMenu, footer, header, .stDeployButton { visibility: hidden; display: none; }
 
-/* ── FONTS ── */
 * { font-family: 'Syne', sans-serif !important; }
-.serif { font-family: 'Cormorant Garamond', serif !important; }
-.mono  { font-family: 'Space Mono', monospace !important; }
 
-/* ═══════════════════════════════════════════
-   HERO
-   ═══════════════════════════════════════════ */
+/* ── HERO ── */
 .hero {
     position: relative;
     padding: 4rem 0 3rem;
     margin-bottom: 2.5rem;
     overflow: hidden;
 }
-
 .hero::after {
     content: '';
     position: absolute;
     bottom: 0; left: 0; right: 0;
     height: 1px;
-    background: linear-gradient(90deg,
-        transparent 0%,
-        rgba(107,45,107,0.6) 30%,
-        rgba(192,132,200,0.8) 50%,
-        rgba(107,45,107,0.6) 70%,
-        transparent 100%);
+    background: linear-gradient(90deg, transparent 0%, rgba(107,45,107,0.6) 30%, rgba(192,132,200,0.8) 50%, rgba(107,45,107,0.6) 70%, transparent 100%);
 }
-
-/* Decorative orb */
 .hero::before {
     content: '';
     position: absolute;
@@ -126,7 +83,6 @@ html, body { background: var(--black) !important; }
     border-radius: 50%;
     pointer-events: none;
 }
-
 .hero-kicker {
     font-family: 'Space Mono', monospace !important;
     font-size: 0.65rem;
@@ -145,7 +101,6 @@ html, body { background: var(--black) !important; }
     background: var(--velvet-glow);
     opacity: 0.6;
 }
-
 .hero-title {
     font-family: 'Cormorant Garamond', serif !important;
     font-size: 4.5rem;
@@ -155,7 +110,6 @@ html, body { background: var(--black) !important; }
     letter-spacing: -0.02em;
     margin-bottom: 0.4rem;
 }
-
 .hero-title em {
     font-family: 'Cormorant Garamond', serif !important;
     font-style: italic;
@@ -165,7 +119,6 @@ html, body { background: var(--black) !important; }
     -webkit-text-fill-color: transparent;
     background-clip: text;
 }
-
 .hero-desc {
     font-family: 'Syne', sans-serif !important;
     font-size: 0.88rem;
@@ -176,27 +129,7 @@ html, body { background: var(--black) !important; }
     max-width: 500px;
 }
 
-.hero-pills {
-    display: flex;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-    margin-top: 1.5rem;
-}
-.pill {
-    font-family: 'Space Mono', monospace !important;
-    font-size: 0.58rem;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    color: var(--accent);
-    border: 1px solid rgba(192,132,200,0.25);
-    padding: 0.25rem 0.7rem;
-    border-radius: 100px;
-    background: rgba(192,132,200,0.04);
-}
-
-/* ═══════════════════════════════════════════
-   STAT STRIP
-   ═══════════════════════════════════════════ */
+/* ── STAT STRIP ── */
 .stats-strip {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -247,13 +180,10 @@ html, body { background: var(--black) !important; }
     line-height: 1.4;
 }
 
-/* ═══════════════════════════════════════════
-   EMPTY STATE
-   ═══════════════════════════════════════════ */
+/* ── EMPTY STATE ── */
 .empty {
     text-align: center;
     padding: 6rem 2rem;
-    position: relative;
 }
 .empty-orb {
     width: 120px; height: 120px;
@@ -265,6 +195,7 @@ html, body { background: var(--black) !important; }
     align-items: center;
     justify-content: center;
     font-size: 2.5rem;
+    color: var(--velvet-glow);
 }
 .empty-title {
     font-family: 'Cormorant Garamond', serif !important;
@@ -293,11 +224,7 @@ html, body { background: var(--black) !important; }
     text-transform: uppercase;
 }
 
-/* ═══════════════════════════════════════════
-   CHAT MESSAGES
-   ═══════════════════════════════════════════ */
-.chat-wrap { display: flex; flex-direction: column; gap: 0.5rem; }
-
+/* ── CHAT MESSAGES ── */
 .msg-u {
     display: flex;
     justify-content: flex-end;
@@ -315,7 +242,6 @@ html, body { background: var(--black) !important; }
     line-height: 1.65;
     box-shadow: 0 4px 24px rgba(107,45,107,0.15), inset 0 1px 0 rgba(192,132,200,0.1);
 }
-
 .msg-a {
     display: flex;
     gap: 1rem;
@@ -359,9 +285,7 @@ html, body { background: var(--black) !important; }
     padding-left: 0.25rem;
 }
 
-/* ═══════════════════════════════════════════
-   SOURCE CARDS
-   ═══════════════════════════════════════════ */
+/* ── SOURCE CARDS ── */
 .src-card {
     background: var(--card);
     border: 1px solid rgba(107,45,107,0.15);
@@ -370,19 +294,10 @@ html, body { background: var(--black) !important; }
     padding: 0.85rem 1.1rem;
     margin-bottom: 0.5rem;
     transition: border-left-color 0.2s, background 0.2s;
-    overflow: hidden;
 }
-.src-card:hover {
-    border-left-color: var(--accent);
-    background: var(--mid);
-}
+.src-card:hover { border-left-color: var(--accent); background: var(--mid); }
 .src-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.3rem; }
-.src-fname {
-    font-family: 'Space Mono', monospace !important;
-    font-size: 0.68rem;
-    color: var(--accent);
-    font-weight: 400;
-}
+.src-fname { font-family: 'Space Mono', monospace !important; font-size: 0.68rem; color: var(--accent); }
 .src-badge {
     font-family: 'Space Mono', monospace !important;
     font-size: 0.58rem;
@@ -391,18 +306,10 @@ html, body { background: var(--black) !important; }
     border: 1px solid rgba(107,45,107,0.2);
     padding: 0.1rem 0.4rem;
     border-radius: 3px;
-    white-space: nowrap;
 }
-.src-text {
-    font-family: 'Syne', sans-serif !important;
-    font-size: 0.76rem;
-    color: var(--text-ghost);
-    line-height: 1.55;
-}
+.src-text { font-family: 'Syne', sans-serif !important; font-size: 0.76rem; color: var(--text-ghost); line-height: 1.55; }
 
-/* ═══════════════════════════════════════════
-   SIDEBAR ELEMENTS
-   ═══════════════════════════════════════════ */
+/* ── SIDEBAR ── */
 .sb-logo {
     padding: 2rem 0 1.5rem;
     border-bottom: 1px solid rgba(107,45,107,0.2);
@@ -413,7 +320,6 @@ html, body { background: var(--black) !important; }
     font-size: 1.4rem;
     font-weight: 300;
     color: var(--text);
-    line-height: 1;
 }
 .sb-logo-title em {
     font-family: 'Cormorant Garamond', serif !important;
@@ -428,7 +334,6 @@ html, body { background: var(--black) !important; }
     text-transform: uppercase;
     margin-top: 0.4rem;
 }
-
 .sb-section {
     font-family: 'Space Mono', monospace !important;
     font-size: 0.55rem;
@@ -439,7 +344,6 @@ html, body { background: var(--black) !important; }
     border-bottom: 1px solid rgba(107,45,107,0.15);
     margin-bottom: 0.75rem;
 }
-
 .key-active {
     display: flex;
     align-items: center;
@@ -462,11 +366,7 @@ html, body { background: var(--black) !important; }
     box-shadow: 0 0 6px #4ade80;
     animation: blink 2s infinite;
 }
-@keyframes blink {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.3; }
-}
-
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 .doc-pill {
     display: flex;
     align-items: center;
@@ -483,23 +383,16 @@ html, body { background: var(--black) !important; }
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.doc-pill-dot {
-    width: 4px; height: 4px;
-    border-radius: 50%;
-    background: var(--velvet-glow);
-    flex-shrink: 0;
-}
+.doc-pill-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--velvet-glow); flex-shrink: 0; }
 
-/* ── BUTTON OVERRIDES ── */
+/* ── BUTTONS ── */
 .stButton > button {
     background: transparent !important;
     border: 1px solid rgba(107,45,107,0.25) !important;
     color: var(--text-dim) !important;
     font-family: 'Syne', sans-serif !important;
     font-size: 0.78rem !important;
-    font-weight: 400 !important;
     border-radius: 4px !important;
-    letter-spacing: 0.02em !important;
     transition: all 0.25s ease !important;
     text-align: left !important;
     padding: 0.5rem 0.9rem !important;
@@ -512,7 +405,6 @@ html, body { background: var(--black) !important; }
 }
 
 /* ── INPUTS ── */
-.stTextInput > div > div > input,
 .stTextInput input {
     background: var(--card) !important;
     border: 1px solid rgba(107,45,107,0.3) !important;
@@ -520,26 +412,15 @@ html, body { background: var(--black) !important; }
     color: var(--text) !important;
     font-family: 'Syne', sans-serif !important;
     font-size: 0.85rem !important;
-    caret-color: var(--accent) !important;
-}
-.stTextInput input:focus {
-    border-color: rgba(107,45,107,0.7) !important;
-    box-shadow: 0 0 0 2px rgba(107,45,107,0.12) !important;
 }
 .stTextInput input::placeholder { color: var(--text-ghost) !important; }
 
-/* ── FILE UPLOADER ── */
 [data-testid="stFileUploader"] {
     background: rgba(107,45,107,0.04) !important;
     border: 1px dashed rgba(107,45,107,0.3) !important;
     border-radius: 6px !important;
 }
-[data-testid="stFileUploader"]:hover {
-    background: rgba(107,45,107,0.08) !important;
-    border-color: rgba(107,45,107,0.5) !important;
-}
 
-/* ── CHAT INPUT ── */
 [data-testid="stChatInput"] > div {
     background: var(--card) !important;
     border: 1px solid rgba(107,45,107,0.3) !important;
@@ -550,17 +431,10 @@ html, body { background: var(--black) !important; }
     border-color: rgba(107,45,107,0.6) !important;
     box-shadow: 0 0 30px rgba(107,45,107,0.2) !important;
 }
-[data-testid="stChatInput"] textarea {
-    background: transparent !important;
-    color: var(--text) !important;
-    font-family: 'Syne', sans-serif !important;
-    font-size: 0.9rem !important;
-}
+[data-testid="stChatInput"] textarea { background: transparent !important; color: var(--text) !important; font-family: 'Syne', sans-serif !important; font-size: 0.9rem !important; }
 [data-testid="stChatInput"] textarea::placeholder { color: var(--text-ghost) !important; }
 
-/* ── EXPANDER ── */
-[data-testid="stExpander"] summary,
-.streamlit-expanderHeader {
+[data-testid="stExpander"] summary, .streamlit-expanderHeader {
     background: var(--card) !important;
     border: 1px solid rgba(107,45,107,0.15) !important;
     border-radius: 4px !important;
@@ -569,89 +443,33 @@ html, body { background: var(--black) !important; }
     letter-spacing: 0.08em !important;
     color: var(--text-ghost) !important;
 }
-[data-testid="stExpander"] summary:hover {
-    border-color: rgba(107,45,107,0.35) !important;
-    color: var(--accent) !important;
-}
 
-/* ── PROGRESS ── */
-.stProgress > div > div {
-    background: linear-gradient(90deg, var(--velvet), var(--accent)) !important;
-    border-radius: 4px !important;
-}
+.stProgress > div > div { background: linear-gradient(90deg, var(--velvet), var(--accent)) !important; }
 
-/* ── METRICS ── */
-[data-testid="stMetric"] {
-    background: var(--card) !important;
-    border: 1px solid rgba(107,45,107,0.15) !important;
-    padding: 0.75rem 1rem !important;
-    border-radius: 4px !important;
-}
-[data-testid="stMetricLabel"] p {
-    font-family: 'Space Mono', monospace !important;
-    font-size: 0.55rem !important;
-    letter-spacing: 0.2em !important;
-    color: var(--text-ghost) !important;
-    text-transform: uppercase !important;
-}
-[data-testid="stMetricValue"] {
-    font-family: 'Cormorant Garamond', serif !important;
-    color: var(--accent) !important;
-    font-size: 1.6rem !important;
-    font-weight: 300 !important;
-}
+[data-testid="stMetric"] { background: var(--card) !important; border: 1px solid rgba(107,45,107,0.15) !important; padding: 0.75rem 1rem !important; border-radius: 4px !important; }
+[data-testid="stMetricLabel"] p { font-family: 'Space Mono', monospace !important; font-size: 0.55rem !important; letter-spacing: 0.2em !important; color: var(--text-ghost) !important; text-transform: uppercase !important; }
+[data-testid="stMetricValue"] { font-family: 'Cormorant Garamond', serif !important; color: var(--accent) !important; font-size: 1.6rem !important; font-weight: 300 !important; }
 
-/* ── ALERTS ── */
 .stSuccess { background: rgba(74,222,128,0.06) !important; border: 1px solid rgba(74,222,128,0.15) !important; color: #6ee7b7 !important; border-radius: 4px !important; }
 .stError   { background: rgba(248,113,113,0.06) !important; border: 1px solid rgba(248,113,113,0.15) !important; color: #fca5a5 !important; border-radius: 4px !important; }
 .stInfo    { background: rgba(107,45,107,0.08) !important; border: 1px solid rgba(107,45,107,0.2) !important; color: var(--accent) !important; border-radius: 4px !important; }
 
-/* ── DIVIDER ── */
 hr { border: none !important; height: 1px !important; background: rgba(107,45,107,0.15) !important; margin: 1rem 0 !important; }
 
-/* ── SCROLLBAR ── */
-::-webkit-scrollbar { width: 3px; height: 3px; }
+::-webkit-scrollbar { width: 3px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(107,45,107,0.3); border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(107,45,107,0.6); }
 
-/* ── FOOTER ── */
-.vb-footer {
-    text-align: center;
-    padding: 2.5rem 0 1rem;
-    margin-top: 4rem;
-    position: relative;
-}
-.vb-footer::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 50%;
-    transform: translateX(-50%);
-    width: 200px; height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(107,45,107,0.5), transparent);
-}
-.vb-footer-text {
-    font-family: 'Space Mono', monospace !important;
-    font-size: 0.58rem;
-    letter-spacing: 0.22em;
-    color: var(--text-ghost);
-    text-transform: uppercase;
-}
+.vb-footer { text-align: center; padding: 2.5rem 0 1rem; margin-top: 4rem; position: relative; }
+.vb-footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 200px; height: 1px; background: linear-gradient(90deg, transparent, rgba(107,45,107,0.5), transparent); }
+.vb-footer-text { font-family: 'Space Mono', monospace !important; font-size: 0.58rem; letter-spacing: 0.22em; color: var(--text-ghost); text-transform: uppercase; }
 
-/* ── CHAT MSG OVERRIDE ── */
-[data-testid="stChatMessage"] {
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-}
-[data-testid="stChatMessageContent"] {
-    background: transparent !important;
-}
+[data-testid="stChatMessage"] { background: transparent !important; border: none !important; box-shadow: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
 
-# ── SESSION STATE ──────────────────────────────────────────────────────────────
+# ── SESSION STATE ─────────────────────────────────────────────────────────────
 for k, v in [("messages", []), ("docs_ingested", False), ("store_stats", {})]:
     if k not in st.session_state:
         st.session_state[k] = v
@@ -659,18 +477,11 @@ for k, v in [("messages", []), ("docs_ingested", False), ("store_stats", {})]:
 
 @st.cache_resource
 def get_pipeline():
-    from rag_pipeline import FinancialRAGPipeline
-    from vector_store import FinancialVectorStore
-    store = FinancialVectorStore(
-        persist_directory="./data/chroma_db",
-        embedding_model="all-MiniLM-L6-v2"
-    )
-    return FinancialRAGPipeline(
-        vector_store=store,
-        model=os.getenv("LLM_MODEL", "gpt-3.5-turbo"),
-        top_k=int(os.getenv("TOP_K_RESULTS", 5)),
-        temperature=0.1
-    )
+    from chromadb import EphemeralClient
+    from chromadb.config import Settings
+    from sentence_transformers import SentenceTransformer
+    return {"client": EphemeralClient(settings=Settings(anonymized_telemetry=False)),
+            "model": SentenceTransformer("all-MiniLM-L6-v2")}
 
 
 # ══════════════════════════════════════════════════════════════
@@ -686,20 +497,30 @@ with st.sidebar:
 
     # ── API KEY ──
     st.markdown('<div class="sb-section">Configuration</div>', unsafe_allow_html=True)
-    api_key = st.text_input(
-        "", type="password",
-        value=os.getenv("OPENAI_API_KEY", ""),
-        placeholder="sk-...",
-        label_visibility="collapsed"
-    )
-    if api_key:
-        os.environ["OPENAI_API_KEY"] = api_key
+
+    default_key = st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY", ""))
+    if default_key:
+        GROQ_API_KEY = default_key
         st.markdown("""
         <div class="key-active">
             <div class="key-dot"></div>
             API Key Active
         </div>
         """, unsafe_allow_html=True)
+    else:
+        GROQ_API_KEY = st.text_input(
+            "", type="password",
+            placeholder="gsk_...",
+            label_visibility="collapsed"
+        )
+        st.markdown("<small style='font-family:Space Mono,monospace;font-size:0.58rem;color:#3A3448;'>console.groq.com → free key</small>", unsafe_allow_html=True)
+        if GROQ_API_KEY:
+            st.markdown("""
+            <div class="key-active">
+                <div class="key-dot"></div>
+                API Key Active
+            </div>
+            """, unsafe_allow_html=True)
 
     # ── DOCUMENTS ──
     st.markdown('<div class="sb-section">Documents</div>', unsafe_allow_html=True)
@@ -708,21 +529,59 @@ with st.sidebar:
         accept_multiple_files=True,
         label_visibility="collapsed"
     )
-    if uploaded_files:
-        if st.button("↑  Ingest Documents", use_container_width=True):
-            os.makedirs("data/docs", exist_ok=True)
-            prog = st.progress(0)
-            for i, uf in enumerate(uploaded_files):
-                with open(f"data/docs/{uf.name}", "wb") as f:
-                    f.write(uf.getbuffer())
-                prog.progress((i + 1) / len(uploaded_files))
+
+    if uploaded_files and st.button("↑  Ingest Documents", use_container_width=True):
+        if not GROQ_API_KEY:
+            st.error("Please enter your Groq API key first.")
+        else:
             with st.spinner("Embedding documents..."):
                 try:
-                    pipeline = get_pipeline()
-                    count = pipeline.ingest_documents("data/docs")
+                    from chromadb import EphemeralClient
+                    from chromadb.config import Settings
+                    from sentence_transformers import SentenceTransformer
+                    from pypdf import PdfReader
+                    from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+                    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+
+                    @st.cache_resource
+                    def load_embed_model():
+                        return SentenceTransformer("all-MiniLM-L6-v2")
+
+                    embed_model = load_embed_model()
+                    chroma = EphemeralClient(settings=Settings(anonymized_telemetry=False))
+                    try: chroma.delete_collection("financials")
+                    except: pass
+                    col = chroma.create_collection("financials", metadata={"hnsw:space": "cosine"})
+
+                    all_chunks, all_ids, all_meta, file_names = [], [], [], []
+                    prog = st.progress(0)
+                    for i, f in enumerate(uploaded_files):
+                        if f.name.endswith(".pdf"):
+                            reader = PdfReader(f)
+                            text = " ".join(p.extract_text() or "" for p in reader.pages)
+                        else:
+                            text = f.read().decode("utf-8")
+                        chunks = splitter.split_text(text)
+                        file_names.append(f.name)
+                        for j, chunk in enumerate(chunks):
+                            all_chunks.append(chunk)
+                            all_ids.append(f"{f.name}_chunk_{j}")
+                            all_meta.append({"filename": f.name, "chunk": j})
+                        prog.progress((i + 1) / len(uploaded_files))
+
+                    if all_chunks:
+                        embeddings = embed_model.encode(all_chunks, normalize_embeddings=True).tolist()
+                        col.add(documents=all_chunks, embeddings=embeddings, ids=all_ids, metadatas=all_meta)
+
+                    st.session_state.vectorstore = {"collection": col, "model": embed_model}
                     st.session_state.docs_ingested = True
-                    st.session_state.store_stats = pipeline.vector_store.get_store_stats()
-                    st.success(f"✓ {count} chunks indexed from {len(uploaded_files)} files")
+                    st.session_state.store_stats = {
+                        "total_chunks": len(all_chunks),
+                        "unique_documents": len(file_names),
+                        "sources": file_names
+                    }
+                    st.success(f"✓ {len(all_chunks)} chunks from {len(uploaded_files)} files")
                 except Exception as e:
                     st.error(str(e))
 
@@ -735,27 +594,14 @@ with st.sidebar:
         c2.metric("Docs", stats.get("unique_documents", 0))
         for src in stats.get("sources", []):
             short = src[:24] + "…" if len(src) > 24 else src
-            st.markdown(f"""
-            <div class="doc-pill">
-                <div class="doc-pill-dot"></div>
-                {short}
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f'<div class="doc-pill"><div class="doc-pill-dot"></div>{short}</div>', unsafe_allow_html=True)
 
     # ── QUICK ASK ──
     st.markdown('<div class="sb-section">Quick Ask</div>', unsafe_allow_html=True)
-    samples = [
-        "What was the total revenue?",
-        "Main risk factors?",
-        "EPS change YoY?",
-        "Debt situation?",
-        "Key business highlights",
-    ]
-    for q in samples:
+    for q in ["What was the total revenue?", "Main risk factors?", "EPS change YoY?", "Debt situation?", "Key business highlights"]:
         if st.button(q, use_container_width=True, key=f"sq_{q[:12]}"):
             st.session_state.prefill_question = q
 
-    # ── ACTIONS ──
     st.markdown('<div class="sb-section">Actions</div>', unsafe_allow_html=True)
     if st.button("✕  Clear Conversation", use_container_width=True):
         st.session_state.messages = []
@@ -763,7 +609,7 @@ with st.sidebar:
 
 
 # ══════════════════════════════════════════════════════════════
-# HERO
+# HERO — no tech pills
 # ══════════════════════════════════════════════════════════════
 st.markdown("""
 <div class="hero">
@@ -773,30 +619,21 @@ st.markdown("""
         Semantic search and AI-powered analysis across Annual Reports,
         10-Ks &amp; Earnings Transcripts. Ask in plain language.
     </p>
-    <div class="hero-pills">
-        <span class="pill">LangChain</span>
-        <span class="pill">ChromaDB</span>
-        <span class="pill">OpenAI</span>
-        <span class="pill">Vector Search</span>
-        <span class="pill">RAG</span>
-    </div>
 </div>
 """, unsafe_allow_html=True)
 
-
 # ══════════════════════════════════════════════════════════════
-# STAT STRIP
+# STAT STRIP — show Llama model name
 # ══════════════════════════════════════════════════════════════
 chunks = st.session_state.store_stats.get("total_chunks", 0)
 docs   = st.session_state.store_stats.get("unique_documents", 0)
 msgs   = len(st.session_state.messages) // 2
-mdl    = os.getenv("LLM_MODEL", "gpt-3.5-turbo")
 
 st.markdown(f"""
 <div class="stats-strip">
     <div class="stat-cell">
         <div class="stat-lbl">Model</div>
-        <div class="stat-val-mono">{mdl}</div>
+        <div class="stat-val-mono">Llama 3.3 · 70B</div>
     </div>
     <div class="stat-cell">
         <div class="stat-lbl">Chunks Indexed</div>
@@ -812,7 +649,6 @@ st.markdown(f"""
     </div>
 </div>
 """, unsafe_allow_html=True)
-
 
 # ══════════════════════════════════════════════════════════════
 # CHAT HISTORY
@@ -843,11 +679,10 @@ for message in st.session_state.messages:
             <div class="avatar">AI</div>
             <div class="bubble-a-wrap">
                 <div class="bubble-a">{message["content"]}</div>
-                <div class="bubble-meta">◈ Financial RAG Assistant</div>
+                <div class="bubble-meta">◈ Llama 3.3 · 70B via Groq</div>
             </div>
         </div>
         """, unsafe_allow_html=True)
-
         if message.get("sources"):
             with st.expander(f"▸ {len(message['sources'])} source documents"):
                 for src in message["sources"]:
@@ -861,7 +696,6 @@ for message in st.session_state.messages:
                     </div>
                     """, unsafe_allow_html=True)
 
-
 # ══════════════════════════════════════════════════════════════
 # CHAT INPUT
 # ══════════════════════════════════════════════════════════════
@@ -871,11 +705,10 @@ question = st.chat_input("Ask about your financial documents...")
 if question or prefill:
     q = question or prefill
 
-    if not api_key:
-        st.error("Please enter your OpenAI API key in the sidebar.")
+    if not GROQ_API_KEY:
+        st.error("Please enter your Groq API key in the sidebar.")
         st.stop()
 
-    # Render user bubble immediately
     st.markdown(f"""
     <div class="msg-u">
         <div class="bubble-u">{q}</div>
@@ -885,35 +718,63 @@ if question or prefill:
 
     with st.spinner(""):
         try:
-            pipeline     = get_pipeline()
-            response     = pipeline.query(question=q, verbose=False)
-            answer       = response.answer
+            from openai import OpenAI
+            client = OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
+
+            context = "No documents ingested yet. Please upload financial documents first."
             sources_data = []
+
+            if st.session_state.get("vectorstore"):
+                vs = st.session_state.vectorstore
+                q_emb = vs["model"].encode([q], normalize_embeddings=True).tolist()
+                results = vs["collection"].query(query_embeddings=q_emb, n_results=5,
+                                                  include=["documents", "metadatas", "distances"])
+                chunks_  = results["documents"][0]
+                metas    = results["metadatas"][0]
+                dists    = results["distances"][0]
+                context  = "\n---\n".join(f"[{m['filename']}]\n{c}" for c, m in zip(chunks_, metas))
+                sources_data = [
+                    {"filename": m["filename"], "score": round(1 - d / 2, 3), "preview": c[:200]}
+                    for c, m, d in zip(chunks_, metas, dists)
+                ]
+
+            response = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {"role": "system", "content": (
+                        "You are an expert financial analyst assistant. "
+                        "Answer questions based only on the provided context. "
+                        "Always cite specific numbers and dates. "
+                        "If information is missing, say so clearly."
+                    )},
+                    {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {q}"}
+                ],
+                temperature=0.1,
+                max_tokens=1500
+            )
+            answer = response.choices[0].message.content
+            tokens = response.usage.total_tokens
 
             st.markdown(f"""
             <div class="msg-a">
                 <div class="avatar">AI</div>
                 <div class="bubble-a-wrap">
                     <div class="bubble-a">{answer}</div>
-                    <div class="bubble-meta">◈ {response.model_used} &nbsp;·&nbsp; {response.tokens_used} tokens</div>
+                    <div class="bubble-meta">◈ Llama 3.3 · 70B via Groq &nbsp;·&nbsp; {tokens} tokens</div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
 
-            if response.sources:
-                with st.expander(f"▸ {len(response.sources)} source documents"):
-                    for src in response.sources:
-                        fname   = src.metadata.get("filename", "Unknown")
-                        score   = src.similarity_score
-                        preview = src.content[:200].replace("\n", " ") + "..."
-                        sources_data.append({"filename": fname, "score": score, "preview": preview})
+            if sources_data:
+                with st.expander(f"▸ {len(sources_data)} source documents"):
+                    for src in sources_data:
                         st.markdown(f"""
                         <div class="src-card">
                             <div class="src-top">
-                                <div class="src-fname">📄 {fname}</div>
-                                <div class="src-badge">score {score:.3f}</div>
+                                <div class="src-fname">📄 {src['filename']}</div>
+                                <div class="src-badge">score {src['score']:.3f}</div>
                             </div>
-                            <div class="src-text">{preview}</div>
+                            <div class="src-text">{src['preview']}...</div>
                         </div>
                         """, unsafe_allow_html=True)
 
@@ -923,12 +784,8 @@ if question or prefill:
                 "sources": sources_data
             })
 
-        except ValueError as e:
-            st.error(f"Configuration Error: {e}")
         except Exception as e:
             st.error(f"Error: {e}")
-            st.info("Ensure your API key is valid and documents are ingested.")
-
 
 # ══════════════════════════════════════════════════════════════
 # FOOTER
@@ -936,7 +793,7 @@ if question or prefill:
 st.markdown("""
 <div class="vb-footer">
     <div class="vb-footer-text">
-        Built by Yash Chaudhary &nbsp;·&nbsp; Financial RAG Assistant &nbsp;·&nbsp; LangChain × ChromaDB × OpenAI
+        Built by Yash Chaudhary &nbsp;·&nbsp; Financial RAG Assistant &nbsp;·&nbsp; Llama 3.3 × Groq × ChromaDB
     </div>
 </div>
 """, unsafe_allow_html=True)
