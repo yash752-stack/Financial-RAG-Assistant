@@ -117,7 +117,7 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("---")
-    st.markdown("<div style='text-align:center;color:#888;font-size:0.8rem'>Built by <b>Yash Chaudhary</b><br>Powered by Gemini · ChromaDB</div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align:center;color:#888;font-size:0.8rem'>Built by <b>Yash Chaudhary</b><br>Powered by Gemini 2.0 · ChromaDB</div>", unsafe_allow_html=True)
 
 # Chat
 if not st.session_state.vectorstore:
@@ -148,7 +148,7 @@ if question or prefill:
 
                 genai.configure(api_key=GEMINI_API_KEY)
                 gemini = genai.GenerativeModel(
-                    model_name="gemini-1.5-flash",
+                    model_name="gemini-2.0-flash",
                     system_instruction="You are an expert financial analyst. Answer questions based only on the provided context. Always cite specific numbers and dates. When comparing multiple documents, clearly label which figures come from which source. If information is missing, say so clearly."
                 )
 
@@ -175,7 +175,7 @@ if question or prefill:
                         for fname, score, preview in sources:
                             st.markdown(f'<div class="source-card"><b>{fname}</b> — relevance: <code>{score}</code><br><i>{preview}...</i></div>', unsafe_allow_html=True)
 
-                st.caption("gemini-1.5-flash | Google AI")
+                st.caption("gemini-2.0-flash | Google AI")
                 st.session_state.messages.append({"role":"assistant","content":answer})
 
             except Exception as e:
