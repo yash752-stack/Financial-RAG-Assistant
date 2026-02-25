@@ -1,4 +1,6 @@
+```python
 import os
+from datetime import date, timedelta
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -12,13 +14,13 @@ st.markdown(
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Manrope:wght@400;600;700&display=swap');
 
 :root {
-    --bg: #07131f;
-    --panel: #101f2f;
-    --panel-soft: #13283d;
-    --text: #e9f1f8;
-    --muted: #9cb2c4;
-    --accent: #00c389;
-    --accent-2: #f7b955;
+    --bg: #060508;
+    --panel: #0f0a14;
+    --panel-soft: #180f24;
+    --text: #f2ecff;
+    --muted: #b09ac9;
+    --accent: #9f5df5;
+    --accent-2: #d0a3ff;
     --line: rgba(255, 255, 255, 0.12);
     --shadow: 0 20px 40px rgba(0, 0, 0, 0.24);
 }
@@ -35,9 +37,9 @@ html, body, [class*="css"] {
 
 .stApp {
     background:
-        radial-gradient(1200px 500px at 92% -20%, rgba(247, 185, 85, 0.17), transparent 55%),
-        radial-gradient(900px 500px at -10% 10%, rgba(0, 195, 137, 0.2), transparent 50%),
-        linear-gradient(180deg, #060f1a 0%, var(--bg) 100%);
+        radial-gradient(1200px 500px at 92% -20%, rgba(173, 109, 255, 0.2), transparent 55%),
+        radial-gradient(900px 500px at -10% 10%, rgba(132, 62, 224, 0.22), transparent 50%),
+        linear-gradient(180deg, #040307 0%, var(--bg) 100%);
     color: var(--text);
 }
 
@@ -47,7 +49,7 @@ section[data-testid="stSidebar"] {
 }
 
 .main-header {
-    background: linear-gradient(128deg, rgba(0, 195, 137, 0.18), rgba(13, 34, 56, 0.95) 44%, rgba(247, 185, 85, 0.2));
+    background: linear-gradient(128deg, rgba(154, 93, 245, 0.2), rgba(23, 13, 39, 0.95) 44%, rgba(208, 163, 255, 0.18));
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 22px;
     box-shadow: var(--shadow);
@@ -62,7 +64,7 @@ section[data-testid="stSidebar"] {
     font-family: "Space Grotesk", sans-serif;
     letter-spacing: 0.2px;
     font-size: clamp(1.8rem, 4.2vw, 3rem);
-    color: #f2faf9;
+    color: #f7f0ff;
 }
 
 .brand-row {
@@ -102,14 +104,14 @@ section[data-testid="stSidebar"] {
     border-radius: 999px;
     padding: 0.28rem 0.7rem;
     font-size: 0.8rem;
-    color: #d7e7f3;
+    color: #ead8ff;
     background: rgba(255, 255, 255, 0.07);
 }
 
 .info-banner {
     margin: 0.25rem 0 1rem;
-    background: linear-gradient(90deg, rgba(0, 195, 137, 0.2), rgba(16, 31, 47, 0.88));
-    border: 1px solid rgba(0, 195, 137, 0.35);
+    background: linear-gradient(90deg, rgba(159, 93, 245, 0.28), rgba(17, 10, 27, 0.9));
+    border: 1px solid rgba(159, 93, 245, 0.42);
     border-radius: 14px;
     padding: 0.95rem 1rem;
     color: #cdeee4;
@@ -138,8 +140,8 @@ section[data-testid="stSidebar"] {
 .stButton > button:hover,
 .stDownloadButton > button:hover {
     transform: translateY(-1px);
-    border-color: rgba(0, 195, 137, 0.75) !important;
-    background: linear-gradient(180deg, rgba(0, 195, 137, 0.32), rgba(0, 195, 137, 0.12)) !important;
+    border-color: rgba(159, 93, 245, 0.78) !important;
+    background: linear-gradient(180deg, rgba(159, 93, 245, 0.32), rgba(159, 93, 245, 0.12)) !important;
 }
 
 .stTextInput > div > div > input,
@@ -154,13 +156,13 @@ section[data-testid="stSidebar"] {
 .stTextInput > div > div > input:focus,
 .stTextArea textarea:focus,
 .stChatInput textarea:focus {
-    border-color: rgba(0, 195, 137, 0.65) !important;
-    box-shadow: 0 0 0 1px rgba(0, 195, 137, 0.45) !important;
+    border-color: rgba(159, 93, 245, 0.7) !important;
+    box-shadow: 0 0 0 1px rgba(159, 93, 245, 0.48) !important;
 }
 
 .stFileUploader {
-    background: rgba(7, 20, 34, 0.85);
-    border: 1px dashed rgba(255, 255, 255, 0.24);
+    background: rgba(20, 11, 31, 0.92);
+    border: 1px dashed rgba(190, 145, 255, 0.42);
     border-radius: 14px;
     padding: 0.5rem;
 }
@@ -207,23 +209,46 @@ section[data-testid="stSidebar"] {
 }
 
 .metric-label {
-    color: #9ec0d0;
+    color: #c9b0e7;
     font-size: 0.72rem;
     text-transform: uppercase;
     letter-spacing: 0.06em;
 }
 
 .metric-value {
-    color: #f4fbff;
+    color: #f8f1ff;
     font-family: "Space Grotesk", sans-serif;
     font-size: 1.2rem;
     margin-top: 0.2rem;
 }
 
 .composer-hint {
-    color: #9fc2cf;
+    color: #beaad8;
     font-size: 0.82rem;
     margin-bottom: 0.45rem;
+}
+
+.upload-drawer {
+    border: 1px solid rgba(159, 93, 245, 0.4);
+    background: linear-gradient(180deg, rgba(159, 93, 245, 0.16), rgba(14, 9, 20, 0.9));
+    border-radius: 14px;
+    padding: 0.8rem 0.9rem 0.7rem;
+    margin: 0.25rem 0 0.8rem;
+}
+
+.upload-drawer-title {
+    font-family: "Space Grotesk", sans-serif;
+    color: #efdeff;
+    font-size: 0.92rem;
+    margin-bottom: 0.35rem;
+}
+
+.stock-wrap {
+    border: 1px solid rgba(159, 93, 245, 0.3);
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01));
+    padding: 0.85rem 0.85rem 0.25rem;
+    margin: 0.2rem 0 1.1rem;
 }
 
 [data-testid="stTextInput"] input {
@@ -307,8 +332,12 @@ if "composer_text" not in st.session_state:
     st.session_state.composer_text = ""
 if "submit_from_enter" not in st.session_state:
     st.session_state.submit_from_enter = False
-if "show_quick_actions" not in st.session_state:
-    st.session_state.show_quick_actions = False
+if "show_upload_drawer" not in st.session_state:
+    st.session_state.show_upload_drawer = False
+if "uploaded_docs" not in st.session_state:
+    st.session_state.uploaded_docs = 0
+if "last_stock_update" not in st.session_state:
+    st.session_state.last_stock_update = ""
 
 # Sidebar
 with st.sidebar:
@@ -319,53 +348,6 @@ with st.sidebar:
 
     if api_key:
         st.success("API key configured")
-
-    st.markdown("---")
-    st.markdown("## Upload Financial Documents")
-    uploaded_files = st.file_uploader("Upload Financial PDFs/TXTs", type=["pdf", "txt"], accept_multiple_files=True)
-
-    if uploaded_files and st.button("Ingest Documents", use_container_width=True):
-        if not api_key:
-            st.error("Please enter your Groq API key first.")
-        else:
-            with st.spinner("Processing documents..."):
-                try:
-                    from chromadb import PersistentClient
-                    from chromadb.config import Settings
-                    from sentence_transformers import SentenceTransformer
-                    from pypdf import PdfReader
-                    from langchain_text_splitters import RecursiveCharacterTextSplitter
-
-                    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-                    model = SentenceTransformer("all-MiniLM-L6-v2")
-                    client = PersistentClient(path="./chroma_db", settings=Settings(anonymized_telemetry=False))
-                    collection = client.get_or_create_collection("financials", metadata={"hnsw:space": "cosine"})
-
-                    all_chunks, all_ids, all_meta = [], [], []
-                    existing_ids = set(collection.get()["ids"])
-
-                    for f in uploaded_files:
-                        if f.name.endswith(".pdf"):
-                            reader = PdfReader(f)
-                            text = " ".join(p.extract_text() or "" for p in reader.pages)
-                        else:
-                            text = f.read().decode("utf-8")
-                        chunks = splitter.split_text(text)
-                        for i, chunk in enumerate(chunks):
-                            cid = f"{f.name}_chunk_{i}"
-                            if cid not in existing_ids:
-                                all_chunks.append(chunk)
-                                all_ids.append(cid)
-                                all_meta.append({"filename": f.name, "chunk": i})
-
-                    if all_chunks:
-                        embeddings = model.encode(all_chunks, normalize_embeddings=True).tolist()
-                        collection.add(documents=all_chunks, embeddings=embeddings, ids=all_ids, metadatas=all_meta)
-
-                    st.session_state.vectorstore = {"collection": collection, "model": model}
-                    st.success(f"Ingested {len(all_chunks)} chunks from {len(uploaded_files)} files")
-                except Exception as e:
-                    st.error(f"Error: {e}")
 
     st.markdown("---")
     st.markdown("## Sample Questions")
@@ -383,7 +365,48 @@ with st.sidebar:
         st.session_state.messages = []
         st.rerun()
 
-st.markdown('<div class="info-banner">Upload financial documents in the sidebar to get started.</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="info-banner">Use the + button near the prompt to upload PDFs/TXTs and ingest your knowledge base.</div>',
+    unsafe_allow_html=True,
+)
+
+
+def ingest_documents(files):
+    from chromadb import PersistentClient
+    from chromadb.config import Settings
+    from sentence_transformers import SentenceTransformer
+    from pypdf import PdfReader
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    model = SentenceTransformer("all-MiniLM-L6-v2")
+    client = PersistentClient(path="./chroma_db", settings=Settings(anonymized_telemetry=False))
+    collection = client.get_or_create_collection("financials", metadata={"hnsw:space": "cosine"})
+
+    all_chunks, all_ids, all_meta = [], [], []
+    existing_ids = set(collection.get()["ids"])
+
+    for f in files:
+        if f.name.endswith(".pdf"):
+            reader = PdfReader(f)
+            text = " ".join(p.extract_text() or "" for p in reader.pages)
+        else:
+            text = f.read().decode("utf-8")
+        chunks = splitter.split_text(text)
+        for i, chunk in enumerate(chunks):
+            cid = f"{f.name}_chunk_{i}"
+            if cid not in existing_ids:
+                all_chunks.append(chunk)
+                all_ids.append(cid)
+                all_meta.append({"filename": f.name, "chunk": i})
+
+    if all_chunks:
+        embeddings = model.encode(all_chunks, normalize_embeddings=True).tolist()
+        collection.add(documents=all_chunks, embeddings=embeddings, ids=all_ids, metadatas=all_meta)
+
+    st.session_state.vectorstore = {"collection": collection, "model": model}
+    st.session_state.uploaded_docs = len(files)
+    return len(all_chunks)
 
 chunk_count = 0
 if st.session_state.vectorstore:
@@ -413,6 +436,55 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+st.markdown('<div class="stock-wrap">', unsafe_allow_html=True)
+st.markdown("### Global Stock Prices")
+stock_symbols = st.multiselect(
+    "Track symbols",
+    options=["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "TSLA", "META", "TSM", "SAP", "BABA", "SONY", "NVO"],
+    default=["AAPL", "MSFT", "NVDA", "TSM"],
+)
+lookback_days = st.slider("Range (days)", min_value=30, max_value=365, value=120, step=10)
+
+if stock_symbols:
+    try:
+        import pandas as pd
+        import yfinance as yf
+
+        end_date = date.today()
+        start_date = end_date - timedelta(days=lookback_days)
+        raw = yf.download(
+            tickers=stock_symbols,
+            start=start_date.isoformat(),
+            end=end_date.isoformat(),
+            interval="1d",
+            auto_adjust=True,
+            progress=False,
+            group_by="ticker",
+            threads=True,
+        )
+        chart_data = pd.DataFrame()
+
+        if len(stock_symbols) == 1:
+            single = raw["Close"] if "Close" in raw.columns else raw
+            chart_data[stock_symbols[0]] = single
+        else:
+            for symbol in stock_symbols:
+                if (symbol, "Close") in raw.columns:
+                    chart_data[symbol] = raw[(symbol, "Close")]
+
+        chart_data = chart_data.dropna(how="all")
+        if not chart_data.empty:
+            st.line_chart(chart_data, height=260, use_container_width=True)
+            st.session_state.last_stock_update = f"{end_date.isoformat()} ({len(chart_data)} pts)"
+            st.caption(f"Last update: {st.session_state.last_stock_update}")
+        else:
+            st.info("No market data returned for the selected symbols.")
+    except Exception as e:
+        st.info(f"Stock chart unavailable: {e}")
+else:
+    st.info("Select at least one symbol to show the chart.")
+st.markdown("</div>", unsafe_allow_html=True)
+
 # Chat
 st.markdown("### Ask About Your Financial Documents")
 
@@ -432,7 +504,7 @@ def submit_from_enter():
 st.markdown('<div class="composer-hint">Press Enter to send, or use + for quick prompts.</div>', unsafe_allow_html=True)
 composer_col_1, composer_col_2, composer_col_3 = st.columns([1, 12, 2], gap="small")
 with composer_col_1:
-    plus_clicked = st.button("＋", key="composer_plus", use_container_width=True, help="Quick prompts")
+    plus_clicked = st.button("＋", key="composer_plus", use_container_width=True, help="Upload documents")
 with composer_col_2:
     st.text_input(
         "Ask a question about your financial documents...",
@@ -445,19 +517,29 @@ with composer_col_3:
     send_clicked = st.button("Send", key="composer_send", use_container_width=True)
 
 if plus_clicked:
-    st.session_state.show_quick_actions = not st.session_state.show_quick_actions
+    st.session_state.show_upload_drawer = not st.session_state.show_upload_drawer
 
-if st.session_state.show_quick_actions:
-    quick_col_1, quick_col_2, quick_col_3 = st.columns(3)
-    with quick_col_1:
-        if st.button("Revenue snapshot", key="qa_revenue", use_container_width=True):
-            st.session_state.composer_text = "Give me a concise revenue snapshot with YoY change."
-    with quick_col_2:
-        if st.button("Risk summary", key="qa_risk", use_container_width=True):
-            st.session_state.composer_text = "Summarize the top risk factors from the documents."
-    with quick_col_3:
-        if st.button("EPS trend", key="qa_eps", use_container_width=True):
-            st.session_state.composer_text = "How did EPS change YoY, and what drove it?"
+if st.session_state.show_upload_drawer:
+    st.markdown('<div class="upload-drawer"><div class="upload-drawer-title">Upload financial PDFs or TXTs</div>', unsafe_allow_html=True)
+    inline_uploads = st.file_uploader(
+        "Upload files",
+        type=["pdf", "txt"],
+        accept_multiple_files=True,
+        key="inline_uploads",
+        label_visibility="collapsed",
+    )
+    if inline_uploads and st.button("Ingest Uploaded Files", key="inline_ingest", use_container_width=True):
+        if not api_key:
+            st.error("Please enter your Groq API key in the sidebar.")
+        else:
+            with st.spinner("Processing documents..."):
+                try:
+                    chunk_total = ingest_documents(inline_uploads)
+                    st.success(f"Ingested {chunk_total} chunks from {len(inline_uploads)} files")
+                    st.session_state.show_upload_drawer = False
+                except Exception as e:
+                    st.error(f"Error: {e}")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 question = st.session_state.composer_text.strip()
 enter_submit = st.session_state.submit_from_enter
@@ -539,4 +621,5 @@ st.markdown(
     "<div class='footer-note'>Built by <b>Yash Chaudhary</b> | Financial RAG Assistant</div>",
     unsafe_allow_html=True,
 )
+```
 
