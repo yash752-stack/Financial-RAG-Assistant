@@ -568,6 +568,78 @@ hr { border-color: var(--border) !important; margin: 1rem 0 !important; }
   border-radius: 8px;
   padding: 0.45rem 0.7rem;
   min-width: 80px;
+
+/* ── Currency panel ── */
+.fx-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.1rem 1.4rem 0.9rem;
+  margin-bottom: 1.4rem;
+}
+.fx-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 1.1rem; font-weight: 300;
+  color: var(--text); margin-bottom: 0.9rem;
+  display: flex; align-items: center; gap: 0.5rem;
+}
+.fx-title::before {
+  content: '';
+  display: inline-block; width: 3px; height: 1.1rem;
+  background: linear-gradient(180deg, var(--velvet), var(--accent));
+  border-radius: 2px;
+}
+.fx-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.7rem;
+}
+.fx-card {
+  background: var(--card-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s, background 0.2s;
+}
+.fx-card:hover { border-color: var(--border-l); background: rgba(107,45,107,0.08); }
+.fx-card::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, var(--velvet), var(--accent));
+  opacity: 0; transition: opacity 0.2s;
+}
+.fx-card:hover::before { opacity: 1; }
+.fx-pair {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.58rem; letter-spacing: 0.18em;
+  text-transform: uppercase; color: var(--text-ghost);
+  margin-bottom: 0.3rem;
+}
+.fx-flag { font-size: 1rem; margin-bottom: 0.2rem; }
+.fx-rate {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 1.55rem; font-weight: 300;
+  color: var(--text); line-height: 1; margin-bottom: 0.2rem;
+}
+.fx-chg {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.6rem;
+}
+.fx-chg.up   { color: #4ade80; }
+.fx-chg.down { color: #f87171; }
+.fx-chg.flat { color: var(--text-ghost); }
+.fx-name {
+  font-size: 0.68rem; color: var(--text-ghost);
+  margin-top: 0.1rem;
+}
+.fx-updated {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.52rem; letter-spacing: 0.1em;
+  color: var(--text-ghost); margin-top: 0.6rem;
+  text-align: right;
+}
   font-family: 'Space Mono', monospace;
 }
 .ticker-sym  { font-size: 0.62rem; color: var(--accent); font-weight: 700; }
@@ -816,6 +888,42 @@ def fetch_quote(symbol: str):
     except Exception:
         return None
 
+@st.cache_data(ttl=60)
+def fetch_fx():
+    """
+    Fetch real-time FX rates for major currency pairs vs USD
+    using Yahoo Finance JSON API — no extra packages required.
+    Returns dict: { 'USDINR': {'rate':..,'pct':..,'prev':..}, ... }
+    """
+    pairs = {
+        "USDINR=X":  {"label": "USD / INR",  "flag": "🇮🇳", "name": "Indian Rupee",      "base": "USD", "quote": "INR"},
+        "USDJPY=X":  {"label": "USD / JPY",  "flag": "🇯🇵", "name": "Japanese Yen",      "base": "USD", "quote": "JPY"},
+        "USDCNY=X":  {"label": "USD / CNY",  "flag": "🇨🇳", "name": "Chinese Yuan",      "base": "USD", "quote": "CNY"},
+        "EURUSD=X":  {"label": "EUR / USD",  "flag": "🇪🇺", "name": "Euro",              "base": "EUR", "quote": "USD"},
+        "GBPUSD=X":  {"label": "GBP / USD",  "flag": "🇬🇧", "name": "British Pound",     "base": "GBP", "quote": "USD"},
+        "USDCHF=X":  {"label": "USD / CHF",  "flag": "🇨🇭", "name": "Swiss Franc",       "base": "USD", "quote": "CHF"},
+    }
+    results = {}
+    headers = {"User-Agent": "Mozilla/5.0"}
+    for symbol, meta in pairs.items():
+        try:
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=2d&interval=1d"
+            r   = requests.get(url, headers=headers, timeout=8)
+            r.raise_for_status()
+            data  = r.json()
+            res   = data["chart"]["result"][0]
+            close = res["indicators"]["quote"][0]["close"]
+            close = [x for x in close if x is not None]
+            if not close:
+                continue
+            rate = close[-1]
+            prev = close[-2] if len(close) >= 2 else rate
+            pct  = (rate - prev) / prev * 100 if prev else 0.0
+            results[symbol] = {**meta, "rate": rate, "prev": prev, "pct": pct}
+        except Exception:
+            continue
+    return results
+
 if symbols:
     period   = period_map[rng]
     interval = interval_map[rng]
@@ -858,6 +966,50 @@ else:
     st.info("Select at least one symbol above to show the chart.")
 
 st.markdown("</div>", unsafe_allow_html=True)  # close stock-panel
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CURRENCY PANEL
+# ══════════════════════════════════════════════════════════════════════════════
+st.markdown('<div class="fx-panel">', unsafe_allow_html=True)
+st.markdown('<div class="fx-title">Major Currencies vs USD</div>', unsafe_allow_html=True)
+
+fx_data = fetch_fx()
+
+if fx_data:
+    import datetime as _dt
+    now_ist = _dt.datetime.utcnow() + _dt.timedelta(hours=5, minutes=30)
+
+    cards_html = '<div class="fx-grid">'
+    for sym, info in fx_data.items():
+        rate  = info["rate"]
+        pct   = info["pct"]
+        arrow = "▲" if pct > 0.005 else ("▼" if pct < -0.005 else "●")
+        cls   = "up" if pct > 0.005 else ("down" if pct < -0.005 else "flat")
+
+        # Format rate nicely
+        if rate >= 100:
+            rate_str = f"{rate:,.2f}"
+        elif rate >= 1:
+            rate_str = f"{rate:.4f}"
+        else:
+            rate_str = f"{rate:.5f}"
+
+        cards_html += f"""
+        <div class="fx-card">
+          <div class="fx-flag">{info['flag']}</div>
+          <div class="fx-pair">{info['label']}</div>
+          <div class="fx-rate">{rate_str}</div>
+          <div class="fx-chg {cls}">{arrow} {abs(pct):.3f}% today</div>
+          <div class="fx-name">{info['name']}</div>
+        </div>"""
+
+    cards_html += '</div>'
+    cards_html += f'<div class="fx-updated">Updated {now_ist.strftime("%H:%M")} IST · Yahoo Finance · 60s cache</div>'
+    st.markdown(cards_html, unsafe_allow_html=True)
+else:
+    st.info("Currency data unavailable — Yahoo Finance may be rate-limiting. Refresh in a moment.")
+
+st.markdown("</div>", unsafe_allow_html=True)  # close fx-panel
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CHAT SECTION
