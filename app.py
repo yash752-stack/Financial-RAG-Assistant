@@ -11,6 +11,7 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 from dotenv import load_dotenv
+from analytics import render_analytics_tab
 
 load_dotenv()
 
@@ -226,6 +227,7 @@ for k, v in [
     ("chunk_count", 0),
     ("file_names", []),
     ("show_upload", False),
+    ("doc_full_text", ""),
 ]:
     if k not in st.session_state:
         st.session_state[k] = v
@@ -890,6 +892,7 @@ def ingest_documents(files):
     st.session_state.uploaded_docs = len(files)
     st.session_state.chunk_count  = len(all_chunks)
     st.session_state.file_names   = fnames
+    st.session_state.doc_full_text = " ".join(all_chunks)  # for metric extraction
     return len(all_chunks)
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -965,8 +968,12 @@ with st.sidebar:
         st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MAIN PAGE
+# MAIN PAGE — tabbed: Markets/Chat vs Analytics
 # ══════════════════════════════════════════════════════════════════════════════
+_main_tabs = st.tabs(["📈 Markets & Chat", "📊 Analytics Dashboard"])
+
+with _main_tabs[0]:
+ pass  # content below is unindented — all existing code stays at module level
 
 # ── HERO ─────────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -1639,6 +1646,16 @@ MARKET MOOD: Fear & Greed = {fng_val} ({fng_label})""".strip()
 
             except Exception as e:
                 st.error(f"Error: {e}")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ANALYTICS TAB
+# ══════════════════════════════════════════════════════════════════════════════
+with _main_tabs[1]:
+    render_analytics_tab(
+        vectorstore  = st.session_state.get("vectorstore"),
+        groq_api_key = GROQ_API_KEY,
+        doc_full_text= st.session_state.get("doc_full_text", ""),
+    )
 
 # ── FOOTER ────────────────────────────────────────────────────────────────────
 st.markdown("""
