@@ -761,11 +761,12 @@ with st.sidebar:
     # ── QUICK ASK ────────────────────────────────────────────────────────────
     st.markdown('<div class="sb-lbl">Quick Ask</div>', unsafe_allow_html=True)
     for q_item in [
+        "What is USD/INR today?",
+        "Compare INR vs JPY vs Yuan",
+        "How is NVDA performing?",
         "What was total revenue?",
         "Main risk factors?",
         "EPS change YoY?",
-        "Key business highlights",
-        "Debt and liquidity summary",
     ]:
         if st.button(q_item, use_container_width=True, key=f"qa_{q_item[:14]}"):
             st.session_state["_prefill"] = q_item
@@ -968,46 +969,73 @@ else:
 st.markdown("</div>", unsafe_allow_html=True)  # close stock-panel
 
 # ══════════════════════════════════════════════════════════════════════════════
-# CURRENCY PANEL
+# CURRENCY PANEL — historical chart + live cards vs USD
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown('<div class="fx-panel">', unsafe_allow_html=True)
-st.markdown('<div class="fx-title">Major Currencies vs USD</div>', unsafe_allow_html=True)
 
+fx_col1, fx_col2 = st.columns([4, 1])
+with fx_col1:
+    st.markdown('<div class="fx-title">Major Currencies vs USD</div>', unsafe_allow_html=True)
+with fx_col2:
+    fx_rng = st.selectbox("fx_range", ["1M","3M","6M","1Y"], index=0, label_visibility="collapsed", key="fx_rng")
+
+fx_period_map   = {"1M": "1mo", "3M": "3mo", "6M": "6mo", "1Y": "1y"}
+fx_interval_map = {"1M": "1d",  "3M": "1d",  "6M": "1d",  "1Y": "1wk"}
+
+# Currency pairs config
+FX_PAIRS = {
+    "USDINR=X": {"label": "USD/INR", "flag": "🇮🇳", "name": "Indian Rupee",   "invert": False},
+    "USDJPY=X": {"label": "USD/JPY", "flag": "🇯🇵", "name": "Japanese Yen",   "invert": False},
+    "USDCNY=X": {"label": "USD/CNY", "flag": "🇨🇳", "name": "Chinese Yuan",   "invert": False},
+    "EURUSD=X": {"label": "EUR/USD", "flag": "🇪🇺", "name": "Euro",           "invert": True},
+    "GBPUSD=X": {"label": "GBP/USD", "flag": "🇬🇧", "name": "British Pound",  "invert": True},
+    "USDCHF=X": {"label": "USD/CHF", "flag": "🇨🇭", "name": "Swiss Franc",    "invert": False},
+}
+
+# Build historical chart — all pairs normalised to "USD strength" (how many units of that currency per $1)
+fx_chart = pd.DataFrame()
+for sym, meta in FX_PAIRS.items():
+    s = fetch_yahoo(sym, fx_period_map[fx_rng], fx_interval_map[fx_rng])
+    if s is not None and not s.empty:
+        # For EUR/USD and GBP/USD, invert so chart reads as "USD per EUR/GBP" i.e. USD cost
+        if meta["invert"]:
+            s = 1.0 / s
+        # Normalise to % change vs period start for comparability
+        s = (s / s.iloc[0] - 1) * 100
+        fx_chart[meta["label"]] = s
+
+if not fx_chart.empty:
+    fx_chart = fx_chart.dropna(how="all").ffill()
+    st.line_chart(fx_chart, height=220, use_container_width=True)
+    st.caption(
+        f"% change from {fx_rng} start · INR/JPY/CNY/CHF: USD weakening = line rises · "
+        f"EUR/GBP: inverted to show USD cost · Yahoo Finance"
+    )
+else:
+    st.warning("Currency chart unavailable — Yahoo Finance may be rate-limiting. Try again in a moment.")
+
+# Live rate cards row
+import datetime as _dt
 fx_data = fetch_fx()
-
 if fx_data:
-    import datetime as _dt
     now_ist = _dt.datetime.utcnow() + _dt.timedelta(hours=5, minutes=30)
-
-    cards_html = '<div class="fx-grid">'
+    cards_html = '<div class="fx-grid" style="margin-top:0.9rem;">'
     for sym, info in fx_data.items():
         rate  = info["rate"]
         pct   = info["pct"]
         arrow = "▲" if pct > 0.005 else ("▼" if pct < -0.005 else "●")
         cls   = "up" if pct > 0.005 else ("down" if pct < -0.005 else "flat")
-
-        # Format rate nicely
-        if rate >= 100:
-            rate_str = f"{rate:,.2f}"
-        elif rate >= 1:
-            rate_str = f"{rate:.4f}"
-        else:
-            rate_str = f"{rate:.5f}"
-
+        rate_str = f"{rate:,.2f}" if rate >= 10 else (f"{rate:.4f}" if rate >= 1 else f"{rate:.5f}")
         cards_html += f"""
         <div class="fx-card">
           <div class="fx-flag">{info['flag']}</div>
           <div class="fx-pair">{info['label']}</div>
           <div class="fx-rate">{rate_str}</div>
-          <div class="fx-chg {cls}">{arrow} {abs(pct):.3f}% today</div>
+          <div class="fx-chg {cls}">{arrow} {abs(pct):.3f}%</div>
           <div class="fx-name">{info['name']}</div>
         </div>"""
-
-    cards_html += '</div>'
-    cards_html += f'<div class="fx-updated">Updated {now_ist.strftime("%H:%M")} IST · Yahoo Finance · 60s cache</div>'
+    cards_html += f'</div><div class="fx-updated">Live · {now_ist.strftime("%H:%M")} IST · 60s cache</div>'
     st.markdown(cards_html, unsafe_allow_html=True)
-else:
-    st.info("Currency data unavailable — Yahoo Finance may be rate-limiting. Refresh in a moment.")
 
 st.markdown("</div>", unsafe_allow_html=True)  # close fx-panel
 
@@ -1017,7 +1045,7 @@ st.markdown("</div>", unsafe_allow_html=True)  # close fx-panel
 st.markdown("""
 <div style="font-family:'Cormorant Garamond',serif;font-size:1.35rem;font-weight:300;
             color:#EDE8F5;margin:0.5rem 0 0.8rem;">
-  Ask About Your Documents
+  Ask Anything — Markets, Currencies &amp; Documents
 </div>
 """, unsafe_allow_html=True)
 
@@ -1026,10 +1054,11 @@ if not st.session_state.messages:
     st.markdown("""
     <div class="empty">
       <div class="empty-orb">◈</div>
-      <div class="empty-title">Awaiting your inquiry</div>
+      <div class="empty-title">Ready without uploads</div>
       <div class="empty-sub">
-        Upload financial documents using the <strong>＋</strong> button below,
-        then ask anything about revenue, risks, earnings or strategy.
+        Ask about <strong>live stock prices</strong>, <strong>currency rates</strong>,
+        macro trends, or comparisons — no documents needed.<br><br>
+        Use <strong>＋</strong> to upload financial reports for deeper document analysis.
       </div>
     </div>
     """, unsafe_allow_html=True)
@@ -1087,7 +1116,7 @@ with bar_col1:
 
 with bar_col2:
     prefill  = st.session_state.pop("_prefill", None)
-    question = st.chat_input("Ask about your financial documents…")
+    question = st.chat_input("Ask about stocks, currencies, or your documents…")
 
 q = prefill or question
 
@@ -1102,12 +1131,48 @@ if q:
     st.session_state.messages.append({"role": "user", "content": q})
 
     with st.chat_message("assistant"):
-        with st.spinner("Searching and generating…"):
+        with st.spinner("Thinking…"):
             try:
                 from openai import OpenAI
                 oai = OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
 
-                context      = "No documents ingested yet. Please upload financial documents first."
+                # ── 1. Live market context (always injected) ──────────────
+                live_stocks_lines = []
+                for sym in symbols:
+                    info = fetch_quote(sym)
+                    if info:
+                        arrow = "▲" if info["pct"] >= 0 else "▼"
+                        live_stocks_lines.append(
+                            f"  {sym}: ${info['price']:,.2f}  ({arrow}{abs(info['pct']):.2f}% today)"
+                        )
+                live_stocks_str = "\n".join(live_stocks_lines) if live_stocks_lines else "  (no stocks selected)"
+
+                live_fx_lines = []
+                fx_now = fetch_fx()
+                if fx_now:
+                    for sym, info in fx_now.items():
+                        arrow = "▲" if info["pct"] > 0 else ("▼" if info["pct"] < 0 else "●")
+                        rate_str = f"{info['rate']:,.2f}" if info["rate"] >= 10 else f"{info['rate']:.4f}"
+                        live_fx_lines.append(
+                            f"  {info['label']}: {rate_str}  ({arrow}{abs(info['pct']):.3f}% today)"
+                        )
+                live_fx_str = "\n".join(live_fx_lines) if live_fx_lines else "  (unavailable)"
+
+                import datetime as _dt
+                utc_now = _dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+
+                live_market_context = f"""
+=== LIVE MARKET DATA (as of {utc_now}) ===
+
+STOCKS:
+{live_stocks_str}
+
+CURRENCIES (vs USD):
+{live_fx_str}
+""".strip()
+
+                # ── 2. Document RAG context (only if docs ingested) ───────
+                doc_context  = ""
                 sources_data = []
 
                 if st.session_state.vectorstore:
@@ -1121,23 +1186,51 @@ if q:
                     cks  = res["documents"][0]
                     mts  = res["metadatas"][0]
                     dts  = res["distances"][0]
-                    context = "\n---\n".join(f"[{m['filename']}]\n{c}" for c, m in zip(cks, mts))
+                    doc_context = "\n---\n".join(f"[{m['filename']}]\n{c}" for c, m in zip(cks, mts))
                     sources_data = [
                         {"filename": m["filename"], "score": round(1 - d / 2, 3), "preview": c[:220]}
                         for c, m, d in zip(cks, mts, dts)
                     ]
 
+                # ── 3. Build final user message ───────────────────────────
+                if doc_context:
+                    user_msg = (
+                        f"{live_market_context}\n\n"
+                        f"=== DOCUMENT CONTEXT ===\n{doc_context}\n\n"
+                        f"Question: {q}"
+                    )
+                else:
+                    user_msg = f"{live_market_context}\n\nQuestion: {q}"
+
+                # ── 4. System prompt ──────────────────────────────────────
+                system_prompt = """You are an expert financial analyst and markets assistant with real-time data access.
+
+You have been given:
+1. LIVE MARKET DATA — current stock prices and currency exchange rates (refreshed every 60s).
+2. DOCUMENT CONTEXT — if the user has uploaded financial documents, relevant excerpts are included.
+
+Behaviour rules:
+- For questions about stocks, currencies, markets, FX rates, or macroeconomics: answer using the live market data provided. You do NOT need documents for this — the live data is sufficient.
+- For questions about uploaded documents (earnings, 10-Ks, annual reports): use the document context and cite specific numbers and dates.
+- If both live data and document context are relevant, combine them intelligently.
+- If asked to compare currencies or stocks, use the live rates/prices provided.
+- Always be concise, precise, and cite the data you're referencing.
+- If information is genuinely missing from both sources, say so clearly — never hallucinate numbers."""
+
+                # ── 5. Call LLM ───────────────────────────────────────────
+                # Build messages with chat history for multi-turn context
+                history_msgs = []
+                for m in st.session_state.messages[:-1]:  # exclude current user msg
+                    history_msgs.append({"role": m["role"], "content": m["content"]})
+
                 resp = oai.chat.completions.create(
                     model="llama-3.3-70b-versatile",
                     messages=[
-                        {"role": "system", "content": (
-                            "You are an expert financial analyst. Answer questions based only on the "
-                            "provided context. Always cite specific numbers and dates. "
-                            "If information is missing, say so clearly."
-                        )},
-                        {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {q}"},
+                        {"role": "system", "content": system_prompt},
+                        *history_msgs,
+                        {"role": "user", "content": user_msg},
                     ],
-                    temperature=0.1,
+                    temperature=0.15,
                     max_tokens=1500,
                 )
                 answer = resp.choices[0].message.content
@@ -1146,7 +1239,7 @@ if q:
                 st.markdown(answer)
 
                 if sources_data:
-                    with st.expander(f"↳ {len(sources_data)} source(s) used"):
+                    with st.expander(f"↳ {len(sources_data)} document source(s)"):
                         for src in sources_data:
                             st.markdown(f"""
                             <div class="src-card">
@@ -1155,7 +1248,7 @@ if q:
                               <div class="src-preview">{src['preview']}…</div>
                             </div>""", unsafe_allow_html=True)
 
-                st.caption(f"llama-3.3-70b-versatile · {tokens} tokens")
+                st.caption(f"llama-3.3-70b-versatile · {tokens} tokens · live data injected")
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": answer,
