@@ -587,616 +587,395 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# FINANCIAL NEWS  (WSJ & The Economist RSS)
 # ══════════════════════════════════════════════════════════════════════════════
-# Use Google News RSS search — reliably accessible from Streamlit Cloud
-GNEWS_QUERIES = [
-    ("site:wsj.com finance OR economy OR markets",     "Wall Street Journal", "#F0C040"),
-    ("site:economist.com finance OR economy",          "The Economist",       "#C084C8"),
-    ("site:bloomberg.com markets OR economy OR fed",   "Bloomberg",           "#4ADE80"),
-    ("site:ft.com finance OR economy OR markets",      "Financial Times",     "#FB923C"),
+# FINANCIAL HEADLINES + POLICY CAROUSEL  (JS-side fetch via rss2json API)
+# All fetching happens in the browser — avoids server-side network blocks
+# ══════════════════════════════════════════════════════════════════════════════
+
+# rss2json.com free API — converts any RSS to JSON with CORS headers
+# No API key needed for low-volume usage
+NEWS_FEEDS_JS = [
+    {"url": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",         "source": "Wall Street Journal", "color": "#F0C040"},
+    {"url": "https://feeds.bloomberg.com/markets/news.rss",           "source": "Bloomberg",           "color": "#4ADE80"},
+    {"url": "https://www.ft.com/rss/home/uk",                         "source": "Financial Times",     "color": "#FB923C"},
+    {"url": "https://www.economist.com/finance-and-economics/rss.xml","source": "The Economist",       "color": "#C084C8"},
 ]
 
-all_news = []
-for query, source, color in GNEWS_QUERIES:
-    items = fetch_gnews(query, source, max_items=4)
-    for item in items:
-        item["color"] = color
-    all_news.extend(items)
+POLICY_FEEDS_JS = [
+    {"url": "https://www.federalreserve.gov/feeds/press_all.xml",  "source": "Federal Reserve",       "flag": "🇺🇸", "color": "#60A5FA"},
+    {"url": "https://www.ecb.europa.eu/rss/press.html",            "source": "European Central Bank", "flag": "🇪🇺", "color": "#34D399"},
+    {"url": "https://www.bankofengland.co.uk/rss/news",            "source": "Bank of England",       "flag": "🇬🇧", "color": "#F472B6"},
+    {"url": "https://www.imf.org/en/News/rss?language=eng",        "source": "IMF",                   "flag": "🌐", "color": "#A78BFA"},
+    {"url": "https://www.bis.org/press/rss.xml",                   "source": "BIS",                   "flag": "🏦", "color": "#38BDF8"},
+    {"url": "https://www.rbi.org.in/scripts/rss.aspx",             "source": "RBI India",             "flag": "🇮🇳", "color": "#FB923C"},
+]
 
-# If still empty, try broad finance search
-if not all_news:
-    items = fetch_gnews("global finance markets economy 2025", "Financial News", max_items=12)
-    for item in items:
-        item["color"] = "#C084C8"
-    all_news.extend(items)
+import json as _json
+news_feeds_json   = _json.dumps(NEWS_FEEDS_JS)
+policy_feeds_json = _json.dumps(POLICY_FEEDS_JS)
 
-# ── ANIMATED SLIDING HEADLINE CAROUSEL ───────────────────────────────────────
-SRC_COLORS = {
-    "Wall Street Journal": "#F0C040",
-    "The Economist":       "#C084C8",
-    "Bloomberg":           "#4ADE80",
-    "Financial Times":     "#FB923C",
-}
-
-if all_news:
-    import json as _json
-    # Build JSON array for JS (safe — titles already html-unescaped by parser)
-    slides_data = []
-    for item in all_news[:16]:
-        slides_data.append({
-            "title":  item["title"],
-            "link":   item["link"],
-            "pub":    item["pub"],
-            "source": item["source"],
-            "color":  item.get("color", "#C084C8"),
-        })
-    slides_json = _json.dumps(slides_data)
-
-    st.markdown(f"""
+st.markdown(f"""
 <style>
-.hl-wrap {{
-  background: #0D0B12;
-  border: 1px solid rgba(139,58,139,0.22);
+/* ── Shared carousel base ───────────────────────────── */
+.car-wrap {{
   border-radius: 14px;
   padding: 1.2rem 1.6rem 1.4rem;
   margin-bottom: 1.4rem;
   position: relative;
   overflow: hidden;
 }}
-.hl-header {{
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 1rem;
+.car-wrap.news  {{ background:#0D0B12; border:1px solid rgba(139,58,139,0.22); }}
+.car-wrap.policy{{ background:#0D0B12; border:1px solid rgba(96,165,250,0.22); }}
+.car-wrap.policy::before {{
+  content:''; position:absolute; top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,transparent,rgba(96,165,250,0.5),rgba(167,139,250,0.5),transparent);
 }}
-.hl-header-left {{
-  font-family: 'Cormorant Garamond', serif;
-  font-size: 1.1rem;
-  font-weight: 300;
-  color: #EDE8F5;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+.car-header {{ display:flex; align-items:center; justify-content:space-between; margin-bottom:1rem; }}
+.car-title {{
+  font-family:'Cormorant Garamond',serif; font-size:1.1rem; font-weight:300; color:#EDE8F5;
+  display:flex; align-items:center; gap:0.5rem;
 }}
-.hl-header-left::before {{
-  content: '';
-  display: inline-block;
-  width: 3px; height: 1.1rem;
-  background: linear-gradient(180deg, #6B2D6B, #C084C8);
-  border-radius: 2px;
+.car-title.news::before {{
+  content:''; display:inline-block; width:3px; height:1.1rem;
+  background:linear-gradient(180deg,#6B2D6B,#C084C8); border-radius:2px;
 }}
-.hl-dots {{
-  display: flex;
-  gap: 0.35rem;
-  align-items: center;
+.car-title.policy::before {{
+  content:''; display:inline-block; width:3px; height:1.1rem;
+  background:linear-gradient(180deg,#3B82F6,#A78BFA); border-radius:2px;
 }}
-.hl-dot {{
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: rgba(139,58,139,0.3);
-  border: 1px solid rgba(139,58,139,0.4);
-  cursor: pointer;
-  transition: background 0.3s, transform 0.2s;
+.car-sub {{
+  font-family:'Space Mono',monospace; font-size:0.5rem; letter-spacing:0.15em;
+  text-transform:uppercase; color:#374151; margin-left:0.5rem;
 }}
-.hl-dot.active {{
-  background: #C084C8;
-  transform: scale(1.3);
+.car-dots {{ display:flex; gap:0.35rem; align-items:center; }}
+.car-dot {{
+  width:6px; height:6px; border-radius:50%; cursor:pointer;
+  transition:background 0.3s, transform 0.2s;
 }}
-/* Viewport */
-.hl-viewport {{
-  overflow: hidden;
-  position: relative;
-  min-height: 100px;
+.car-dot.news-dot {{
+  background:rgba(139,58,139,0.3); border:1px solid rgba(139,58,139,0.4);
 }}
-.hl-track {{
-  display: flex;
-  transition: transform 0.55s cubic-bezier(0.4, 0, 0.2, 1);
+.car-dot.news-dot.active {{ background:#C084C8; transform:scale(1.3); }}
+.car-dot.pol-dot {{
+  background:rgba(96,165,250,0.25); border:1px solid rgba(96,165,250,0.35);
 }}
-.hl-slide {{
-  min-width: 100%;
-  box-sizing: border-box;
-  padding: 0 0.1rem;
+.car-dot.pol-dot.active {{ background:#60A5FA; transform:scale(1.3); }}
+.car-viewport {{ overflow:hidden; position:relative; min-height:115px; }}
+.car-track {{ display:flex; transition:transform 0.55s cubic-bezier(0.4,0,0.2,1); }}
+.car-slide {{ min-width:100%; box-sizing:border-box; padding:0 0.1rem; }}
+/* News card */
+.car-card {{
+  border-left:3px solid #B06BB0; border-radius:0 12px 12px 0;
+  padding:1rem 1.2rem; position:relative; overflow:hidden;
+  transition:background 0.2s, border-left-color 0.2s; cursor:pointer;
 }}
-.hl-card {{
-  background: #120E1A;
-  border: 1px solid rgba(139,58,139,0.22);
-  border-left: 3px solid #B06BB0;
-  border-radius: 0 12px 12px 0;
-  padding: 1rem 1.2rem;
-  transition: border-left-color 0.2s, background 0.2s;
-  cursor: pointer;
-  position: relative;
-  overflow: hidden;
+.car-card.news-card-inner {{ background:#120E1A; border:1px solid rgba(139,58,139,0.18); border-left-width:3px; }}
+.car-card.pol-card-inner  {{ background:#0A0F1E; border:1px solid rgba(96,165,250,0.15);  border-left-width:3px; }}
+.car-card:hover {{ filter:brightness(1.1); }}
+.car-src {{
+  font-family:'Space Mono',monospace; font-size:0.55rem; letter-spacing:0.15em;
+  text-transform:uppercase; margin-bottom:0.4rem;
+  display:flex; align-items:center; gap:0.45rem;
 }}
-.hl-card::before {{
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0; height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(192,132,200,0.3), transparent);
+.car-badge {{
+  font-family:'Space Mono',monospace; font-size:0.45rem; letter-spacing:0.1em;
+  text-transform:uppercase; background:rgba(59,130,246,0.12);
+  border:1px solid rgba(59,130,246,0.25); color:#93C5FD;
+  padding:0.08rem 0.35rem; border-radius:3px; margin-left:auto;
 }}
-.hl-card:hover {{ background: rgba(107,45,107,0.12); }}
-.hl-src {{
-  font-family: 'Space Mono', monospace;
-  font-size: 0.55rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  margin-bottom: 0.45rem;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+.car-title-text {{
+  font-family:'Syne',sans-serif; font-size:1rem; font-weight:500; color:#EDE8F5;
+  line-height:1.5; text-decoration:none; display:block; margin-bottom:0.4rem;
 }}
-.hl-src::before {{
-  content: '◈';
-  font-size: 0.5rem;
-  opacity: 0.7;
+.car-title-text:hover {{ color:#C084C8; }}
+.car-time {{
+  font-family:'Space Mono',monospace; font-size:0.5rem; letter-spacing:0.08em; color:#374151;
 }}
-.hl-title {{
-  font-family: 'Syne', sans-serif;
-  font-size: 1.05rem;
-  font-weight: 500;
-  color: #EDE8F5;
-  line-height: 1.45;
-  text-decoration: none;
-  display: block;
-  margin-bottom: 0.5rem;
+.car-loading {{
+  display:flex; align-items:center; gap:0.6rem; padding:1.2rem 0.5rem;
+  font-family:'Space Mono',monospace; font-size:0.62rem; color:#4A3858;
 }}
-.hl-title:hover {{ color: #C084C8; text-decoration: none; }}
-.hl-time {{
-  font-family: 'Space Mono', monospace;
-  font-size: 0.5rem;
-  letter-spacing: 0.08em;
-  color: #4A3858;
+.car-spinner {{
+  width:14px; height:14px; border-radius:50%;
+  border:2px solid rgba(192,132,200,0.2); border-top-color:#C084C8;
+  animation:spin 0.8s linear infinite;
 }}
-/* Progress bar */
-.hl-progress-track {{
-  height: 2px;
-  background: rgba(139,58,139,0.15);
-  border-radius: 1px;
-  margin-top: 1rem;
-  overflow: hidden;
+@keyframes spin {{ to{{transform:rotate(360deg);}} }}
+.car-progress-track {{
+  height:2px; border-radius:1px; margin-top:1rem; overflow:hidden;
 }}
-.hl-progress-bar {{
-  height: 100%;
-  background: linear-gradient(90deg, #6B2D6B, #C084C8);
-  border-radius: 1px;
-  width: 0%;
-  transition: width linear;
+.car-progress-track.news  {{ background:rgba(139,58,139,0.15); }}
+.car-progress-track.policy{{ background:rgba(59,130,246,0.12); }}
+.car-progress-bar {{ height:100%; border-radius:1px; width:0%; }}
+.car-progress-bar.news   {{ background:linear-gradient(90deg,#6B2D6B,#C084C8); }}
+.car-progress-bar.policy {{ background:linear-gradient(90deg,#3B82F6,#A78BFA); }}
+.car-counter {{
+  font-family:'Space Mono',monospace; font-size:0.52rem; color:#374151;
+  letter-spacing:0.12em; margin-top:0.4rem; text-align:right;
 }}
-/* Counter */
-.hl-counter {{
-  font-family: 'Space Mono', monospace;
-  font-size: 0.52rem;
-  color: #4A3858;
-  letter-spacing: 0.12em;
-  margin-top: 0.4rem;
-  text-align: right;
+.car-nav {{
+  position:absolute; top:50%; transform:translateY(-50%);
+  width:28px; height:28px; border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+  cursor:pointer; font-size:0.8rem; transition:background 0.2s;
+  z-index:10; user-select:none;
 }}
-/* Nav arrows */
-.hl-nav {{
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  background: rgba(107,45,107,0.25);
-  border: 1px solid rgba(139,58,139,0.4);
-  color: #C084C8;
-  width: 28px; height: 28px;
-  border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer;
-  font-size: 0.8rem;
-  transition: background 0.2s;
-  z-index: 10;
-  user-select: none;
-}}
-.hl-nav:hover {{ background: rgba(107,45,107,0.5); }}
-.hl-nav.prev {{ left: -14px; }}
-.hl-nav.next {{ right: -14px; }}
+.car-nav.news  {{ background:rgba(107,45,107,0.25); border:1px solid rgba(139,58,139,0.4); color:#C084C8; }}
+.car-nav.policy{{ background:rgba(59,130,246,0.18); border:1px solid rgba(96,165,250,0.35); color:#60A5FA; }}
+.car-nav:hover {{ filter:brightness(1.4); }}
+.car-nav.prev {{ left:-14px; }}
+.car-nav.next {{ right:-14px; }}
 </style>
 
-<div class="hl-wrap" id="hl-wrap">
-  <div class="hl-header">
-    <div class="hl-header-left">Financial Headlines</div>
-    <div class="hl-dots" id="hl-dots"></div>
+<!-- ═══ FINANCIAL HEADLINES CAROUSEL ═══ -->
+<div class="car-wrap news" id="car-news">
+  <div class="car-header">
+    <div class="car-title news">Financial Headlines</div>
+    <div class="car-dots" id="car-news-dots"></div>
   </div>
-
   <div style="position:relative;">
-    <div class="hl-nav prev" id="hl-prev">&#8249;</div>
-    <div class="hl-viewport">
-      <div class="hl-track" id="hl-track"></div>
-    </div>
-    <div class="hl-nav next" id="hl-next">&#8250;</div>
-  </div>
-
-  <div class="hl-progress-track">
-    <div class="hl-progress-bar" id="hl-prog"></div>
-  </div>
-  <div class="hl-counter" id="hl-counter"></div>
-</div>
-
-<script>
-(function() {{
-  const SLIDES  = {slides_json};
-  const DELAY   = 3000;  // ms per slide
-  let current   = 0;
-  let timer     = null;
-  let progTimer = null;
-  let paused    = false;
-
-  const track   = document.getElementById('hl-track');
-  const dotsEl  = document.getElementById('hl-dots');
-  const prog    = document.getElementById('hl-prog');
-  const counter = document.getElementById('hl-counter');
-  const wrap    = document.getElementById('hl-wrap');
-
-  // Build slides
-  SLIDES.forEach((s, i) => {{
-    const slide = document.createElement('div');
-    slide.className = 'hl-slide';
-    slide.innerHTML = `
-      <div class="hl-card" style="border-left-color:${{s.color}};">
-        <div class="hl-src" style="color:${{s.color}};">${{s.source}}</div>
-        <a class="hl-title" href="${{s.link}}" target="_blank">${{s.title}}</a>
-        <div class="hl-time">${{s.pub}}</div>
-      </div>`;
-    track.appendChild(slide);
-
-    const dot = document.createElement('div');
-    dot.className = 'hl-dot' + (i === 0 ? ' active' : '');
-    dot.addEventListener('click', () => goTo(i, true));
-    dotsEl.appendChild(dot);
-  }});
-
-  function updateDots() {{
-    document.querySelectorAll('.hl-dot').forEach((d, i) => {{
-      d.classList.toggle('active', i === current);
-    }});
-  }}
-
-  function updateCounter() {{
-    counter.textContent = (current + 1) + ' / ' + SLIDES.length;
-  }}
-
-  function goTo(idx, manual) {{
-    current = ((idx % SLIDES.length) + SLIDES.length) % SLIDES.length;
-    track.style.transform = `translateX(-${{current * 100}}%)`;
-    updateDots();
-    updateCounter();
-    if (manual) restartTimer();
-  }}
-
-  function startProgress() {{
-    prog.style.transition = 'none';
-    prog.style.width = '0%';
-    requestAnimationFrame(() => {{
-      requestAnimationFrame(() => {{
-        prog.style.transition = `width ${{DELAY}}ms linear`;
-        prog.style.width = '100%';
-      }});
-    }});
-  }}
-
-  function restartTimer() {{
-    clearInterval(timer);
-    startProgress();
-    timer = setInterval(() => {{
-      if (!paused) goTo(current + 1, false);
-    }}, DELAY);
-  }}
-
-  // Pause on hover
-  wrap.addEventListener('mouseenter', () => {{ paused = true; }});
-  wrap.addEventListener('mouseleave', () => {{ paused = false; }});
-
-  // Nav arrows
-  document.getElementById('hl-prev').addEventListener('click', () => goTo(current - 1, true));
-  document.getElementById('hl-next').addEventListener('click', () => goTo(current + 1, true));
-
-  // Touch swipe
-  let touchStartX = 0;
-  wrap.addEventListener('touchstart', e => {{ touchStartX = e.touches[0].clientX; }}, {{passive:true}});
-  wrap.addEventListener('touchend', e => {{
-    const dx = e.changedTouches[0].clientX - touchStartX;
-    if (Math.abs(dx) > 40) goTo(current + (dx < 0 ? 1 : -1), true);
-  }});
-
-  updateCounter();
-  restartTimer();
-}})();
-</script>
-""", unsafe_allow_html=True)
-
-else:
-    st.markdown("""
-    <div class="news-panel">
-      <div class="news-title">Financial Headlines</div>
-      <div style="font-family:'Space Mono',monospace;font-size:0.62rem;color:#4A3858;padding:1rem 0;">
-        News feeds temporarily unavailable — check network settings.
-      </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-# ══════════════════════════════════════════════════════════════════════════════
-# GOVERNMENT & CENTRAL BANK POLICY DECISIONS (this week)
-# ══════════════════════════════════════════════════════════════════════════════
-# Google News queries for government/central bank policy — avoids blocked feeds
-POLICY_GNEWS = [
-    ("Federal Reserve interest rate decision policy",        "Federal Reserve",      "🇺🇸", "#60A5FA"),
-    ("European Central Bank ECB monetary policy decision",   "European Central Bank","🇪🇺", "#34D399"),
-    ("Bank of England interest rate policy decision",        "Bank of England",      "🇬🇧", "#F472B6"),
-    ("IMF fiscal policy recommendation country",             "IMF",                  "🌐", "#A78BFA"),
-    ("US Treasury government fiscal budget policy",          "US Treasury",          "🇺🇸", "#FBBF24"),
-    ("RBI Reserve Bank India rate policy decision",          "RBI India",            "🇮🇳", "#FB923C"),
-    ("China PBOC monetary policy stimulus",                  "PBOC China",           "🇨🇳", "#38BDF8"),
-    ("UK government budget fiscal policy chancellor",        "UK Government",        "🇬🇧", "#F9A8D4"),
-    ("Japan BOJ monetary policy decision",                   "Bank of Japan",        "🇯🇵", "#A78BFA"),
-    ("World Bank development finance policy",                "World Bank",           "🌍", "#4ADE80"),
-]
-
-all_policy = []
-for query, source, flag, color in POLICY_GNEWS:
-    items = fetch_gnews(query + " when:7d", source, max_items=2)
-    for item in items:
-        item["flag"]  = flag
-        item["color"] = color
-    all_policy.extend(items)
-
-# Broad fallback if queries return nothing
-if len(all_policy) < 4:
-    fallback = fetch_gnews("central bank government interest rate policy decision 2025", "Policy Update", max_items=10)
-    for item in fallback:
-        item["flag"]  = "🏛️"
-        item["color"] = "#A78BFA"
-    all_policy.extend(fallback)
-
-import json as _json2, datetime as _dt2
-
-# Filter to last 10 days to keep it "this week"
-def _is_recent(pub_str, days=10):
-    import email.utils
-    try:
-        ts = email.utils.parsedate_to_datetime(pub_str)
-        return (_dt2.datetime.now(_dt2.timezone.utc) - ts).days <= days
-    except Exception:
-        return True   # include if date unparseable
-
-recent_policy = [p for p in all_policy if _is_recent(p.get("pub", ""), days=10)]
-# fallback: show latest 12 even if older
-if len(recent_policy) < 4:
-    recent_policy = all_policy[:12]
-
-if recent_policy:
-    pol_slides_data = []
-    for item in recent_policy[:18]:
-        pol_slides_data.append({
-            "title":  item["title"],
-            "link":   item["link"],
-            "pub":    item["pub"],
-            "source": item["source"],
-            "flag":   item.get("flag", "🏛️"),
-            "color":  item.get("color", "#A78BFA"),
-        })
-    pol_slides_json = _json2.dumps(pol_slides_data)
-
-    st.markdown(f"""
-<style>
-.pol-wrap {{
-  background: #0D0B12;
-  border: 1px solid rgba(96,165,250,0.22);
-  border-radius: 14px;
-  padding: 1.2rem 1.6rem 1.4rem;
-  margin-bottom: 1.4rem;
-  position: relative;
-  overflow: hidden;
-}}
-.pol-wrap::before {{
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0; height: 2px;
-  background: linear-gradient(90deg, transparent, rgba(96,165,250,0.5), rgba(167,139,250,0.5), transparent);
-}}
-.pol-header {{
-  display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;
-}}
-.pol-header-left {{
-  font-family: 'Cormorant Garamond', serif;
-  font-size: 1.1rem; font-weight: 300; color: #EDE8F5;
-  display: flex; align-items: center; gap: 0.5rem;
-}}
-.pol-header-left::before {{
-  content: '';
-  display: inline-block; width: 3px; height: 1.1rem;
-  background: linear-gradient(180deg, #3B82F6, #A78BFA);
-  border-radius: 2px;
-}}
-.pol-sub {{
-  font-family: 'Space Mono', monospace;
-  font-size: 0.52rem; letter-spacing: 0.15em; text-transform: uppercase;
-  color: #4A5568; margin-left: 0.5rem;
-}}
-.pol-dots {{ display: flex; gap: 0.35rem; align-items: center; }}
-.pol-dot {{
-  width: 6px; height: 6px; border-radius: 50%;
-  background: rgba(96,165,250,0.25);
-  border: 1px solid rgba(96,165,250,0.35);
-  cursor: pointer; transition: background 0.3s, transform 0.2s;
-}}
-.pol-dot.active {{ background: #60A5FA; transform: scale(1.3); }}
-.pol-viewport {{ overflow: hidden; position: relative; min-height: 110px; }}
-.pol-track {{ display: flex; transition: transform 0.55s cubic-bezier(0.4,0,0.2,1); }}
-.pol-slide {{ min-width: 100%; box-sizing: border-box; padding: 0 0.1rem; }}
-.pol-card {{
-  background: #0A0F1E;
-  border: 1px solid rgba(96,165,250,0.18);
-  border-left: 3px solid #3B82F6;
-  border-radius: 0 12px 12px 0;
-  padding: 1rem 1.2rem;
-  position: relative; overflow: hidden;
-  transition: background 0.2s, border-left-color 0.2s;
-}}
-.pol-card::before {{
-  content: '';
-  position: absolute; top: 0; left: 0; right: 0; height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(96,165,250,0.2), transparent);
-}}
-.pol-card:hover {{ background: rgba(59,130,246,0.07); }}
-.pol-src {{
-  font-family: 'Space Mono', monospace;
-  font-size: 0.55rem; letter-spacing: 0.15em; text-transform: uppercase;
-  margin-bottom: 0.4rem; display: flex; align-items: center; gap: 0.45rem;
-}}
-.pol-badge {{
-  font-family: 'Space Mono', monospace;
-  font-size: 0.48rem; letter-spacing: 0.1em; text-transform: uppercase;
-  background: rgba(59,130,246,0.12);
-  border: 1px solid rgba(59,130,246,0.25);
-  color: #93C5FD; padding: 0.1rem 0.4rem; border-radius: 3px;
-  margin-left: auto;
-}}
-.pol-title {{
-  font-family: 'Syne', sans-serif;
-  font-size: 1rem; font-weight: 500; color: #E2E8F0;
-  line-height: 1.5; text-decoration: none; display: block; margin-bottom: 0.45rem;
-}}
-.pol-title:hover {{ color: #93C5FD; }}
-.pol-time {{
-  font-family: 'Space Mono', monospace;
-  font-size: 0.5rem; letter-spacing: 0.08em; color: #374151;
-}}
-.pol-progress-track {{
-  height: 2px; background: rgba(59,130,246,0.12);
-  border-radius: 1px; margin-top: 1rem; overflow: hidden;
-}}
-.pol-progress-bar {{
-  height: 100%;
-  background: linear-gradient(90deg, #3B82F6, #A78BFA);
-  border-radius: 1px; width: 0%;
-}}
-.pol-counter {{
-  font-family: 'Space Mono', monospace;
-  font-size: 0.52rem; color: #374151; letter-spacing: 0.12em;
-  margin-top: 0.4rem; text-align: right;
-}}
-.pol-nav {{
-  position: absolute; top: 50%; transform: translateY(-50%);
-  background: rgba(59,130,246,0.18);
-  border: 1px solid rgba(96,165,250,0.35);
-  color: #60A5FA; width: 28px; height: 28px; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; font-size: 0.8rem; transition: background 0.2s; z-index: 10;
-  user-select: none;
-}}
-.pol-nav:hover {{ background: rgba(59,130,246,0.35); }}
-.pol-nav.prev {{ left: -14px; }}
-.pol-nav.next {{ right: -14px; }}
-</style>
-
-<div class="pol-wrap" id="pol-wrap">
-  <div class="pol-header">
-    <div class="pol-header-left">
-      Policy &amp; Government Decisions
-      <span class="pol-sub">This Week</span>
-    </div>
-    <div class="pol-dots" id="pol-dots"></div>
-  </div>
-
-  <div style="position:relative;">
-    <div class="pol-nav prev" id="pol-prev">&#8249;</div>
-    <div class="pol-viewport">
-      <div class="pol-track" id="pol-track"></div>
-    </div>
-    <div class="pol-nav next" id="pol-next">&#8250;</div>
-  </div>
-
-  <div class="pol-progress-track">
-    <div class="pol-progress-bar" id="pol-prog"></div>
-  </div>
-  <div class="pol-counter" id="pol-counter"></div>
-</div>
-
-<script>
-(function() {{
-  const SLIDES  = {pol_slides_json};
-  const DELAY   = 3500;
-  let current   = 0, paused = false, timer = null;
-
-  const track   = document.getElementById('pol-track');
-  const dotsEl  = document.getElementById('pol-dots');
-  const prog    = document.getElementById('pol-prog');
-  const counter = document.getElementById('pol-counter');
-  const wrap    = document.getElementById('pol-wrap');
-
-  SLIDES.forEach((s, i) => {{
-    const slide = document.createElement('div');
-    slide.className = 'pol-slide';
-    slide.innerHTML = `
-      <div class="pol-card" style="border-left-color:${{s.color}};">
-        <div class="pol-src" style="color:${{s.color}};">
-          <span>${{s.flag}}</span> ${{s.source}}
-          <span class="pol-badge">Policy</span>
+    <div class="car-nav news prev" id="car-news-prev">&#8249;</div>
+    <div class="car-viewport">
+      <div class="car-track" id="car-news-track">
+        <div class="car-slide">
+          <div class="car-loading">
+            <div class="car-spinner"></div> Fetching latest headlines…
+          </div>
         </div>
-        <a class="pol-title" href="${{s.link}}" target="_blank">${{s.title}}</a>
-        <div class="pol-time">${{s.pub}}</div>
+      </div>
+    </div>
+    <div class="car-nav news next" id="car-news-next">&#8250;</div>
+  </div>
+  <div class="car-progress-track news"><div class="car-progress-bar news" id="car-news-prog"></div></div>
+  <div class="car-counter" id="car-news-counter"></div>
+</div>
+
+<!-- ═══ POLICY DECISIONS CAROUSEL ═══ -->
+<div class="car-wrap policy" id="car-pol">
+  <div class="car-header">
+    <div class="car-title policy">
+      Policy &amp; Government Decisions
+      <span class="car-sub">This Week</span>
+    </div>
+    <div class="car-dots" id="car-pol-dots"></div>
+  </div>
+  <div style="position:relative;">
+    <div class="car-nav policy prev" id="car-pol-prev">&#8249;</div>
+    <div class="car-viewport">
+      <div class="car-track" id="car-pol-track">
+        <div class="car-slide">
+          <div class="car-loading" style="border-color:rgba(96,165,250,0.2);border-top-color:#60A5FA;">
+            <div class="car-spinner" style="border-color:rgba(96,165,250,0.2);border-top-color:#60A5FA;"></div>
+            Fetching policy updates…
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="car-nav policy next" id="car-pol-next">&#8250;</div>
+  </div>
+  <div class="car-progress-track policy"><div class="car-progress-bar policy" id="car-pol-prog"></div></div>
+  <div class="car-counter" id="car-pol-counter"></div>
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════
+   Universal carousel engine — works for both carousels
+   Fetches RSS via rss2json.com (CORS-enabled, free tier)
+   ══════════════════════════════════════════════════ */
+(function() {{
+
+  const NEWS_FEEDS   = {news_feeds_json};
+  const POLICY_FEEDS = {policy_feeds_json};
+  const RSS2JSON     = "https://api.rss2json.com/v1/api.json?rss_url=";
+
+  /* ── Parse a date string roughly ── */
+  function fmtDate(d) {{
+    try {{ return new Date(d).toLocaleDateString("en-US",{{month:"short",day:"numeric",year:"numeric"}}); }}
+    catch(e) {{ return d ? d.slice(0,16) : ""; }}
+  }}
+
+  /* ── Build slides from items array ── */
+  function buildSlides(items, isPolicy) {{
+    return items.map(item => {{
+      const title  = item.title  || "(no title)";
+      const link   = item.link   || item.url || "#";
+      const pub    = fmtDate(item.pubDate);
+      const source = item._source || "News";
+      const color  = item._color  || "#C084C8";
+      const flag   = item._flag   || "";
+      const cardClass = isPolicy ? "pol-card-inner" : "news-card-inner";
+      const badge = isPolicy ? `<span class="car-badge">Policy</span>` : "";
+      const srcLine = isPolicy
+        ? `<span>${{flag}}</span> ${{source}} ${{badge}}`
+        : source;
+      return `<div class="car-slide">
+        <div class="car-card ${{cardClass}}" style="border-left-color:${{color}};">
+          <div class="car-src" style="color:${{color}};">${{srcLine}}</div>
+          <a class="car-title-text" href="${{link}}" target="_blank">${{title}}</a>
+          <div class="car-time">${{pub}}</div>
+        </div>
       </div>`;
-    track.appendChild(slide);
-    const dot = document.createElement('div');
-    dot.className = 'pol-dot' + (i===0?' active':'');
-    dot.addEventListener('click', () => goTo(i, true));
-    dotsEl.appendChild(dot);
+    }}).join("");
+  }}
+
+  /* ── Carousel controller ── */
+  function Carousel(cfg) {{
+    const {{ trackId, dotsId, prevId, nextId, progId, counterId, wrapId, delay, dotClass }} = cfg;
+    let slides = [], current = 0, paused = false, timer = null;
+
+    const track   = document.getElementById(trackId);
+    const dotsEl  = document.getElementById(dotsId);
+    const prog    = document.getElementById(progId);
+    const counter = document.getElementById(counterId);
+    const wrap    = document.getElementById(wrapId);
+
+    this.load = function(html) {{
+      track.innerHTML = html;
+      slides = track.querySelectorAll(".car-slide");
+      dotsEl.innerHTML = "";
+      slides.forEach((_, i) => {{
+        const d = document.createElement("div");
+        d.className = `car-dot ${{dotClass}}` + (i===0?" active":"");
+        d.addEventListener("click", () => goTo(i, true));
+        dotsEl.appendChild(d);
+      }});
+      goTo(0, false);
+      restartTimer();
+    }};
+
+    function updateDots() {{
+      dotsEl.querySelectorAll(".car-dot").forEach((d,i)=>d.classList.toggle("active",i===current));
+    }}
+    function updateCounter() {{
+      if(counter) counter.textContent = slides.length ? (current+1)+" / "+slides.length : "";
+    }}
+    function startProgress() {{
+      prog.style.transition="none"; prog.style.width="0%";
+      requestAnimationFrame(()=>requestAnimationFrame(()=>{{
+        prog.style.transition=`width ${{delay}}ms linear`; prog.style.width="100%";
+      }}));
+    }}
+    function goTo(idx, manual) {{
+      if(!slides.length) return;
+      current = ((idx%slides.length)+slides.length)%slides.length;
+      track.style.transform = `translateX(-${{current*100}}%)`;
+      updateDots(); updateCounter();
+      if(manual) restartTimer();
+    }}
+    function restartTimer() {{
+      clearInterval(timer); startProgress();
+      timer = setInterval(()=>{{ if(!paused) goTo(current+1, false); }}, delay);
+    }}
+
+    wrap.addEventListener("mouseenter",()=>{{paused=true;}});
+    wrap.addEventListener("mouseleave",()=>{{paused=false;}});
+    document.getElementById(prevId).addEventListener("click",()=>goTo(current-1,true));
+    document.getElementById(nextId).addEventListener("click",()=>goTo(current+1,true));
+    let tx=0;
+    wrap.addEventListener("touchstart",e=>{{tx=e.touches[0].clientX;}},{{passive:true}});
+    wrap.addEventListener("touchend",e=>{{
+      const dx=e.changedTouches[0].clientX-tx;
+      if(Math.abs(dx)>40) goTo(current+(dx<0?1:-1),true);
+    }});
+  }}
+
+  const newsCarousel   = new Carousel({{
+    trackId:"car-news-track", dotsId:"car-news-dots",
+    prevId:"car-news-prev",   nextId:"car-news-next",
+    progId:"car-news-prog",   counterId:"car-news-counter",
+    wrapId:"car-news",        delay:3000, dotClass:"news-dot"
+  }});
+  const polCarousel = new Carousel({{
+    trackId:"car-pol-track",  dotsId:"car-pol-dots",
+    prevId:"car-pol-prev",    nextId:"car-pol-next",
+    progId:"car-pol-prog",    counterId:"car-pol-counter",
+    wrapId:"car-pol",         delay:3500, dotClass:"pol-dot"
   }});
 
-  function updateDots() {{
-    document.querySelectorAll('.pol-dot').forEach((d,i)=>d.classList.toggle('active',i===current));
-  }}
-  function updateCounter() {{
-    counter.textContent = (current+1) + ' / ' + SLIDES.length;
-  }}
-  function startProgress() {{
-    prog.style.transition = 'none'; prog.style.width = '0%';
-    requestAnimationFrame(()=>requestAnimationFrame(()=>{{
-      prog.style.transition = `width ${{DELAY}}ms linear`; prog.style.width = '100%';
-    }}));
-  }}
-  function goTo(idx, manual) {{
-    current = ((idx % SLIDES.length)+SLIDES.length)%SLIDES.length;
-    track.style.transform = `translateX(-${{current*100}}%)`;
-    updateDots(); updateCounter();
-    if (manual) restartTimer();
-  }}
-  function restartTimer() {{
-    clearInterval(timer); startProgress();
-    timer = setInterval(()=>{{ if(!paused) goTo(current+1,false); }}, DELAY);
+  /* ── Fetch all feeds for one carousel ── */
+  async function fetchAll(feeds, isPolicy) {{
+    const allItems = [];
+    for(const feed of feeds) {{
+      try {{
+        const api = RSS2JSON + encodeURIComponent(feed.url) + "&count=4";
+        const res = await fetch(api, {{signal: AbortSignal.timeout(8000)}});
+        const data = await res.json();
+        if(data.status==="ok" && data.items) {{
+          data.items.forEach(item => {{
+            item._source = feed.source;
+            item._color  = feed.color;
+            if(feed.flag) item._flag = feed.flag;
+          }});
+          allItems.push(...data.items);
+        }}
+      }} catch(e) {{ /* skip failed feeds */ }}
+    }}
+    return allItems;
   }}
 
-  wrap.addEventListener('mouseenter',()=>{{paused=true;}});
-  wrap.addEventListener('mouseleave',()=>{{paused=false;}});
-  document.getElementById('pol-prev').addEventListener('click',()=>goTo(current-1,true));
-  document.getElementById('pol-next').addEventListener('click',()=>goTo(current+1,true));
+  /* ── Fallback: Google News RSS via rss2json ── */
+  async function fetchGoogleNews(query, source, color, flag, count=4) {{
+    try {{
+      const gurl = `https://news.google.com/rss/search?q=${{encodeURIComponent(query)}}&hl=en-US&gl=US&ceid=US:en`;
+      const api  = RSS2JSON + encodeURIComponent(gurl) + "&count=" + count;
+      const res  = await fetch(api, {{signal: AbortSignal.timeout(8000)}});
+      const data = await res.json();
+      if(data.status==="ok" && data.items) {{
+        data.items.forEach(item => {{
+          item._source = source; item._color = color;
+          if(flag) item._flag = flag;
+        }});
+        return data.items;
+      }}
+    }} catch(e) {{}}
+    return [];
+  }}
 
-  let tx=0;
-  wrap.addEventListener('touchstart',e=>{{tx=e.touches[0].clientX;}},{{passive:true}});
-  wrap.addEventListener('touchend',e=>{{
-    const dx=e.changedTouches[0].clientX-tx;
-    if(Math.abs(dx)>40) goTo(current+(dx<0?1:-1),true);
-  }});
+  /* ── Load news carousel ── */
+  (async function loadNews() {{
+    let items = await fetchAll(NEWS_FEEDS, false);
+    if(items.length < 3) {{
+      items = await fetchGoogleNews(
+        "finance economy markets stocks",
+        "Financial News", "#C084C8", "", 12
+      );
+    }}
+    if(items.length > 0) {{
+      newsCarousel.load(buildSlides(items.slice(0,16), false));
+    }} else {{
+      document.getElementById("car-news-track").innerHTML =
+        `<div class="car-slide"><div class="car-loading">No headlines available right now.</div></div>`;
+    }}
+  }})();
 
-  updateCounter(); restartTimer();
+  /* ── Load policy carousel ── */
+  (async function loadPolicy() {{
+    let items = await fetchAll(POLICY_FEEDS, true);
+    if(items.length < 3) {{
+      const queries = [
+        ["Federal Reserve interest rate decision policy", "Federal Reserve",       "🇺🇸", "#60A5FA"],
+        ["ECB European Central Bank monetary policy",    "European Central Bank", "🇪🇺", "#34D399"],
+        ["Bank of England rate decision policy",         "Bank of England",       "🇬🇧", "#F472B6"],
+        ["IMF fiscal policy recommendation",             "IMF",                   "🌐", "#A78BFA"],
+        ["government budget fiscal policy decision",     "Government Policy",     "🏛️", "#FBBF24"],
+        ["RBI India repo rate monetary policy",          "RBI India",             "🇮🇳", "#FB923C"],
+      ];
+      for(const [q, src, flag, clr] of queries) {{
+        const got = await fetchGoogleNews(q + " when:7d", src, clr, flag, 2);
+        items.push(...got);
+      }}
+    }}
+    if(items.length > 0) {{
+      polCarousel.load(buildSlides(items.slice(0,18), true));
+    }} else {{
+      document.getElementById("car-pol-track").innerHTML =
+        `<div class="car-slide"><div class="car-loading" style="border-top-color:#60A5FA;">No policy updates available right now.</div></div>`;
+    }}
+  }})();
+
 }})();
 </script>
 """, unsafe_allow_html=True)
-
-else:
-    st.markdown("""
-    <div style="background:#0D0B12;border:1px solid rgba(96,165,250,0.18);border-radius:14px;
-                padding:1.2rem 1.6rem;margin-bottom:1.4rem;">
-      <div style="font-family:'Cormorant Garamond',serif;font-size:1.1rem;font-weight:300;color:#EDE8F5;margin-bottom:0.5rem;">
-        Policy &amp; Government Decisions
-      </div>
-      <div style="font-family:'Space Mono',monospace;font-size:0.62rem;color:#374151;padding:0.5rem 0;">
-        Policy feeds temporarily unavailable.
-      </div>
-    </div>
-    """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # COMMODITIES  (Gold, Silver, Oil, Platinum, Palladium)
