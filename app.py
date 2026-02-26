@@ -281,20 +281,32 @@ def fetch_multi_quotes(symbols: tuple):
 @st.cache_data(ttl=300)
 def fetch_news_rss(feed_url: str, source_name: str, max_items: int = 4):
     """Parse an RSS feed and return list of {title, link, pubDate}."""
+    import re, html as _html
     try:
         r = requests.get(feed_url, headers=_HEADERS, timeout=8)
         r.raise_for_status()
-        import re
-        items = re.findall(r'<item>(.*?)</item>', r.text, re.DOTALL)
+        items = re.findall(r'<item[^>]*>(.*?)</item>', r.text, re.DOTALL)
         results = []
         for item in items[:max_items]:
-            title_m = re.search(r'<title><!\[CDATA\[(.*?)\]\]></title>|<title>(.*?)</title>', item, re.DOTALL)
-            link_m  = re.search(r'<link>(.*?)</link>', item, re.DOTALL)
-            date_m  = re.search(r'<pubDate>(.*?)</pubDate>', item)
-            title   = (title_m.group(1) or title_m.group(2) or "").strip() if title_m else ""
-            link    = link_m.group(1).strip() if link_m else "#"
-            pub     = date_m.group(1).strip()[:22] if date_m else ""
-            if title:
+            # Extract raw title tag content (handles CDATA and plain)
+            title_m = re.search(r'<title[^>]*>(.*?)</title>', item, re.DOTALL | re.IGNORECASE)
+            link_m  = re.search(r'<link[^>]*>\s*(https?://[^\s<]+)', item, re.DOTALL | re.IGNORECASE)
+            if not link_m:
+                link_m = re.search(r'<link[^>]*/?>([^<]+)</link>', item, re.DOTALL | re.IGNORECASE)
+            date_m  = re.search(r'<pubDate[^>]*>(.*?)</pubDate>', item, re.IGNORECASE)
+
+            raw_title = title_m.group(1).strip() if title_m else ""
+            # Strip CDATA wrapper: <![CDATA[...]]>
+            cdata_m = re.match(r'<!\[CDATA\[(.*?)\]\]>', raw_title, re.DOTALL)
+            title = cdata_m.group(1).strip() if cdata_m else raw_title
+            # Decode any HTML entities (e.g. &amp; &rsquo; &#8217;)
+            title = _html.unescape(title).strip()
+            # Final safety strip of any residual tags
+            title = re.sub(r'<[^>]+>', '', title).strip()
+
+            link = link_m.group(1).strip() if link_m else "#"
+            pub  = date_m.group(1).strip()[:22] if date_m else ""
+            if title and len(title) > 5:
                 results.append({"title": title, "link": link, "pub": pub, "source": source_name})
         return results
     except Exception:
