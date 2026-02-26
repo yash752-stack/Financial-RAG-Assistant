@@ -587,251 +587,257 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════
-# FINANCIAL HEADLINES + POLICY CAROUSEL
-# Fallback data renders instantly; JS upgrades to live feeds if reachable
+# FINANCIAL HEADLINES + POLICY — pure Python HTML render, no JS dependency
 # ═══════════════════════════════════════════════════════════════════════════
-import json as _json, datetime as _dt_now
-_TODAY = _dt_now.datetime.now(_dt_now.timezone.utc).strftime("%b %d, %Y")
+import datetime as _dtnow, html as _html_mod
 
-FALLBACK_NEWS = [
-    {"title": "Fed signals rates on hold as inflation data stays elevated",       "link": "https://www.bloomberg.com/markets", "pub": _TODAY, "source": "Bloomberg",           "color": "#4ADE80"},
-    {"title": "S&P 500 edges higher on strong tech earnings outlook",             "link": "https://www.wsj.com/markets",       "pub": _TODAY, "source": "Wall Street Journal", "color": "#F0C040"},
-    {"title": "Oil prices climb as OPEC+ reaffirms production cuts",             "link": "https://www.ft.com",                "pub": _TODAY, "source": "Financial Times",     "color": "#FB923C"},
-    {"title": "Gold hits multi-month high amid dollar weakness",                  "link": "https://www.bloomberg.com/markets", "pub": _TODAY, "source": "Bloomberg",           "color": "#4ADE80"},
-    {"title": "China PMI beats expectations, lifting Asian stocks",               "link": "https://www.economist.com",         "pub": _TODAY, "source": "The Economist",       "color": "#C084C8"},
-    {"title": "Bitcoin surges past key resistance as ETF inflows accelerate",     "link": "https://www.wsj.com/finance",       "pub": _TODAY, "source": "Wall Street Journal", "color": "#F0C040"},
-    {"title": "Euro weakens as ECB minutes reveal rate cut discussions",          "link": "https://www.ft.com",                "pub": _TODAY, "source": "Financial Times",     "color": "#FB923C"},
-    {"title": "India markets near record high ahead of budget announcement",      "link": "https://www.bloomberg.com",         "pub": _TODAY, "source": "Bloomberg",           "color": "#4ADE80"},
-    {"title": "US Treasury yields rise on stronger-than-expected jobs data",      "link": "https://www.wsj.com/markets",       "pub": _TODAY, "source": "Wall Street Journal", "color": "#F0C040"},
-    {"title": "Japanese yen weakens as Bank of Japan holds ultra-loose policy",   "link": "https://www.economist.com",         "pub": _TODAY, "source": "The Economist",       "color": "#C084C8"},
-]
-FALLBACK_POLICY = [
-    {"title": "Federal Reserve holds interest rates steady, cites inflation progress",     "link": "https://www.federalreserve.gov/newsevents.htm",          "pub": _TODAY, "source": "Federal Reserve",       "flag": "\U0001f1fa\U0001f1f8", "color": "#60A5FA"},
-    {"title": "ECB signals potential rate cut in coming months as inflation cools",        "link": "https://www.ecb.europa.eu/press",                        "pub": _TODAY, "source": "European Central Bank", "flag": "\U0001f1ea\U0001f1fa", "color": "#34D399"},
-    {"title": "Bank of England holds rate at 5.25%, watching wage growth closely",        "link": "https://www.bankofengland.co.uk/monetary-policy",        "pub": _TODAY, "source": "Bank of England",       "flag": "\U0001f1ec\U0001f1e7", "color": "#F472B6"},
-    {"title": "IMF upgrades global growth forecast, warns of persistent inflation risks", "link": "https://www.imf.org/en/News",                            "pub": _TODAY, "source": "IMF",                   "flag": "\U0001f310",            "color": "#A78BFA"},
-    {"title": "RBI holds repo rate at 6.5%, maintains accommodation withdrawal stance",   "link": "https://www.rbi.org.in",                                "pub": _TODAY, "source": "RBI India",             "flag": "\U0001f1ee\U0001f1f3", "color": "#FB923C"},
-    {"title": "Bank of Japan hints at policy normalisation as wages rise",                "link": "https://www.boj.or.jp/en",                              "pub": _TODAY, "source": "Bank of Japan",         "flag": "\U0001f1ef\U0001f1f5", "color": "#A78BFA"},
-    {"title": "US Treasury announces new debt issuance amid deficit concerns",            "link": "https://home.treasury.gov/news",                         "pub": _TODAY, "source": "US Treasury",           "flag": "\U0001f1fa\U0001f1f8", "color": "#FBBF24"},
-    {"title": "China PBOC cuts reserve requirement ratio to boost bank lending",          "link": "https://www.pbc.gov.cn/en",                             "pub": _TODAY, "source": "PBOC China",            "flag": "\U0001f1e8\U0001f1f3", "color": "#38BDF8"},
-    {"title": "World Bank raises $5bn in sustainability bonds for emerging markets",      "link": "https://www.worldbank.org/en/news",                      "pub": _TODAY, "source": "World Bank",            "flag": "\U0001f30d",            "color": "#4ADE80"},
-    {"title": "UK Chancellor sets out fiscal rules amid debt ceiling concerns",           "link": "https://www.gov.uk/government/organisations/hm-treasury","pub": _TODAY, "source": "UK Government",         "flag": "\U0001f1ec\U0001f1e7", "color": "#F9A8D4"},
-]
-NEWS_FEEDS_JS = [
-    {"url": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",          "source": "Wall Street Journal", "color": "#F0C040"},
-    {"url": "https://feeds.bloomberg.com/markets/news.rss",            "source": "Bloomberg",           "color": "#4ADE80"},
-    {"url": "https://www.ft.com/rss/home/uk",                          "source": "Financial Times",     "color": "#FB923C"},
-    {"url": "https://www.economist.com/finance-and-economics/rss.xml", "source": "The Economist",       "color": "#C084C8"},
-    {"url": "https://news.google.com/rss/search?q=finance+economy+markets&hl=en-US&gl=US&ceid=US:en", "source": "Google News", "color": "#B06BB0"},
-]
-POLICY_FEEDS_JS = [
-    {"url": "https://www.federalreserve.gov/feeds/press_all.xml",  "source": "Federal Reserve",       "flag": "\U0001f1fa\U0001f1f8", "color": "#60A5FA"},
-    {"url": "https://www.ecb.europa.eu/rss/press.html",            "source": "European Central Bank", "flag": "\U0001f1ea\U0001f1fa", "color": "#34D399"},
-    {"url": "https://news.google.com/rss/search?q=central+bank+interest+rate+policy&hl=en-US&gl=US&ceid=US:en",         "source": "Policy News", "flag": "\U0001f3db\ufe0f", "color": "#A78BFA"},
-    {"url": "https://news.google.com/rss/search?q=government+fiscal+budget+policy+decision&hl=en-US&gl=US&ceid=US:en",  "source": "Gov Policy",  "flag": "\U0001f3e6",        "color": "#FBBF24"},
-]
-_fn_json = _json.dumps(FALLBACK_NEWS,   ensure_ascii=False)
-_fp_json = _json.dumps(FALLBACK_POLICY, ensure_ascii=False)
-_nf_json = _json.dumps(NEWS_FEEDS_JS,   ensure_ascii=False)
-_pf_json = _json.dumps(POLICY_FEEDS_JS, ensure_ascii=False)
+_TODAY = _dtnow.datetime.now(_dtnow.timezone.utc).strftime("%b %d, %Y")
 
-st.markdown(f"""
+NEWS_ITEMS = [
+    ("Fed signals rates on hold as inflation data stays elevated",        "https://www.bloomberg.com/markets", "Bloomberg",           "#4ADE80", ""),
+    ("S&P 500 edges higher on strong tech earnings outlook",              "https://www.wsj.com/markets",       "Wall Street Journal", "#F0C040", ""),
+    ("Oil prices climb as OPEC+ reaffirms production cuts",              "https://www.ft.com",                "Financial Times",     "#FB923C", ""),
+    ("Gold hits multi-month high amid dollar weakness",                   "https://www.bloomberg.com/markets", "Bloomberg",           "#4ADE80", ""),
+    ("China PMI beats expectations, lifting Asian stocks",                "https://www.economist.com",         "The Economist",       "#C084C8", ""),
+    ("Bitcoin surges past key resistance as ETF inflows accelerate",      "https://www.wsj.com/finance",       "Wall Street Journal", "#F0C040", ""),
+    ("Euro weakens as ECB minutes reveal rate cut discussions",           "https://www.ft.com",                "Financial Times",     "#FB923C", ""),
+    ("India markets near record high ahead of budget announcement",       "https://www.bloomberg.com",         "Bloomberg",           "#4ADE80", ""),
+    ("US Treasury yields rise on stronger-than-expected jobs data",       "https://www.wsj.com/markets",       "Wall Street Journal", "#F0C040", ""),
+    ("Japanese yen weakens as Bank of Japan holds ultra-loose policy",    "https://www.economist.com",         "The Economist",       "#C084C8", ""),
+]
+
+POLICY_ITEMS = [
+    ("Federal Reserve holds rates steady, cites inflation progress",         "https://www.federalreserve.gov/newsevents.htm",          "Federal Reserve",       "🇺🇸", "#60A5FA"),
+    ("ECB signals rate cut in coming months as inflation cools",             "https://www.ecb.europa.eu/press",                        "European Central Bank", "🇪🇺", "#34D399"),
+    ("Bank of England holds rate at 5.25%, watching wage growth closely",   "https://www.bankofengland.co.uk/monetary-policy",        "Bank of England",       "🇬🇧", "#F472B6"),
+    ("IMF upgrades global growth forecast, warns of inflation risks",        "https://www.imf.org/en/News",                            "IMF",                   "🌐", "#A78BFA"),
+    ("RBI holds repo rate at 6.5%, maintains accommodation withdrawal",     "https://www.rbi.org.in",                                "RBI India",             "🇮🇳", "#FB923C"),
+    ("Bank of Japan hints at policy normalisation as wages rise",            "https://www.boj.or.jp/en",                              "Bank of Japan",         "🇯🇵", "#A78BFA"),
+    ("US Treasury announces new debt issuance amid deficit concerns",        "https://home.treasury.gov/news",                         "US Treasury",           "🇺🇸", "#FBBF24"),
+    ("China PBOC cuts reserve requirement ratio to boost bank lending",      "https://www.pbc.gov.cn/en",                             "PBOC China",            "🇨🇳", "#38BDF8"),
+    ("World Bank raises $5bn in sustainability bonds for emerging markets",  "https://www.worldbank.org/en/news",                      "World Bank",            "🌍", "#4ADE80"),
+    ("UK Chancellor sets out fiscal rules amid debt ceiling concerns",       "https://www.gov.uk/government/organisations/hm-treasury","UK Government",         "🇬🇧", "#F9A8D4"),
+]
+
+def _car_css():
+    return """
 <style>
-.car-wrap {{background:#0D0B12;border-radius:14px;padding:1.2rem 1.6rem 1.4rem;margin-bottom:1.4rem;position:relative;overflow:hidden;}}
-.car-wrap.news{{border:1px solid rgba(139,58,139,0.22);}}
-.car-wrap.policy{{border:1px solid rgba(96,165,250,0.22);}}
-.car-wrap.policy::before{{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,rgba(96,165,250,0.5),rgba(167,139,250,0.5),transparent);}}
-.car-header{{display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;}}
-.car-title{{font-family:'Cormorant Garamond',serif;font-size:1.1rem;font-weight:300;color:#EDE8F5;display:flex;align-items:center;gap:0.5rem;}}
-.car-title.news::before{{content:'';display:inline-block;width:3px;height:1.1rem;background:linear-gradient(180deg,#6B2D6B,#C084C8);border-radius:2px;}}
-.car-title.policy::before{{content:'';display:inline-block;width:3px;height:1.1rem;background:linear-gradient(180deg,#3B82F6,#A78BFA);border-radius:2px;}}
-.car-sub{{font-family:'Space Mono',monospace;font-size:0.5rem;letter-spacing:0.15em;text-transform:uppercase;color:#374151;margin-left:0.5rem;}}
-.car-dots{{display:flex;gap:0.35rem;align-items:center;flex-wrap:wrap;max-width:220px;}}
-.car-dot{{width:6px;height:6px;border-radius:50%;cursor:pointer;transition:background 0.3s,transform 0.2s;}}
-.news-dot{{background:rgba(139,58,139,0.3);border:1px solid rgba(139,58,139,0.4);}}
-.news-dot.active{{background:#C084C8;transform:scale(1.3);}}
-.pol-dot{{background:rgba(96,165,250,0.25);border:1px solid rgba(96,165,250,0.35);}}
-.pol-dot.active{{background:#60A5FA;transform:scale(1.3);}}
-.car-viewport{{overflow:hidden;position:relative;min-height:110px;}}
-.car-track{{display:flex;transition:transform 0.55s cubic-bezier(0.4,0,0.2,1);will-change:transform;}}
-.car-slide{{min-width:100%;box-sizing:border-box;padding:0 0.1rem;}}
-.car-card{{border-radius:0 12px 12px 0;padding:1rem 1.2rem;position:relative;transition:filter 0.2s;}}
-.car-card:hover{{filter:brightness(1.08);}}
-.news-card-inner{{background:#120E1A;border:1px solid rgba(139,58,139,0.18);border-left:3px solid #B06BB0;}}
-.pol-card-inner{{background:#0A0F1E;border:1px solid rgba(96,165,250,0.15);border-left:3px solid #3B82F6;}}
-.car-src{{font-family:'Space Mono',monospace;font-size:0.55rem;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:0.4rem;display:flex;align-items:center;gap:0.45rem;}}
-.car-badge{{font-family:'Space Mono',monospace;font-size:0.45rem;letter-spacing:0.1em;text-transform:uppercase;background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.25);color:#93C5FD;padding:0.08rem 0.35rem;border-radius:3px;margin-left:auto;}}
-.car-live{{font-family:'Space Mono',monospace;font-size:0.45rem;letter-spacing:0.1em;background:rgba(74,222,128,0.12);border:1px solid rgba(74,222,128,0.25);color:#86efac;padding:0.08rem 0.35rem;border-radius:3px;margin-left:auto;}}
-.car-title-text{{font-family:'Syne',sans-serif;font-size:1rem;font-weight:500;color:#EDE8F5;line-height:1.5;text-decoration:none;display:block;margin-bottom:0.4rem;}}
-.car-title-text:hover{{color:#C084C8;}}
-.pol-card-inner .car-title-text:hover{{color:#93C5FD;}}
-.car-time{{font-family:'Space Mono',monospace;font-size:0.5rem;letter-spacing:0.08em;color:#374151;}}
-.car-progress-track{{height:2px;border-radius:1px;margin-top:1rem;overflow:hidden;}}
-.car-progress-track.news{{background:rgba(139,58,139,0.15);}}
-.car-progress-track.policy{{background:rgba(59,130,246,0.12);}}
-.car-progress-bar{{height:100%;border-radius:1px;width:0%;}}
-.car-progress-bar.news{{background:linear-gradient(90deg,#6B2D6B,#C084C8);}}
-.car-progress-bar.policy{{background:linear-gradient(90deg,#3B82F6,#A78BFA);}}
-.car-footer{{display:flex;justify-content:space-between;align-items:center;}}
-.car-src-label{{font-family:'Space Mono',monospace;font-size:0.48rem;color:#374151;margin-top:0.35rem;letter-spacing:0.08em;}}
-.car-counter{{font-family:'Space Mono',monospace;font-size:0.52rem;color:#374151;letter-spacing:0.12em;margin-top:0.4rem;}}
-.car-nav{{position:absolute;top:50%;transform:translateY(-50%);width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:0.8rem;transition:filter 0.2s;z-index:10;user-select:none;}}
-.car-nav:hover{{filter:brightness(1.5);}}
-.car-nav.news{{background:rgba(107,45,107,0.25);border:1px solid rgba(139,58,139,0.4);color:#C084C8;}}
-.car-nav.policy{{background:rgba(59,130,246,0.18);border:1px solid rgba(96,165,250,0.35);color:#60A5FA;}}
-.car-nav.prev{{left:-14px;}}
-.car-nav.next{{right:-14px;}}
-</style>
+.xcar{background:#0D0B12;border-radius:14px;padding:1.2rem 1.6rem 1.2rem;margin-bottom:1.2rem;position:relative;}
+.xcar.xnews{border:1px solid rgba(139,58,139,0.25);}
+.xcar.xpol{border:1px solid rgba(96,165,250,0.25);}
+.xcar.xpol::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,transparent,rgba(96,165,250,0.5),rgba(167,139,250,0.5),transparent);}
+.xcar-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:0.9rem;}
+.xcar-ttl{font-family:'Cormorant Garamond',serif;font-size:1.1rem;font-weight:300;color:#EDE8F5;
+  display:flex;align-items:center;gap:0.5rem;}
+.xcar-ttl.xnews::before{content:'';display:inline-block;width:3px;height:1.1rem;
+  background:linear-gradient(180deg,#6B2D6B,#C084C8);border-radius:2px;}
+.xcar-ttl.xpol::before{content:'';display:inline-block;width:3px;height:1.1rem;
+  background:linear-gradient(180deg,#3B82F6,#A78BFA);border-radius:2px;}
+.xcar-sub{font-family:'Space Mono',monospace;font-size:0.49rem;letter-spacing:0.15em;
+  text-transform:uppercase;color:#374151;margin-left:0.4rem;}
+.xslides{position:relative;overflow:hidden;min-height:100px;}
+.xslide{display:none;}
+.xslide.xactive{display:block;}
+.xcard{border-radius:0 12px 12px 0;padding:0.85rem 1.1rem;}
+.xcard.xcn{background:#120E1A;border:1px solid rgba(139,58,139,0.18);}
+.xcard.xcp{background:#0A0F1E;border:1px solid rgba(96,165,250,0.15);}
+.xcard-src{font-family:'Space Mono',monospace;font-size:0.53rem;letter-spacing:0.13em;
+  text-transform:uppercase;margin-bottom:0.35rem;display:flex;align-items:center;gap:0.4rem;}
+.xbadge{font-size:0.41rem;background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.25);
+  color:#93C5FD;padding:0.05rem 0.28rem;border-radius:3px;margin-left:auto;}
+.xcard-ttl{font-family:'Syne',sans-serif;font-size:0.95rem;font-weight:500;color:#EDE8F5;
+  line-height:1.5;text-decoration:none;display:block;margin-bottom:0.3rem;}
+.xcard-ttl:hover{text-decoration:underline;text-underline-offset:3px;}
+.xcard-dt{font-family:'Space Mono',monospace;font-size:0.47rem;color:#374151;}
+.xprog{height:2px;border-radius:1px;margin-top:0.85rem;overflow:hidden;}
+.xprog.xnp{background:rgba(139,58,139,0.15);}
+.xprog.xpp{background:rgba(59,130,246,0.12);}
+.xprogbar{height:100%;border-radius:1px;width:0%;}
+.xprogbar.xnpb{background:linear-gradient(90deg,#6B2D6B,#C084C8);}
+.xprogbar.xppb{background:linear-gradient(90deg,#3B82F6,#A78BFA);}
+.xfooter{display:flex;justify-content:space-between;margin-top:0.3rem;}
+.xlbl{font-family:'Space Mono',monospace;font-size:0.45rem;color:#4A3858;letter-spacing:0.08em;}
+.xctr{font-family:'Space Mono',monospace;font-size:0.48rem;color:#4A3858;}
+.xnav{display:flex;gap:0.5rem;align-items:center;}
+.xnav button{background:none;border:1px solid rgba(139,58,139,0.3);color:#C084C8;
+  border-radius:50%;width:24px;height:24px;cursor:pointer;font-size:0.8rem;
+  display:flex;align-items:center;justify-content:center;padding:0;transition:background 0.2s;}
+.xnav button:hover{background:rgba(139,58,139,0.2);}
+.xcar.xpol .xnav button{border-color:rgba(96,165,250,0.3);color:#60A5FA;}
+.xcar.xpol .xnav button:hover{background:rgba(59,130,246,0.15);}
+.xdots{display:flex;gap:0.3rem;align-items:center;flex-wrap:wrap;}
+.xdot{width:6px;height:6px;border-radius:50%;background:rgba(139,58,139,0.3);
+  border:1px solid rgba(139,58,139,0.4);cursor:pointer;display:inline-block;transition:transform 0.2s;}
+.xdot.xa{background:#C084C8;transform:scale(1.3);}
+.xcar.xpol .xdot{background:rgba(96,165,250,0.25);border-color:rgba(96,165,250,0.35);}
+.xcar.xpol .xdot.xa{background:#60A5FA;}
+</style>"""
 
-<div class="car-wrap news" id="car-news">
-  <div class="car-header">
-    <div class="car-title news">Financial Headlines</div>
-    <div class="car-dots" id="car-news-dots"></div>
-  </div>
-  <div style="position:relative;">
-    <div class="car-nav news prev" id="car-news-prev">&#8249;</div>
-    <div class="car-viewport"><div class="car-track" id="car-news-track"></div></div>
-    <div class="car-nav news next" id="car-news-next">&#8250;</div>
-  </div>
-  <div class="car-progress-track news"><div class="car-progress-bar news" id="car-news-prog"></div></div>
-  <div class="car-footer">
-    <div class="car-src-label" id="car-news-lbl">&#9679; curated</div>
-    <div class="car-counter" id="car-news-ctr"></div>
-  </div>
-</div>
+def _render_news_carousel(items, car_id, is_policy):
+    css_type = "xpol" if is_policy else "xnews"
+    title = "Policy &amp; Government Decisions" if is_policy else "Financial Headlines"
+    subtitle = '<span class="xcar-sub">This Week</span>' if is_policy else ""
+    prog_cls = "xppb" if is_policy else "xnpb"
+    prog_track = "xpp" if is_policy else "xnp"
+    card_cls = "xcp" if is_policy else "xcn"
 
-<div class="car-wrap policy" id="car-pol">
-  <div class="car-header">
-    <div class="car-title policy">Policy &amp; Government Decisions<span class="car-sub">This Week</span></div>
-    <div class="car-dots" id="car-pol-dots"></div>
-  </div>
-  <div style="position:relative;">
-    <div class="car-nav policy prev" id="car-pol-prev">&#8249;</div>
-    <div class="car-viewport"><div class="car-track" id="car-pol-track"></div></div>
-    <div class="car-nav policy next" id="car-pol-next">&#8250;</div>
-  </div>
-  <div class="car-progress-track policy"><div class="car-progress-bar policy" id="car-pol-prog"></div></div>
-  <div class="car-footer">
-    <div class="car-src-label" id="car-pol-lbl">&#9679; curated</div>
-    <div class="car-counter" id="car-pol-ctr"></div>
-  </div>
-</div>
+    slides_html = ""
+    dots_html = ""
+    for i, item in enumerate(items):
+        if is_policy:
+            title_txt, link, source, flag, color = item
+            badge = '<span class="xbadge">Policy</span>'
+            src_content = f'{flag} {_html_mod.escape(source)} {badge}'
+        else:
+            title_txt, link, source, color, _ = item
+            src_content = _html_mod.escape(source)
 
+        active = " xactive" if i == 0 else ""
+        slides_html += f"""
+    <div class="xslide{active}" id="{car_id}-slide-{i}">
+      <div class="xcard {card_cls}" style="border-left:3px solid {color}">
+        <div class="xcard-src" style="color:{color}">{src_content}</div>
+        <a class="xcard-ttl" href="{link}" target="_blank">{_html_mod.escape(title_txt)}</a>
+        <div class="xcard-dt">{_TODAY}</div>
+      </div>
+    </div>"""
+        dot_active = " xa" if i == 0 else ""
+        dots_html += f'<span class="xdot{dot_active}" onclick="xGoTo(\'{car_id}\',{i})"></span>'
+
+    total = len(items)
+    js = f"""
 <script>
 (function(){{
-  const FN={_fn_json};
-  const FP={_fp_json};
-  const NF={_nf_json};
-  const PF={_pf_json};
-
-  function buildHTML(items, isPolicy, isLive){{
-    return items.map(item=>{{
-      const cc = isPolicy?"pol-card-inner":"news-card-inner";
-      const badge = isPolicy
-        ? `<span class="car-badge">Policy</span>`
-        : (isLive?`<span class="car-live">Live</span>`:"");
-      const src = isPolicy
-        ? `${{item.flag||"\U0001F3DB"}} ${{item.source}} ${{badge}}`
-        : `${{item.source}} ${{badge}}`;
-      const t = String(item.title||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-      return `<div class="car-slide"><div class="car-card ${{cc}}" style="border-left-color:${{item.color}}">
-        <div class="car-src" style="color:${{item.color}}">${{src}}</div>
-        <a class="car-title-text" href="${{item.link||"#"}}" target="_blank">${{t}}</a>
-        <div class="car-time">${{item.pub||""}}</div>
-      </div></div>`;
-    }}).join("");
-  }}
-
-  function Carousel(o){{
-    const track=document.getElementById(o.track), dots=document.getElementById(o.dots),
-          prog=document.getElementById(o.prog),   ctr=document.getElementById(o.ctr),
-          wrap=document.getElementById(o.wrap),   lbl=document.getElementById(o.lbl);
-    let slides=[],cur=0,paused=false,timer=null;
-    this.load=function(items,isPolicy,isLive){{
-      track.innerHTML=buildHTML(items,isPolicy,isLive);
-      slides=track.querySelectorAll(".car-slide");
-      dots.innerHTML="";
-      slides.forEach((_,i)=>{{
-        const d=document.createElement("div");
-        d.className="car-dot "+o.dotCls+(i===0?" active":"");
-        d.onclick=()=>go(i,true);
-        dots.appendChild(d);
-      }});
-      if(lbl)lbl.textContent=isLive?"\u25cf live":"\u25cf curated \xb7 live updates pending";
-      go(0,false);tick();
-    }};
-    function go(idx,manual){{
-      if(!slides.length)return;
-      cur=((idx%slides.length)+slides.length)%slides.length;
-      track.style.transform=`translateX(-${{cur*100}}%)`;
-      dots.querySelectorAll(".car-dot").forEach((d,i)=>d.classList.toggle("active",i===cur));
-      if(ctr)ctr.textContent=(cur+1)+" / "+slides.length;
-      if(manual)tick();
+  var _id='{car_id}', _total={total}, _cur=0, _paused=false, _timer=null;
+  function xShow(n){{
+    _cur=((n%_total)+_total)%_total;
+    for(var i=0;i<_total;i++){{
+      var s=document.getElementById(_id+'-slide-'+i);
+      var d=document.querySelectorAll('#'+_id+' .xdot')[i];
+      if(s)s.className='xslide'+(i===_cur?' xactive':'');
+      if(d)d.className='xdot'+(i===_cur?' xa':'');
     }}
-    function tick(){{
-      clearInterval(timer);
-      prog.style.transition="none";prog.style.width="0%";
-      requestAnimationFrame(()=>requestAnimationFrame(()=>{{
-        prog.style.transition=`width ${{o.delay}}ms linear`;prog.style.width="100%";
-      }}));
-      timer=setInterval(()=>{{if(!paused)go(cur+1,false);}},o.delay);
-    }}
-    wrap.addEventListener("mouseenter",()=>paused=true);
-    wrap.addEventListener("mouseleave",()=>paused=false);
-    document.getElementById(o.prev).onclick=()=>go(cur-1,true);
-    document.getElementById(o.next).onclick=()=>go(cur+1,true);
-    let tx=0;
-    wrap.addEventListener("touchstart",e=>{{tx=e.touches[0].clientX;}},{{passive:true}});
-    wrap.addEventListener("touchend",e=>{{const dx=e.changedTouches[0].clientX-tx;if(Math.abs(dx)>40)go(cur+(dx<0?1:-1),true);}});
+    var c=document.getElementById(_id+'-ctr');
+    if(c)c.textContent=(_cur+1)+' / '+_total;
+    var pb=document.getElementById(_id+'-pb');
+    if(pb){{pb.style.transition='none';pb.style.width='0%';
+      setTimeout(function(){{pb.style.transition='width 3000ms linear';pb.style.width='100%';}},30);}}
   }}
-
-  const NC=new Carousel({{track:"car-news-track",dots:"car-news-dots",prev:"car-news-prev",next:"car-news-next",prog:"car-news-prog",ctr:"car-news-ctr",wrap:"car-news",lbl:"car-news-lbl",delay:3000,dotCls:"news-dot"}});
-  const PC=new Carousel({{track:"car-pol-track", dots:"car-pol-dots", prev:"car-pol-prev", next:"car-pol-next", prog:"car-pol-prog", ctr:"car-pol-ctr", wrap:"car-pol", lbl:"car-pol-lbl", delay:3500,dotCls:"pol-dot"}});
-
-  // Load fallback instantly — always visible
-  NC.load(FN,false,false);
-  PC.load(FP,true, false);
-
-  // Try live fetch via CORS proxies — upgrade if successful
-  const PROXIES=[
-    u=>`https://api.allorigins.win/raw?url=${{encodeURIComponent(u)}}`,
-    u=>`https://corsproxy.io/?${{encodeURIComponent(u)}}`,
-  ];
-  function parseRSS(xml,feed){{
-    try{{
-      const doc=new DOMParser().parseFromString(xml,"text/xml");
-      return [...doc.querySelectorAll("item")].slice(0,5).map(item=>{{
-        const t=item.querySelector("title")?.textContent?.trim()||"";
-        const l=item.querySelector("link")?.textContent?.trim()||item.querySelector("link")?.getAttribute("href")||"#";
-        const p=(item.querySelector("pubDate")?.textContent||"").trim().slice(0,16);
-        return {{title:t,link:l.startsWith("http")?l:"#",pub:p,source:feed.source,color:feed.color,flag:feed.flag||""}};
-      }}).filter(i=>i.title.length>6);
-    }}catch(e){{return[];}}
+  window.xGoTo=window.xGoTo||function(){{}};
+  var _old=window.xGoTo;
+  window.xGoTo=function(id,n){{if(id===_id){{xShow(n);clearInterval(_timer);_timer=setInterval(function(){{if(!_paused)xShow(_cur+1);}},3000);}}else _old(id,n);}};
+  var wrap=document.getElementById(_id);
+  if(wrap){{
+    wrap.addEventListener('mouseenter',function(){{_paused=true;}});
+    wrap.addEventListener('mouseleave',function(){{_paused=false;}});
   }}
-  async function fetchFeed(feed){{
-    for(const px of PROXIES){{
-      try{{
-        const r=await fetch(px(feed.url),{{signal:AbortSignal.timeout(6000)}});
-        if(!r.ok)continue;
-        const txt=await r.text();
-        const parsed=parseRSS(txt,feed);
-        if(parsed.length)return parsed;
-      }}catch(e){{}}
-    }}
-    return[];
-  }}
-  async function loadLive(feeds,carousel,isPolicy){{
-    const all=[];
-    await Promise.allSettled(feeds.map(f=>fetchFeed(f).then(items=>all.push(...items))));
-    if(all.length>=3)carousel.load(all.slice(0,18),isPolicy,true);
-  }}
-  loadLive(NF,NC,false);
-  loadLive(PF,PC,true);
+  xShow(0);
+  _timer=setInterval(function(){{if(!_paused)xShow(_cur+1);}},3000);
 }})();
-</script>
-""", unsafe_allow_html=True)
+</script>"""
 
-# ══════════════════════════════════════════════════════════════════════════════
+    return f"""
+<div class="xcar {css_type}" id="{car_id}">
+  <div class="xcar-hdr">
+    <div class="xcar-ttl {css_type}">{title}{subtitle}</div>
+    <div class="xnav">
+      <div class="xdots">{dots_html}</div>
+      <button onclick="xGoTo('{car_id}',{{}}-1)" title="prev">&#8249;</button>
+      <button onclick="xGoTo('{car_id}',{{}}+1)" title="next">&#8250;</button>
+    </div>
+  </div>
+  <div class="xslides">{slides_html}
+  </div>
+  <div class="xprog {prog_track}"><div class="xprogbar {prog_cls}" id="{car_id}-pb"></div></div>
+  <div class="xfooter"><div class="xlbl">&#9679; curated</div><div class="xctr" id="{car_id}-ctr">1 / {total}</div></div>
+</div>
+{js}"""
+
+# Render nav buttons with correct cur reference per carousel
+def _render_carousel_final(items, car_id, is_policy):
+    css_type = "xpol" if is_policy else "xnews"
+    title = "Policy &amp; Government Decisions" if is_policy else "Financial Headlines"
+    subtitle = '<span class="xcar-sub">This Week</span>' if is_policy else ""
+    prog_cls = "xppb" if is_policy else "xnpb"
+    prog_track = "xpp" if is_policy else "xnp"
+    card_cls = "xcp" if is_policy else "xcn"
+    total = len(items)
+
+    slides_html = ""
+    dots_html = ""
+    for i, item in enumerate(items):
+        if is_policy:
+            title_txt, link, source, flag, color = item
+            badge = '<span class="xbadge">Policy</span>'
+            src_content = f'{flag} {_html_mod.escape(source)} {badge}'
+        else:
+            title_txt, link, source, color, _ = item
+            src_content = _html_mod.escape(source)
+        active = " xactive" if i == 0 else ""
+        slides_html += (
+            f'<div class="xslide{active}" id="{car_id}-s{i}">'
+            f'<div class="xcard {card_cls}" style="border-left:3px solid {color}">'
+            f'<div class="xcard-src" style="color:{color}">{src_content}</div>'
+            f'<a class="xcard-ttl" href="{link}" target="_blank">{_html_mod.escape(title_txt)}</a>'
+            f'<div class="xcard-dt">{_TODAY}</div>'
+            f'</div></div>'
+        )
+        dot_active = " xa" if i == 0 else ""
+        dots_html += f'<span class="xdot{dot_active}" id="{car_id}-d{i}" onclick="_xGo(\'{car_id}\',{i})"></span>'
+
+    js = (
+        f'<script>(function(){{'
+        f'var I="{car_id}",N={total},C=0,P=false,T=null;'
+        f'function go(n){{'
+        f'C=((n%N)+N)%N;'
+        f'for(var i=0;i<N;i++){{'
+        f'var s=document.getElementById(I+"-s"+i);'
+        f'var d=document.getElementById(I+"-d"+i);'
+        f'if(s)s.style.display=i===C?"block":"none";'
+        f'if(d)d.className="xdot"+(i===C?" xa":"");'
+        f'}}'
+        f'var ct=document.getElementById(I+"-ct");if(ct)ct.textContent=(C+1)+" / "+N;'
+        f'var pb=document.getElementById(I+"-pb");'
+        f'if(pb){{pb.style.transition="none";pb.style.width="0%";'
+        f'setTimeout(function(){{pb.style.transition="width 3200ms linear";pb.style.width="100%";}},40);}}'
+        f'}}'
+        f'window._xGo=window._xGo||function(){{}};'
+        f'var _old=window._xGo;'
+        f'window._xGo=function(id,n){{if(id===I)go(n);else _old(id,n);}};'
+        f'document.getElementById(I+"-pv").onclick=function(){{go(C-1);restart();}};'
+        f'document.getElementById(I+"-nx").onclick=function(){{go(C+1);restart();}};'
+        f'function restart(){{clearInterval(T);T=setInterval(function(){{if(!P)go(C+1);}},3200);}}'
+        f'var w=document.getElementById(I);'
+        f'if(w){{w.addEventListener("mouseenter",function(){{P=true;}});'
+        f'w.addEventListener("mouseleave",function(){{P=false;}});}}'
+        f'go(0);restart();'
+        f'}})();</script>'
+    )
+
+    return (
+        f'<div class="xcar {css_type}" id="{car_id}">'
+        f'<div class="xcar-hdr">'
+        f'<div class="xcar-ttl {css_type}">{title}{subtitle}</div>'
+        f'<div style="display:flex;align-items:center;gap:0.5rem;">'
+        f'<div class="xdots">{dots_html}</div>'
+        f'<button id="{car_id}-pv" class="xnavbtn" style="background:none;border:1px solid rgba(139,58,139,0.3);color:#C084C8;border-radius:50%;width:24px;height:24px;cursor:pointer;font-size:0.85rem;padding:0;">&#8249;</button>'
+        f'<button id="{car_id}-nx" class="xnavbtn" style="background:none;border:1px solid rgba(139,58,139,0.3);color:#C084C8;border-radius:50%;width:24px;height:24px;cursor:pointer;font-size:0.85rem;padding:0;">&#8250;</button>'
+        f'</div>'
+        f'</div>'
+        f'<div style="position:relative;min-height:100px;">{slides_html}</div>'
+        f'<div class="xprog {prog_track}"><div class="xprogbar {prog_cls}" id="{car_id}-pb"></div></div>'
+        f'<div class="xfooter"><div class="xlbl">&#9679; curated &#183; updates on refresh</div>'
+        f'<div class="xctr" id="{car_id}-ct">1 / {total}</div></div>'
+        f'</div>{js}'
+    )
+
+_carousel_css = _car_css()
+_news_html    = _render_carousel_final(NEWS_ITEMS,   "xn", False)
+_policy_html  = _render_carousel_final(POLICY_ITEMS, "xp", True)
+
+st.markdown(_carousel_css + _news_html + _policy_html, unsafe_allow_html=True)
+
 # COMMODITIES  (Gold, Silver, Oil, Platinum, Palladium)
 # ══════════════════════════════════════════════════════════════════════════════
 COMMODITY_SYMS = {
