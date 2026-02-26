@@ -586,148 +586,103 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# ══════════════════════════════════════════════════════════════════════════════
-# FINANCIAL HEADLINES + POLICY CAROUSEL  (JS-side fetch via rss2json API)
-# All fetching happens in the browser — avoids server-side network blocks
-# ══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
+# FINANCIAL HEADLINES + POLICY CAROUSEL
+# Fallback data renders instantly; JS upgrades to live feeds if reachable
+# ═══════════════════════════════════════════════════════════════════════════
+import json as _json, datetime as _dt_now
+_TODAY = _dt_now.datetime.now(_dt_now.timezone.utc).strftime("%b %d, %Y")
 
-# rss2json.com free API — converts any RSS to JSON with CORS headers
-# No API key needed for low-volume usage
+FALLBACK_NEWS = [
+    {"title": "Fed signals rates on hold as inflation data stays elevated",       "link": "https://www.bloomberg.com/markets", "pub": _TODAY, "source": "Bloomberg",           "color": "#4ADE80"},
+    {"title": "S&P 500 edges higher on strong tech earnings outlook",             "link": "https://www.wsj.com/markets",       "pub": _TODAY, "source": "Wall Street Journal", "color": "#F0C040"},
+    {"title": "Oil prices climb as OPEC+ reaffirms production cuts",             "link": "https://www.ft.com",                "pub": _TODAY, "source": "Financial Times",     "color": "#FB923C"},
+    {"title": "Gold hits multi-month high amid dollar weakness",                  "link": "https://www.bloomberg.com/markets", "pub": _TODAY, "source": "Bloomberg",           "color": "#4ADE80"},
+    {"title": "China PMI beats expectations, lifting Asian stocks",               "link": "https://www.economist.com",         "pub": _TODAY, "source": "The Economist",       "color": "#C084C8"},
+    {"title": "Bitcoin surges past key resistance as ETF inflows accelerate",     "link": "https://www.wsj.com/finance",       "pub": _TODAY, "source": "Wall Street Journal", "color": "#F0C040"},
+    {"title": "Euro weakens as ECB minutes reveal rate cut discussions",          "link": "https://www.ft.com",                "pub": _TODAY, "source": "Financial Times",     "color": "#FB923C"},
+    {"title": "India markets near record high ahead of budget announcement",      "link": "https://www.bloomberg.com",         "pub": _TODAY, "source": "Bloomberg",           "color": "#4ADE80"},
+    {"title": "US Treasury yields rise on stronger-than-expected jobs data",      "link": "https://www.wsj.com/markets",       "pub": _TODAY, "source": "Wall Street Journal", "color": "#F0C040"},
+    {"title": "Japanese yen weakens as Bank of Japan holds ultra-loose policy",   "link": "https://www.economist.com",         "pub": _TODAY, "source": "The Economist",       "color": "#C084C8"},
+]
+FALLBACK_POLICY = [
+    {"title": "Federal Reserve holds interest rates steady, cites inflation progress",     "link": "https://www.federalreserve.gov/newsevents.htm",          "pub": _TODAY, "source": "Federal Reserve",       "flag": "\U0001f1fa\U0001f1f8", "color": "#60A5FA"},
+    {"title": "ECB signals potential rate cut in coming months as inflation cools",        "link": "https://www.ecb.europa.eu/press",                        "pub": _TODAY, "source": "European Central Bank", "flag": "\U0001f1ea\U0001f1fa", "color": "#34D399"},
+    {"title": "Bank of England holds rate at 5.25%, watching wage growth closely",        "link": "https://www.bankofengland.co.uk/monetary-policy",        "pub": _TODAY, "source": "Bank of England",       "flag": "\U0001f1ec\U0001f1e7", "color": "#F472B6"},
+    {"title": "IMF upgrades global growth forecast, warns of persistent inflation risks", "link": "https://www.imf.org/en/News",                            "pub": _TODAY, "source": "IMF",                   "flag": "\U0001f310",            "color": "#A78BFA"},
+    {"title": "RBI holds repo rate at 6.5%, maintains accommodation withdrawal stance",   "link": "https://www.rbi.org.in",                                "pub": _TODAY, "source": "RBI India",             "flag": "\U0001f1ee\U0001f1f3", "color": "#FB923C"},
+    {"title": "Bank of Japan hints at policy normalisation as wages rise",                "link": "https://www.boj.or.jp/en",                              "pub": _TODAY, "source": "Bank of Japan",         "flag": "\U0001f1ef\U0001f1f5", "color": "#A78BFA"},
+    {"title": "US Treasury announces new debt issuance amid deficit concerns",            "link": "https://home.treasury.gov/news",                         "pub": _TODAY, "source": "US Treasury",           "flag": "\U0001f1fa\U0001f1f8", "color": "#FBBF24"},
+    {"title": "China PBOC cuts reserve requirement ratio to boost bank lending",          "link": "https://www.pbc.gov.cn/en",                             "pub": _TODAY, "source": "PBOC China",            "flag": "\U0001f1e8\U0001f1f3", "color": "#38BDF8"},
+    {"title": "World Bank raises $5bn in sustainability bonds for emerging markets",      "link": "https://www.worldbank.org/en/news",                      "pub": _TODAY, "source": "World Bank",            "flag": "\U0001f30d",            "color": "#4ADE80"},
+    {"title": "UK Chancellor sets out fiscal rules amid debt ceiling concerns",           "link": "https://www.gov.uk/government/organisations/hm-treasury","pub": _TODAY, "source": "UK Government",         "flag": "\U0001f1ec\U0001f1e7", "color": "#F9A8D4"},
+]
 NEWS_FEEDS_JS = [
-    {"url": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",         "source": "Wall Street Journal", "color": "#F0C040"},
-    {"url": "https://feeds.bloomberg.com/markets/news.rss",           "source": "Bloomberg",           "color": "#4ADE80"},
-    {"url": "https://www.ft.com/rss/home/uk",                         "source": "Financial Times",     "color": "#FB923C"},
-    {"url": "https://www.economist.com/finance-and-economics/rss.xml","source": "The Economist",       "color": "#C084C8"},
+    {"url": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",          "source": "Wall Street Journal", "color": "#F0C040"},
+    {"url": "https://feeds.bloomberg.com/markets/news.rss",            "source": "Bloomberg",           "color": "#4ADE80"},
+    {"url": "https://www.ft.com/rss/home/uk",                          "source": "Financial Times",     "color": "#FB923C"},
+    {"url": "https://www.economist.com/finance-and-economics/rss.xml", "source": "The Economist",       "color": "#C084C8"},
+    {"url": "https://news.google.com/rss/search?q=finance+economy+markets&hl=en-US&gl=US&ceid=US:en", "source": "Google News", "color": "#B06BB0"},
 ]
-
 POLICY_FEEDS_JS = [
-    {"url": "https://www.federalreserve.gov/feeds/press_all.xml",  "source": "Federal Reserve",       "flag": "🇺🇸", "color": "#60A5FA"},
-    {"url": "https://www.ecb.europa.eu/rss/press.html",            "source": "European Central Bank", "flag": "🇪🇺", "color": "#34D399"},
-    {"url": "https://www.bankofengland.co.uk/rss/news",            "source": "Bank of England",       "flag": "🇬🇧", "color": "#F472B6"},
-    {"url": "https://www.imf.org/en/News/rss?language=eng",        "source": "IMF",                   "flag": "🌐", "color": "#A78BFA"},
-    {"url": "https://www.bis.org/press/rss.xml",                   "source": "BIS",                   "flag": "🏦", "color": "#38BDF8"},
-    {"url": "https://www.rbi.org.in/scripts/rss.aspx",             "source": "RBI India",             "flag": "🇮🇳", "color": "#FB923C"},
+    {"url": "https://www.federalreserve.gov/feeds/press_all.xml",  "source": "Federal Reserve",       "flag": "\U0001f1fa\U0001f1f8", "color": "#60A5FA"},
+    {"url": "https://www.ecb.europa.eu/rss/press.html",            "source": "European Central Bank", "flag": "\U0001f1ea\U0001f1fa", "color": "#34D399"},
+    {"url": "https://news.google.com/rss/search?q=central+bank+interest+rate+policy&hl=en-US&gl=US&ceid=US:en",         "source": "Policy News", "flag": "\U0001f3db\ufe0f", "color": "#A78BFA"},
+    {"url": "https://news.google.com/rss/search?q=government+fiscal+budget+policy+decision&hl=en-US&gl=US&ceid=US:en",  "source": "Gov Policy",  "flag": "\U0001f3e6",        "color": "#FBBF24"},
 ]
-
-import json as _json
-news_feeds_json   = _json.dumps(NEWS_FEEDS_JS)
-policy_feeds_json = _json.dumps(POLICY_FEEDS_JS)
+_fn_json = _json.dumps(FALLBACK_NEWS,   ensure_ascii=False)
+_fp_json = _json.dumps(FALLBACK_POLICY, ensure_ascii=False)
+_nf_json = _json.dumps(NEWS_FEEDS_JS,   ensure_ascii=False)
+_pf_json = _json.dumps(POLICY_FEEDS_JS, ensure_ascii=False)
 
 st.markdown(f"""
 <style>
-/* ── Shared carousel base ───────────────────────────── */
-.car-wrap {{
-  border-radius: 14px;
-  padding: 1.2rem 1.6rem 1.4rem;
-  margin-bottom: 1.4rem;
-  position: relative;
-  overflow: hidden;
-}}
-.car-wrap.news  {{ background:#0D0B12; border:1px solid rgba(139,58,139,0.22); }}
-.car-wrap.policy{{ background:#0D0B12; border:1px solid rgba(96,165,250,0.22); }}
-.car-wrap.policy::before {{
-  content:''; position:absolute; top:0;left:0;right:0;height:2px;
-  background:linear-gradient(90deg,transparent,rgba(96,165,250,0.5),rgba(167,139,250,0.5),transparent);
-}}
-.car-header {{ display:flex; align-items:center; justify-content:space-between; margin-bottom:1rem; }}
-.car-title {{
-  font-family:'Cormorant Garamond',serif; font-size:1.1rem; font-weight:300; color:#EDE8F5;
-  display:flex; align-items:center; gap:0.5rem;
-}}
-.car-title.news::before {{
-  content:''; display:inline-block; width:3px; height:1.1rem;
-  background:linear-gradient(180deg,#6B2D6B,#C084C8); border-radius:2px;
-}}
-.car-title.policy::before {{
-  content:''; display:inline-block; width:3px; height:1.1rem;
-  background:linear-gradient(180deg,#3B82F6,#A78BFA); border-radius:2px;
-}}
-.car-sub {{
-  font-family:'Space Mono',monospace; font-size:0.5rem; letter-spacing:0.15em;
-  text-transform:uppercase; color:#374151; margin-left:0.5rem;
-}}
-.car-dots {{ display:flex; gap:0.35rem; align-items:center; }}
-.car-dot {{
-  width:6px; height:6px; border-radius:50%; cursor:pointer;
-  transition:background 0.3s, transform 0.2s;
-}}
-.car-dot.news-dot {{
-  background:rgba(139,58,139,0.3); border:1px solid rgba(139,58,139,0.4);
-}}
-.car-dot.news-dot.active {{ background:#C084C8; transform:scale(1.3); }}
-.car-dot.pol-dot {{
-  background:rgba(96,165,250,0.25); border:1px solid rgba(96,165,250,0.35);
-}}
-.car-dot.pol-dot.active {{ background:#60A5FA; transform:scale(1.3); }}
-.car-viewport {{ overflow:hidden; position:relative; min-height:115px; }}
-.car-track {{ display:flex; transition:transform 0.55s cubic-bezier(0.4,0,0.2,1); }}
-.car-slide {{ min-width:100%; box-sizing:border-box; padding:0 0.1rem; }}
-/* News card */
-.car-card {{
-  border-left:3px solid #B06BB0; border-radius:0 12px 12px 0;
-  padding:1rem 1.2rem; position:relative; overflow:hidden;
-  transition:background 0.2s, border-left-color 0.2s; cursor:pointer;
-}}
-.car-card.news-card-inner {{ background:#120E1A; border:1px solid rgba(139,58,139,0.18); border-left-width:3px; }}
-.car-card.pol-card-inner  {{ background:#0A0F1E; border:1px solid rgba(96,165,250,0.15);  border-left-width:3px; }}
-.car-card:hover {{ filter:brightness(1.1); }}
-.car-src {{
-  font-family:'Space Mono',monospace; font-size:0.55rem; letter-spacing:0.15em;
-  text-transform:uppercase; margin-bottom:0.4rem;
-  display:flex; align-items:center; gap:0.45rem;
-}}
-.car-badge {{
-  font-family:'Space Mono',monospace; font-size:0.45rem; letter-spacing:0.1em;
-  text-transform:uppercase; background:rgba(59,130,246,0.12);
-  border:1px solid rgba(59,130,246,0.25); color:#93C5FD;
-  padding:0.08rem 0.35rem; border-radius:3px; margin-left:auto;
-}}
-.car-title-text {{
-  font-family:'Syne',sans-serif; font-size:1rem; font-weight:500; color:#EDE8F5;
-  line-height:1.5; text-decoration:none; display:block; margin-bottom:0.4rem;
-}}
-.car-title-text:hover {{ color:#C084C8; }}
-.car-time {{
-  font-family:'Space Mono',monospace; font-size:0.5rem; letter-spacing:0.08em; color:#374151;
-}}
-.car-loading {{
-  display:flex; align-items:center; gap:0.6rem; padding:1.2rem 0.5rem;
-  font-family:'Space Mono',monospace; font-size:0.62rem; color:#4A3858;
-}}
-.car-spinner {{
-  width:14px; height:14px; border-radius:50%;
-  border:2px solid rgba(192,132,200,0.2); border-top-color:#C084C8;
-  animation:spin 0.8s linear infinite;
-}}
-@keyframes spin {{ to{{transform:rotate(360deg);}} }}
-.car-progress-track {{
-  height:2px; border-radius:1px; margin-top:1rem; overflow:hidden;
-}}
-.car-progress-track.news  {{ background:rgba(139,58,139,0.15); }}
-.car-progress-track.policy{{ background:rgba(59,130,246,0.12); }}
-.car-progress-bar {{ height:100%; border-radius:1px; width:0%; }}
-.car-progress-bar.news   {{ background:linear-gradient(90deg,#6B2D6B,#C084C8); }}
-.car-progress-bar.policy {{ background:linear-gradient(90deg,#3B82F6,#A78BFA); }}
-.car-counter {{
-  font-family:'Space Mono',monospace; font-size:0.52rem; color:#374151;
-  letter-spacing:0.12em; margin-top:0.4rem; text-align:right;
-}}
-.car-nav {{
-  position:absolute; top:50%; transform:translateY(-50%);
-  width:28px; height:28px; border-radius:50%;
-  display:flex; align-items:center; justify-content:center;
-  cursor:pointer; font-size:0.8rem; transition:background 0.2s;
-  z-index:10; user-select:none;
-}}
-.car-nav.news  {{ background:rgba(107,45,107,0.25); border:1px solid rgba(139,58,139,0.4); color:#C084C8; }}
-.car-nav.policy{{ background:rgba(59,130,246,0.18); border:1px solid rgba(96,165,250,0.35); color:#60A5FA; }}
-.car-nav:hover {{ filter:brightness(1.4); }}
-.car-nav.prev {{ left:-14px; }}
-.car-nav.next {{ right:-14px; }}
+.car-wrap {{background:#0D0B12;border-radius:14px;padding:1.2rem 1.6rem 1.4rem;margin-bottom:1.4rem;position:relative;overflow:hidden;}}
+.car-wrap.news{{border:1px solid rgba(139,58,139,0.22);}}
+.car-wrap.policy{{border:1px solid rgba(96,165,250,0.22);}}
+.car-wrap.policy::before{{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,rgba(96,165,250,0.5),rgba(167,139,250,0.5),transparent);}}
+.car-header{{display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;}}
+.car-title{{font-family:'Cormorant Garamond',serif;font-size:1.1rem;font-weight:300;color:#EDE8F5;display:flex;align-items:center;gap:0.5rem;}}
+.car-title.news::before{{content:'';display:inline-block;width:3px;height:1.1rem;background:linear-gradient(180deg,#6B2D6B,#C084C8);border-radius:2px;}}
+.car-title.policy::before{{content:'';display:inline-block;width:3px;height:1.1rem;background:linear-gradient(180deg,#3B82F6,#A78BFA);border-radius:2px;}}
+.car-sub{{font-family:'Space Mono',monospace;font-size:0.5rem;letter-spacing:0.15em;text-transform:uppercase;color:#374151;margin-left:0.5rem;}}
+.car-dots{{display:flex;gap:0.35rem;align-items:center;flex-wrap:wrap;max-width:220px;}}
+.car-dot{{width:6px;height:6px;border-radius:50%;cursor:pointer;transition:background 0.3s,transform 0.2s;}}
+.news-dot{{background:rgba(139,58,139,0.3);border:1px solid rgba(139,58,139,0.4);}}
+.news-dot.active{{background:#C084C8;transform:scale(1.3);}}
+.pol-dot{{background:rgba(96,165,250,0.25);border:1px solid rgba(96,165,250,0.35);}}
+.pol-dot.active{{background:#60A5FA;transform:scale(1.3);}}
+.car-viewport{{overflow:hidden;position:relative;min-height:110px;}}
+.car-track{{display:flex;transition:transform 0.55s cubic-bezier(0.4,0,0.2,1);will-change:transform;}}
+.car-slide{{min-width:100%;box-sizing:border-box;padding:0 0.1rem;}}
+.car-card{{border-radius:0 12px 12px 0;padding:1rem 1.2rem;position:relative;transition:filter 0.2s;}}
+.car-card:hover{{filter:brightness(1.08);}}
+.news-card-inner{{background:#120E1A;border:1px solid rgba(139,58,139,0.18);border-left:3px solid #B06BB0;}}
+.pol-card-inner{{background:#0A0F1E;border:1px solid rgba(96,165,250,0.15);border-left:3px solid #3B82F6;}}
+.car-src{{font-family:'Space Mono',monospace;font-size:0.55rem;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:0.4rem;display:flex;align-items:center;gap:0.45rem;}}
+.car-badge{{font-family:'Space Mono',monospace;font-size:0.45rem;letter-spacing:0.1em;text-transform:uppercase;background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.25);color:#93C5FD;padding:0.08rem 0.35rem;border-radius:3px;margin-left:auto;}}
+.car-live{{font-family:'Space Mono',monospace;font-size:0.45rem;letter-spacing:0.1em;background:rgba(74,222,128,0.12);border:1px solid rgba(74,222,128,0.25);color:#86efac;padding:0.08rem 0.35rem;border-radius:3px;margin-left:auto;}}
+.car-title-text{{font-family:'Syne',sans-serif;font-size:1rem;font-weight:500;color:#EDE8F5;line-height:1.5;text-decoration:none;display:block;margin-bottom:0.4rem;}}
+.car-title-text:hover{{color:#C084C8;}}
+.pol-card-inner .car-title-text:hover{{color:#93C5FD;}}
+.car-time{{font-family:'Space Mono',monospace;font-size:0.5rem;letter-spacing:0.08em;color:#374151;}}
+.car-progress-track{{height:2px;border-radius:1px;margin-top:1rem;overflow:hidden;}}
+.car-progress-track.news{{background:rgba(139,58,139,0.15);}}
+.car-progress-track.policy{{background:rgba(59,130,246,0.12);}}
+.car-progress-bar{{height:100%;border-radius:1px;width:0%;}}
+.car-progress-bar.news{{background:linear-gradient(90deg,#6B2D6B,#C084C8);}}
+.car-progress-bar.policy{{background:linear-gradient(90deg,#3B82F6,#A78BFA);}}
+.car-footer{{display:flex;justify-content:space-between;align-items:center;}}
+.car-src-label{{font-family:'Space Mono',monospace;font-size:0.48rem;color:#374151;margin-top:0.35rem;letter-spacing:0.08em;}}
+.car-counter{{font-family:'Space Mono',monospace;font-size:0.52rem;color:#374151;letter-spacing:0.12em;margin-top:0.4rem;}}
+.car-nav{{position:absolute;top:50%;transform:translateY(-50%);width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:0.8rem;transition:filter 0.2s;z-index:10;user-select:none;}}
+.car-nav:hover{{filter:brightness(1.5);}}
+.car-nav.news{{background:rgba(107,45,107,0.25);border:1px solid rgba(139,58,139,0.4);color:#C084C8;}}
+.car-nav.policy{{background:rgba(59,130,246,0.18);border:1px solid rgba(96,165,250,0.35);color:#60A5FA;}}
+.car-nav.prev{{left:-14px;}}
+.car-nav.next{{right:-14px;}}
 </style>
 
-<!-- ═══ FINANCIAL HEADLINES CAROUSEL ═══ -->
 <div class="car-wrap news" id="car-news">
   <div class="car-header">
     <div class="car-title news">Financial Headlines</div>
@@ -735,244 +690,143 @@ st.markdown(f"""
   </div>
   <div style="position:relative;">
     <div class="car-nav news prev" id="car-news-prev">&#8249;</div>
-    <div class="car-viewport">
-      <div class="car-track" id="car-news-track">
-        <div class="car-slide">
-          <div class="car-loading">
-            <div class="car-spinner"></div> Fetching latest headlines…
-          </div>
-        </div>
-      </div>
-    </div>
+    <div class="car-viewport"><div class="car-track" id="car-news-track"></div></div>
     <div class="car-nav news next" id="car-news-next">&#8250;</div>
   </div>
   <div class="car-progress-track news"><div class="car-progress-bar news" id="car-news-prog"></div></div>
-  <div class="car-counter" id="car-news-counter"></div>
+  <div class="car-footer">
+    <div class="car-src-label" id="car-news-lbl">&#9679; curated</div>
+    <div class="car-counter" id="car-news-ctr"></div>
+  </div>
 </div>
 
-<!-- ═══ POLICY DECISIONS CAROUSEL ═══ -->
 <div class="car-wrap policy" id="car-pol">
   <div class="car-header">
-    <div class="car-title policy">
-      Policy &amp; Government Decisions
-      <span class="car-sub">This Week</span>
-    </div>
+    <div class="car-title policy">Policy &amp; Government Decisions<span class="car-sub">This Week</span></div>
     <div class="car-dots" id="car-pol-dots"></div>
   </div>
   <div style="position:relative;">
     <div class="car-nav policy prev" id="car-pol-prev">&#8249;</div>
-    <div class="car-viewport">
-      <div class="car-track" id="car-pol-track">
-        <div class="car-slide">
-          <div class="car-loading" style="border-color:rgba(96,165,250,0.2);border-top-color:#60A5FA;">
-            <div class="car-spinner" style="border-color:rgba(96,165,250,0.2);border-top-color:#60A5FA;"></div>
-            Fetching policy updates…
-          </div>
-        </div>
-      </div>
-    </div>
+    <div class="car-viewport"><div class="car-track" id="car-pol-track"></div></div>
     <div class="car-nav policy next" id="car-pol-next">&#8250;</div>
   </div>
   <div class="car-progress-track policy"><div class="car-progress-bar policy" id="car-pol-prog"></div></div>
-  <div class="car-counter" id="car-pol-counter"></div>
+  <div class="car-footer">
+    <div class="car-src-label" id="car-pol-lbl">&#9679; curated</div>
+    <div class="car-counter" id="car-pol-ctr"></div>
+  </div>
 </div>
 
 <script>
-/* ══════════════════════════════════════════════════
-   Universal carousel engine — works for both carousels
-   Fetches RSS via rss2json.com (CORS-enabled, free tier)
-   ══════════════════════════════════════════════════ */
-(function() {{
+(function(){{
+  const FN={_fn_json};
+  const FP={_fp_json};
+  const NF={_nf_json};
+  const PF={_pf_json};
 
-  const NEWS_FEEDS   = {news_feeds_json};
-  const POLICY_FEEDS = {policy_feeds_json};
-  const RSS2JSON     = "https://api.rss2json.com/v1/api.json?rss_url=";
-
-  /* ── Parse a date string roughly ── */
-  function fmtDate(d) {{
-    try {{ return new Date(d).toLocaleDateString("en-US",{{month:"short",day:"numeric",year:"numeric"}}); }}
-    catch(e) {{ return d ? d.slice(0,16) : ""; }}
-  }}
-
-  /* ── Build slides from items array ── */
-  function buildSlides(items, isPolicy) {{
-    return items.map(item => {{
-      const title  = item.title  || "(no title)";
-      const link   = item.link   || item.url || "#";
-      const pub    = fmtDate(item.pubDate);
-      const source = item._source || "News";
-      const color  = item._color  || "#C084C8";
-      const flag   = item._flag   || "";
-      const cardClass = isPolicy ? "pol-card-inner" : "news-card-inner";
-      const badge = isPolicy ? `<span class="car-badge">Policy</span>` : "";
-      const srcLine = isPolicy
-        ? `<span>${{flag}}</span> ${{source}} ${{badge}}`
-        : source;
-      return `<div class="car-slide">
-        <div class="car-card ${{cardClass}}" style="border-left-color:${{color}};">
-          <div class="car-src" style="color:${{color}};">${{srcLine}}</div>
-          <a class="car-title-text" href="${{link}}" target="_blank">${{title}}</a>
-          <div class="car-time">${{pub}}</div>
-        </div>
-      </div>`;
+  function buildHTML(items, isPolicy, isLive){{
+    return items.map(item=>{{
+      const cc = isPolicy?"pol-card-inner":"news-card-inner";
+      const badge = isPolicy
+        ? `<span class="car-badge">Policy</span>`
+        : (isLive?`<span class="car-live">Live</span>`:"");
+      const src = isPolicy
+        ? `${{item.flag||"\U0001F3DB"}} ${{item.source}} ${{badge}}`
+        : `${{item.source}} ${{badge}}`;
+      const t = String(item.title||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      return `<div class="car-slide"><div class="car-card ${{cc}}" style="border-left-color:${{item.color}}">
+        <div class="car-src" style="color:${{item.color}}">${{src}}</div>
+        <a class="car-title-text" href="${{item.link||"#"}}" target="_blank">${{t}}</a>
+        <div class="car-time">${{item.pub||""}}</div>
+      </div></div>`;
     }}).join("");
   }}
 
-  /* ── Carousel controller ── */
-  function Carousel(cfg) {{
-    const {{ trackId, dotsId, prevId, nextId, progId, counterId, wrapId, delay, dotClass }} = cfg;
-    let slides = [], current = 0, paused = false, timer = null;
-
-    const track   = document.getElementById(trackId);
-    const dotsEl  = document.getElementById(dotsId);
-    const prog    = document.getElementById(progId);
-    const counter = document.getElementById(counterId);
-    const wrap    = document.getElementById(wrapId);
-
-    this.load = function(html) {{
-      track.innerHTML = html;
-      slides = track.querySelectorAll(".car-slide");
-      dotsEl.innerHTML = "";
-      slides.forEach((_, i) => {{
-        const d = document.createElement("div");
-        d.className = `car-dot ${{dotClass}}` + (i===0?" active":"");
-        d.addEventListener("click", () => goTo(i, true));
-        dotsEl.appendChild(d);
+  function Carousel(o){{
+    const track=document.getElementById(o.track), dots=document.getElementById(o.dots),
+          prog=document.getElementById(o.prog),   ctr=document.getElementById(o.ctr),
+          wrap=document.getElementById(o.wrap),   lbl=document.getElementById(o.lbl);
+    let slides=[],cur=0,paused=false,timer=null;
+    this.load=function(items,isPolicy,isLive){{
+      track.innerHTML=buildHTML(items,isPolicy,isLive);
+      slides=track.querySelectorAll(".car-slide");
+      dots.innerHTML="";
+      slides.forEach((_,i)=>{{
+        const d=document.createElement("div");
+        d.className="car-dot "+o.dotCls+(i===0?" active":"");
+        d.onclick=()=>go(i,true);
+        dots.appendChild(d);
       }});
-      goTo(0, false);
-      restartTimer();
+      if(lbl)lbl.textContent=isLive?"\u25cf live":"\u25cf curated \xb7 live updates pending";
+      go(0,false);tick();
     }};
-
-    function updateDots() {{
-      dotsEl.querySelectorAll(".car-dot").forEach((d,i)=>d.classList.toggle("active",i===current));
+    function go(idx,manual){{
+      if(!slides.length)return;
+      cur=((idx%slides.length)+slides.length)%slides.length;
+      track.style.transform=`translateX(-${{cur*100}}%)`;
+      dots.querySelectorAll(".car-dot").forEach((d,i)=>d.classList.toggle("active",i===cur));
+      if(ctr)ctr.textContent=(cur+1)+" / "+slides.length;
+      if(manual)tick();
     }}
-    function updateCounter() {{
-      if(counter) counter.textContent = slides.length ? (current+1)+" / "+slides.length : "";
-    }}
-    function startProgress() {{
-      prog.style.transition="none"; prog.style.width="0%";
+    function tick(){{
+      clearInterval(timer);
+      prog.style.transition="none";prog.style.width="0%";
       requestAnimationFrame(()=>requestAnimationFrame(()=>{{
-        prog.style.transition=`width ${{delay}}ms linear`; prog.style.width="100%";
+        prog.style.transition=`width ${{o.delay}}ms linear`;prog.style.width="100%";
       }}));
+      timer=setInterval(()=>{{if(!paused)go(cur+1,false);}},o.delay);
     }}
-    function goTo(idx, manual) {{
-      if(!slides.length) return;
-      current = ((idx%slides.length)+slides.length)%slides.length;
-      track.style.transform = `translateX(-${{current*100}}%)`;
-      updateDots(); updateCounter();
-      if(manual) restartTimer();
-    }}
-    function restartTimer() {{
-      clearInterval(timer); startProgress();
-      timer = setInterval(()=>{{ if(!paused) goTo(current+1, false); }}, delay);
-    }}
-
-    wrap.addEventListener("mouseenter",()=>{{paused=true;}});
-    wrap.addEventListener("mouseleave",()=>{{paused=false;}});
-    document.getElementById(prevId).addEventListener("click",()=>goTo(current-1,true));
-    document.getElementById(nextId).addEventListener("click",()=>goTo(current+1,true));
+    wrap.addEventListener("mouseenter",()=>paused=true);
+    wrap.addEventListener("mouseleave",()=>paused=false);
+    document.getElementById(o.prev).onclick=()=>go(cur-1,true);
+    document.getElementById(o.next).onclick=()=>go(cur+1,true);
     let tx=0;
     wrap.addEventListener("touchstart",e=>{{tx=e.touches[0].clientX;}},{{passive:true}});
-    wrap.addEventListener("touchend",e=>{{
-      const dx=e.changedTouches[0].clientX-tx;
-      if(Math.abs(dx)>40) goTo(current+(dx<0?1:-1),true);
-    }});
+    wrap.addEventListener("touchend",e=>{{const dx=e.changedTouches[0].clientX-tx;if(Math.abs(dx)>40)go(cur+(dx<0?1:-1),true);}});
   }}
 
-  const newsCarousel   = new Carousel({{
-    trackId:"car-news-track", dotsId:"car-news-dots",
-    prevId:"car-news-prev",   nextId:"car-news-next",
-    progId:"car-news-prog",   counterId:"car-news-counter",
-    wrapId:"car-news",        delay:3000, dotClass:"news-dot"
-  }});
-  const polCarousel = new Carousel({{
-    trackId:"car-pol-track",  dotsId:"car-pol-dots",
-    prevId:"car-pol-prev",    nextId:"car-pol-next",
-    progId:"car-pol-prog",    counterId:"car-pol-counter",
-    wrapId:"car-pol",         delay:3500, dotClass:"pol-dot"
-  }});
+  const NC=new Carousel({{track:"car-news-track",dots:"car-news-dots",prev:"car-news-prev",next:"car-news-next",prog:"car-news-prog",ctr:"car-news-ctr",wrap:"car-news",lbl:"car-news-lbl",delay:3000,dotCls:"news-dot"}});
+  const PC=new Carousel({{track:"car-pol-track", dots:"car-pol-dots", prev:"car-pol-prev", next:"car-pol-next", prog:"car-pol-prog", ctr:"car-pol-ctr", wrap:"car-pol", lbl:"car-pol-lbl", delay:3500,dotCls:"pol-dot"}});
 
-  /* ── Fetch all feeds for one carousel ── */
-  async function fetchAll(feeds, isPolicy) {{
-    const allItems = [];
-    for(const feed of feeds) {{
-      try {{
-        const api = RSS2JSON + encodeURIComponent(feed.url) + "&count=4";
-        const res = await fetch(api, {{signal: AbortSignal.timeout(8000)}});
-        const data = await res.json();
-        if(data.status==="ok" && data.items) {{
-          data.items.forEach(item => {{
-            item._source = feed.source;
-            item._color  = feed.color;
-            if(feed.flag) item._flag = feed.flag;
-          }});
-          allItems.push(...data.items);
-        }}
-      }} catch(e) {{ /* skip failed feeds */ }}
-    }}
-    return allItems;
+  // Load fallback instantly — always visible
+  NC.load(FN,false,false);
+  PC.load(FP,true, false);
+
+  // Try live fetch via CORS proxies — upgrade if successful
+  const PROXIES=[
+    u=>`https://api.allorigins.win/raw?url=${{encodeURIComponent(u)}}`,
+    u=>`https://corsproxy.io/?${{encodeURIComponent(u)}}`,
+  ];
+  function parseRSS(xml,feed){{
+    try{{
+      const doc=new DOMParser().parseFromString(xml,"text/xml");
+      return [...doc.querySelectorAll("item")].slice(0,5).map(item=>{{
+        const t=item.querySelector("title")?.textContent?.trim()||"";
+        const l=item.querySelector("link")?.textContent?.trim()||item.querySelector("link")?.getAttribute("href")||"#";
+        const p=(item.querySelector("pubDate")?.textContent||"").trim().slice(0,16);
+        return {{title:t,link:l.startsWith("http")?l:"#",pub:p,source:feed.source,color:feed.color,flag:feed.flag||""}};
+      }}).filter(i=>i.title.length>6);
+    }}catch(e){{return[];}}
   }}
-
-  /* ── Fallback: Google News RSS via rss2json ── */
-  async function fetchGoogleNews(query, source, color, flag, count=4) {{
-    try {{
-      const gurl = `https://news.google.com/rss/search?q=${{encodeURIComponent(query)}}&hl=en-US&gl=US&ceid=US:en`;
-      const api  = RSS2JSON + encodeURIComponent(gurl) + "&count=" + count;
-      const res  = await fetch(api, {{signal: AbortSignal.timeout(8000)}});
-      const data = await res.json();
-      if(data.status==="ok" && data.items) {{
-        data.items.forEach(item => {{
-          item._source = source; item._color = color;
-          if(flag) item._flag = flag;
-        }});
-        return data.items;
-      }}
-    }} catch(e) {{}}
-    return [];
+  async function fetchFeed(feed){{
+    for(const px of PROXIES){{
+      try{{
+        const r=await fetch(px(feed.url),{{signal:AbortSignal.timeout(6000)}});
+        if(!r.ok)continue;
+        const txt=await r.text();
+        const parsed=parseRSS(txt,feed);
+        if(parsed.length)return parsed;
+      }}catch(e){{}}
+    }}
+    return[];
   }}
-
-  /* ── Load news carousel ── */
-  (async function loadNews() {{
-    let items = await fetchAll(NEWS_FEEDS, false);
-    if(items.length < 3) {{
-      items = await fetchGoogleNews(
-        "finance economy markets stocks",
-        "Financial News", "#C084C8", "", 12
-      );
-    }}
-    if(items.length > 0) {{
-      newsCarousel.load(buildSlides(items.slice(0,16), false));
-    }} else {{
-      document.getElementById("car-news-track").innerHTML =
-        `<div class="car-slide"><div class="car-loading">No headlines available right now.</div></div>`;
-    }}
-  }})();
-
-  /* ── Load policy carousel ── */
-  (async function loadPolicy() {{
-    let items = await fetchAll(POLICY_FEEDS, true);
-    if(items.length < 3) {{
-      const queries = [
-        ["Federal Reserve interest rate decision policy", "Federal Reserve",       "🇺🇸", "#60A5FA"],
-        ["ECB European Central Bank monetary policy",    "European Central Bank", "🇪🇺", "#34D399"],
-        ["Bank of England rate decision policy",         "Bank of England",       "🇬🇧", "#F472B6"],
-        ["IMF fiscal policy recommendation",             "IMF",                   "🌐", "#A78BFA"],
-        ["government budget fiscal policy decision",     "Government Policy",     "🏛️", "#FBBF24"],
-        ["RBI India repo rate monetary policy",          "RBI India",             "🇮🇳", "#FB923C"],
-      ];
-      for(const [q, src, flag, clr] of queries) {{
-        const got = await fetchGoogleNews(q + " when:7d", src, clr, flag, 2);
-        items.push(...got);
-      }}
-    }}
-    if(items.length > 0) {{
-      polCarousel.load(buildSlides(items.slice(0,18), true));
-    }} else {{
-      document.getElementById("car-pol-track").innerHTML =
-        `<div class="car-slide"><div class="car-loading" style="border-top-color:#60A5FA;">No policy updates available right now.</div></div>`;
-    }}
-  }})();
-
+  async function loadLive(feeds,carousel,isPolicy){{
+    const all=[];
+    await Promise.allSettled(feeds.map(f=>fetchFeed(f).then(items=>all.push(...items))));
+    if(all.length>=3)carousel.load(all.slice(0,18),isPolicy,true);
+  }}
+  loadLive(NF,NC,false);
+  loadLive(PF,PC,true);
 }})();
 </script>
 """, unsafe_allow_html=True)
