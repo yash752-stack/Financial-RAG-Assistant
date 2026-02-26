@@ -21,11 +21,45 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── HIDE STREAMLIT CHROME ─────────────────────────────────────────────────────
+# ── HIDE STREAMLIT CHROME + RESPONSIVE ───────────────────────────────────────
 st.markdown("""
 <style>
 #MainMenu, footer, header, [data-testid="stToolbar"],
 [data-testid="stDecoration"], .stDeployButton { display:none !important; }
+
+/* ── Sidebar toggle button (☰) ──────────────────────── */
+[data-testid="collapsedControl"] {
+  background: rgba(107,45,107,0.18) !important;
+  border: 1px solid rgba(139,58,139,0.45) !important;
+  border-radius: 8px !important;
+  color: #C084C8 !important;
+  top: 0.9rem !important;
+}
+[data-testid="collapsedControl"]:hover {
+  background: rgba(107,45,107,0.35) !important;
+  box-shadow: 0 0 12px rgba(107,45,107,0.4) !important;
+}
+
+/* ── Responsive breakpoints ─────────────────────────── */
+/* Tablet (768–1024px): tighten padding, shrink fonts */
+@media (max-width: 1024px) {
+  [data-testid="block-container"] { padding: 0 1rem !important; }
+  .stat-strip { grid-template-columns: repeat(2,1fr) !important; }
+}
+/* Mobile (<768px): collapse to single column */
+@media (max-width: 767px) {
+  [data-testid="block-container"] { padding: 0 0.5rem !important; max-width:100% !important; }
+  [data-testid="stSidebar"] { min-width: 260px !important; width: 260px !important; }
+  .stat-strip { grid-template-columns: repeat(2,1fr) !important; }
+  .rag-header h1 { font-size: 2rem !important; }
+  .rag-header { padding: 1.2rem 1rem !important; }
+  [data-testid="stColumns"] > div { min-width: 0 !important; }
+}
+/* Very small (<480px) */
+@media (max-width: 479px) {
+  .stat-strip { grid-template-columns: repeat(1,1fr) !important; }
+  .rag-header h1 { font-size: 1.6rem !important; }
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -201,6 +235,45 @@ for k, v in [
 # ══════════════════════════════════════════════════════════════════════════════
 _HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
+# ── RATE LIMITER (token bucket — prevents DDOS of Yahoo / APIs) ──────────────
+import threading as _threading, time as _time
+
+class _TokenBucket:
+    """Thread-safe token bucket: max `capacity` calls per `refill_every` seconds."""
+    def __init__(self, capacity: int = 30, refill_every: float = 60.0):
+        self._cap      = capacity
+        self._tokens   = float(capacity)
+        self._interval = refill_every / capacity   # seconds per token
+        self._lock     = _threading.Lock()
+        self._last     = _time.monotonic()
+
+    def acquire(self, timeout: float = 5.0) -> bool:
+        deadline = _time.monotonic() + timeout
+        while True:
+            with self._lock:
+                now    = _time.monotonic()
+                earned = (now - self._last) / self._interval
+                self._tokens = min(self._cap, self._tokens + earned)
+                self._last   = now
+                if self._tokens >= 1.0:
+                    self._tokens -= 1.0
+                    return True
+            if _time.monotonic() >= deadline:
+                return False
+            _time.sleep(0.05)
+
+# Singleton bucket — 30 market-data calls per 60 s (shared across all Streamlit threads)
+@st.cache_resource
+def _get_bucket():
+    return _TokenBucket(capacity=30, refill_every=60.0)
+
+def _throttled_get(url: str, timeout: int = 10) -> "requests.Response":
+    """requests.get with token-bucket throttle. Raises RuntimeError if bucket empty."""
+    if not _get_bucket().acquire(timeout=4.0):
+        raise RuntimeError("Rate limit reached — please wait a few seconds and try again.")
+    return requests.get(url, headers=_HEADERS, timeout=timeout)
+
+
 @st.cache_data(ttl=300)
 def fetch_yahoo_series(symbol: str, period: str, interval: str):
     url = (
@@ -208,7 +281,7 @@ def fetch_yahoo_series(symbol: str, period: str, interval: str):
         f"?range={period}&interval={interval}&includePrePost=false"
     )
     try:
-        r = requests.get(url, headers=_HEADERS, timeout=10)
+        r = _throttled_get(url, timeout=10)
         r.raise_for_status()
         data  = r.json()
         res   = data["chart"]["result"][0]
@@ -223,7 +296,7 @@ def fetch_yahoo_series(symbol: str, period: str, interval: str):
 def fetch_quote(symbol: str):
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=2d&interval=1d"
     try:
-        r = requests.get(url, headers=_HEADERS, timeout=8)
+        r = _throttled_get(url, timeout=8)
         r.raise_for_status()
         data = r.json()
         q = [x for x in data["chart"]["result"][0]["indicators"]["quote"][0]["close"] if x is not None]
@@ -241,7 +314,7 @@ def fetch_multi_quotes(symbols: tuple):
 @st.cache_data(ttl=300)
 def fetch_fear_greed():
     try:
-        r = requests.get("https://api.alternative.me/fng/?limit=1", headers=_HEADERS, timeout=8)
+        r = _throttled_get("https://api.alternative.me/fng/?limit=1", timeout=8)
         d = r.json()["data"][0]
         return {"value": int(d["value"]), "label": d["value_classification"]}
     except Exception:
@@ -846,6 +919,24 @@ with st.sidebar:
             os.environ["GROQ_API_KEY"] = GROQ_API_KEY
             st.markdown('<div class="key-ok"><div class="key-dot"></div>API Key Active</div>', unsafe_allow_html=True)
 
+    # ── Rate limit indicator ─────────────────────────────────────────────────
+    bucket  = _get_bucket()
+    tokens_left = int(bucket._tokens)
+    pct_full    = tokens_left / bucket._cap
+    bar_color   = "#4ade80" if pct_full > 0.5 else ("#f0c040" if pct_full > 0.2 else "#f87171")
+    st.markdown(
+        f'<div style="margin:0.6rem 0 0.3rem;">'
+        f'<div style="font-family:Space Mono,monospace;font-size:0.52rem;letter-spacing:0.2em;'
+        f'color:#4A3858;text-transform:uppercase;margin-bottom:0.3rem;">API Rate Limit</div>'
+        f'<div style="background:#0D0B12;border:1px solid rgba(139,58,139,0.22);border-radius:4px;height:5px;overflow:hidden;">'
+        f'<div style="height:100%;width:{int(pct_full*100)}%;background:{bar_color};border-radius:4px;'
+        f'transition:width 0.4s;"></div></div>'
+        f'<div style="font-family:Space Mono,monospace;font-size:0.5rem;color:#4A3858;margin-top:0.2rem;">'
+        f'{tokens_left}/{bucket._cap} calls remaining · resets per 60s</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
     if st.session_state.file_names:
         st.markdown('<div class="sb-lbl">Knowledge Base</div>', unsafe_allow_html=True)
         c1, c2 = st.columns(2)
@@ -1196,6 +1287,195 @@ else:
 st.markdown("</div>", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
+# INDIA NEWS & POLICY PANEL
+# ══════════════════════════════════════════════════════════════════════════════
+
+NEWS_SOURCES = {
+    "📰 Business Standard": {
+        "rss": "https://www.business-standard.com/rss/home_page_top_stories.rss",
+        "tag": "Markets",
+    },
+    "📰 Economic Times": {
+        "rss": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
+        "tag": "Markets",
+    },
+    "📰 Mint": {
+        "rss": "https://www.livemint.com/rss/markets",
+        "tag": "Markets",
+    },
+    "📰 Hindu BusinessLine": {
+        "rss": "https://www.thehindubusinessline.com/markets/feeder/default.rss",
+        "tag": "Markets",
+    },
+    "🏛️ RBI Notifications": {
+        "rss": "https://www.rbi.org.in/Scripts/Notifications_Rss.aspx",
+        "tag": "Policy",
+    },
+    "🏛️ SEBI Orders": {
+        "rss": "https://www.sebi.gov.in/sebiweb/other/OtherAction.do?doGetPublicationRss=yes&rssHead=4",
+        "tag": "Policy",
+    },
+    "🏛️ Finance Ministry": {
+        "rss": "https://pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=3",
+        "tag": "Policy",
+    },
+    "🏛️ PIB – Economy": {
+        "rss": "https://pib.gov.in/RssMain.aspx?ModId=4&Lang=1&Regid=3",
+        "tag": "Policy",
+    },
+}
+
+@st.cache_data(ttl=600)   # 10-minute cache for news
+def fetch_rss(url: str, max_items: int = 6):
+    """Parse an RSS feed and return list of {title, link, date, summary}."""
+    import xml.etree.ElementTree as ET
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; NewsBot/1.0)",
+        "Accept": "application/rss+xml, application/xml, text/xml, */*",
+    }
+    try:
+        r = requests.get(url, headers=headers, timeout=12)
+        r.raise_for_status()
+        root = ET.fromstring(r.content)
+        ns   = {"media": "http://search.yahoo.com/mrss/"}
+        items = root.findall(".//item")
+        results = []
+        for item in items[:max_items]:
+            title   = (item.findtext("title") or "").strip()
+            link    = (item.findtext("link")  or "").strip()
+            pub     = (item.findtext("pubDate") or "").strip()
+            desc    = (item.findtext("description") or "").strip()
+            # Strip HTML tags from description
+            import re
+            desc = re.sub(r"<[^>]+>", "", desc)[:180].strip()
+            # Shorten date
+            try:
+                from email.utils import parsedate_to_datetime
+                dt  = parsedate_to_datetime(pub)
+                pub = dt.strftime("%d %b, %H:%M")
+            except Exception:
+                pub = pub[:16]
+            if title:
+                results.append({"title": title, "link": link, "date": pub, "summary": desc})
+        return results
+    except Exception:
+        return []
+
+# ── Controls row ─────────────────────────────────────────────────────────────
+st.markdown("""
+<div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.8rem;">
+  <span style="display:inline-block;width:3px;height:1.4rem;background:linear-gradient(180deg,#6B2D6B,#C084C8);border-radius:2px;flex-shrink:0;"></span>
+  <span style="font-family:'Cormorant Garamond',serif;font-size:1.35rem;font-weight:300;color:#EDE8F5;">
+    India News &amp; Policy
+  </span>
+</div>
+""", unsafe_allow_html=True)
+
+news_ctrl1, news_ctrl2, news_ctrl3 = st.columns([3, 2, 1])
+with news_ctrl1:
+    sel_sources = st.multiselect(
+        "sources",
+        options=list(NEWS_SOURCES.keys()),
+        default=["📰 Economic Times", "📰 Business Standard", "🏛️ RBI Notifications", "🏛️ Finance Ministry"],
+        label_visibility="collapsed",
+        key="news_sources",
+    )
+with news_ctrl2:
+    news_filter = st.selectbox(
+        "filter", ["All", "Markets", "Policy"],
+        index=0, label_visibility="collapsed", key="news_filter"
+    )
+with news_ctrl3:
+    n_per_source = st.selectbox(
+        "items", [3, 5, 8, 10],
+        index=0, label_visibility="collapsed", key="news_n"
+    )
+
+# Apply tag filter
+active_sources = [
+    s for s in sel_sources
+    if news_filter == "All" or NEWS_SOURCES[s]["tag"] == news_filter
+]
+
+if active_sources:
+    # Fetch all selected feeds
+    all_articles: list[dict] = []
+    for src_name in active_sources:
+        src_cfg  = NEWS_SOURCES[src_name]
+        articles = fetch_rss(src_cfg["rss"], max_items=n_per_source)
+        for a in articles:
+            a["source"]  = src_name
+            a["src_tag"] = src_cfg["tag"]
+        all_articles.extend(articles)
+
+    if all_articles:
+        # Split into 2 columns for compact display
+        left_arts  = all_articles[0::2]
+        right_arts = all_articles[1::2]
+
+        def render_card(a: dict) -> str:
+            tag_color   = "#C084C8" if a["src_tag"] == "Policy" else "#4ade80"
+            tag_bg      = "rgba(192,132,200,0.1)" if a["src_tag"] == "Policy" else "rgba(74,222,128,0.08)"
+            tag_border  = "rgba(192,132,200,0.3)"  if a["src_tag"] == "Policy" else "rgba(74,222,128,0.25)"
+            src_short   = a["source"].replace("📰 ","").replace("🏛️ ","")
+            title_esc   = a["title"].replace('"', "&quot;").replace("'", "&#39;")
+            link        = a.get("link", "#") or "#"
+            summary     = a.get("summary", "")
+            date_str    = a.get("date", "")
+            return f"""
+<div style="background:#0D0B12;border:1px solid rgba(139,58,139,0.22);border-radius:10px;
+            padding:0.8rem 1rem;margin-bottom:0.6rem;border-left:3px solid {tag_color};
+            transition:all 0.2s;">
+  <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.4rem;flex-wrap:wrap;">
+    <span style="background:{tag_bg};border:1px solid {tag_border};color:{tag_color};
+                 font-family:'Space Mono',monospace;font-size:0.52rem;letter-spacing:0.1em;
+                 padding:0.1rem 0.4rem;border-radius:3px;text-transform:uppercase;">
+      {a['src_tag']}
+    </span>
+    <span style="font-family:'Space Mono',monospace;font-size:0.52rem;color:#4A3858;">
+      {src_short}
+    </span>
+    <span style="font-family:'Space Mono',monospace;font-size:0.5rem;color:#4A3858;margin-left:auto;">
+      {date_str}
+    </span>
+  </div>
+  <a href="{link}" target="_blank" style="text-decoration:none;">
+    <div style="font-family:'Syne',sans-serif;font-size:0.82rem;font-weight:500;
+                color:#EDE8F5;line-height:1.45;margin-bottom:0.35rem;
+                cursor:pointer;">
+      {title_esc}
+    </div>
+  </a>
+  <div style="font-family:'Syne',sans-serif;font-size:0.72rem;color:#4A3858;
+              line-height:1.5;overflow:hidden;display:-webkit-box;
+              -webkit-line-clamp:2;-webkit-box-orient:vertical;">
+    {summary}
+  </div>
+</div>"""
+
+        col_l, col_r = st.columns(2)
+        with col_l:
+            st.markdown("".join(render_card(a) for a in left_arts), unsafe_allow_html=True)
+        with col_r:
+            st.markdown("".join(render_card(a) for a in right_arts), unsafe_allow_html=True)
+
+        import datetime as _ndt
+        now_ist_news = _ndt.datetime.utcnow() + _ndt.timedelta(hours=5, minutes=30)
+        st.markdown(
+            f'<div style="font-family:Space Mono,monospace;font-size:0.5rem;color:#4A3858;'
+            f'text-align:right;margin-top:0.2rem;">'
+            f'Fetched {now_ist_news.strftime("%H:%M")} IST · {len(all_articles)} articles · 10min cache'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.info("No articles loaded — feeds may be slow. Try refreshing or selecting different sources.")
+else:
+    st.info("Select at least one source above, or change the filter to 'All'.")
+
+st.markdown("<hr style='border-color:rgba(139,58,139,0.15);margin:1.4rem 0;'>", unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
 # CHAT SECTION
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown("""
@@ -1294,11 +1574,14 @@ if q:
                     f"  {ticker}: ${info['price']:,.{dec}f} ({'+' if info['pct']>=0 else ''}{info['pct']:.2f}%)"
                     for sym, (name, ticker, _, dec) in CRYPTO_SYMS.items() if (info := fetch_quote(sym))
                 ]
-                fx_lines = [
-                    f"  {ALL_FX[sym]['label']}: {info['price']:,.2f if info['price']>=10 else .4f} ({'+' if info['pct']>=0 else ''}{info['pct']:.3f}%)"
-                    for sym in st.session_state.get("fx_select_syms", ("USDINR=X","USDJPY=X","USDCNY=X"))
-                    if (info := fetch_quote(sym))
-                ]
+                fx_lines = []
+                for _fxsym in st.session_state.get("fx_select_syms", ("USDINR=X","USDJPY=X","USDCNY=X")):
+                    _fxi = fetch_quote(_fxsym)
+                    if _fxi:
+                        _p = _fxi["price"]
+                        _rs = f"{_p:,.2f}" if _p >= 10 else f"{_p:.4f}"
+                        _sg = "+" if _fxi["pct"] >= 0 else ""
+                        fx_lines.append(f"  {ALL_FX.get(_fxsym,{}).get('label',_fxsym)}: {_rs} ({_sg}{_fxi['pct']:.3f}%)")
 
                 utc_now = _dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
                 live_context = f"""=== LIVE MARKET DATA ({utc_now}) ===
