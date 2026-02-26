@@ -568,6 +568,12 @@ hr { border-color: var(--border) !important; margin: 1rem 0 !important; }
   border-radius: 8px;
   padding: 0.45rem 0.7rem;
   min-width: 80px;
+  font-family: 'Space Mono', monospace;
+}
+.ticker-sym  { font-size: 0.62rem; color: var(--accent); font-weight: 700; }
+.ticker-prc  { font-size: 0.72rem; color: var(--text); margin-top: 0.1rem; }
+.ticker-chg.up   { font-size: 0.6rem; color: #4ade80; }
+.ticker-chg.down { font-size: 0.6rem; color: #f87171; }
 
 /* ── Currency panel ── */
 .fx-panel {
@@ -591,8 +597,9 @@ hr { border-color: var(--border) !important; margin: 1rem 0 !important; }
 }
 .fx-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 0.7rem;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.65rem;
+  margin-top: 0.9rem;
 }
 .fx-card {
   background: var(--card-2);
@@ -613,39 +620,26 @@ hr { border-color: var(--border) !important; margin: 1rem 0 !important; }
 .fx-card:hover::before { opacity: 1; }
 .fx-pair {
   font-family: 'Space Mono', monospace;
-  font-size: 0.58rem; letter-spacing: 0.18em;
+  font-size: 0.56rem; letter-spacing: 0.14em;
   text-transform: uppercase; color: var(--text-ghost);
-  margin-bottom: 0.3rem;
+  margin-bottom: 0.25rem;
 }
-.fx-flag { font-size: 1rem; margin-bottom: 0.2rem; }
+.fx-flag { font-size: 1.1rem; margin-bottom: 0.15rem; }
 .fx-rate {
   font-family: 'Cormorant Garamond', serif;
-  font-size: 1.55rem; font-weight: 300;
-  color: var(--text); line-height: 1; margin-bottom: 0.2rem;
+  font-size: 1.5rem; font-weight: 300;
+  color: var(--text); line-height: 1; margin-bottom: 0.15rem;
 }
-.fx-chg {
-  font-family: 'Space Mono', monospace;
-  font-size: 0.6rem;
-}
+.fx-chg { font-family: 'Space Mono', monospace; font-size: 0.58rem; }
 .fx-chg.up   { color: #4ade80; }
 .fx-chg.down { color: #f87171; }
 .fx-chg.flat { color: var(--text-ghost); }
-.fx-name {
-  font-size: 0.68rem; color: var(--text-ghost);
-  margin-top: 0.1rem;
-}
+.fx-name { font-size: 0.65rem; color: var(--text-ghost); margin-top: 0.1rem; }
 .fx-updated {
   font-family: 'Space Mono', monospace;
-  font-size: 0.52rem; letter-spacing: 0.1em;
-  color: var(--text-ghost); margin-top: 0.6rem;
-  text-align: right;
+  font-size: 0.5rem; letter-spacing: 0.1em;
+  color: var(--text-ghost); margin-top: 0.7rem; text-align: right;
 }
-  font-family: 'Space Mono', monospace;
-}
-.ticker-sym  { font-size: 0.62rem; color: var(--accent); font-weight: 700; }
-.ticker-prc  { font-size: 0.72rem; color: var(--text); margin-top: 0.1rem; }
-.ticker-chg.up   { font-size: 0.6rem; color: #4ade80; }
-.ticker-chg.down { font-size: 0.6rem; color: #f87171; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -825,8 +819,8 @@ st.markdown(f"""
 # ══════════════════════════════════════════════════════════════════════════════
 # LIVE STOCK CHART
 # ══════════════════════════════════════════════════════════════════════════════
-st.markdown('<div class="stock-panel">', unsafe_allow_html=True)
-st.markdown('<div class="stock-title">Live Market Overview</div>', unsafe_allow_html=True)
+st.markdown('<div style="background:#0D0B12;border:1px solid rgba(139,58,139,0.22);border-radius:12px;padding:1.2rem 1.4rem 0.5rem;margin-bottom:1.4rem;">', unsafe_allow_html=True)
+st.markdown('<div style="font-family:\'Cormorant Garamond\',serif;font-size:1.1rem;font-weight:300;color:#EDE8F5;margin-bottom:0.8rem;display:flex;align-items:center;gap:0.5rem;"><span style=\'display:inline-block;width:3px;height:1.1rem;background:linear-gradient(180deg,#6B2D6B,#C084C8);border-radius:2px;\'></span>Live Market Overview</div>', unsafe_allow_html=True)
 
 col_sym, col_rng = st.columns([4, 1])
 with col_sym:
@@ -890,26 +884,45 @@ def fetch_quote(symbol: str):
         return None
 
 @st.cache_data(ttl=60)
-def fetch_fx():
+def fetch_fx(syms: tuple = ("USDINR=X","USDJPY=X","USDCNY=X","EURUSD=X","GBPUSD=X","USDCHF=X")):
     """
-    Fetch real-time FX rates for major currency pairs vs USD
-    using Yahoo Finance JSON API — no extra packages required.
-    Returns dict: { 'USDINR': {'rate':..,'pct':..,'prev':..}, ... }
+    Fetch real-time FX rates for given symbols using Yahoo Finance JSON API.
+    syms: tuple of Yahoo FX ticker strings (must be hashable for cache).
+    Returns dict: { symbol: {'rate', 'pct', 'label', 'flag', 'name'} }
     """
-    pairs = {
-        "USDINR=X":  {"label": "USD / INR",  "flag": "🇮🇳", "name": "Indian Rupee",      "base": "USD", "quote": "INR"},
-        "USDJPY=X":  {"label": "USD / JPY",  "flag": "🇯🇵", "name": "Japanese Yen",      "base": "USD", "quote": "JPY"},
-        "USDCNY=X":  {"label": "USD / CNY",  "flag": "🇨🇳", "name": "Chinese Yuan",      "base": "USD", "quote": "CNY"},
-        "EURUSD=X":  {"label": "EUR / USD",  "flag": "🇪🇺", "name": "Euro",              "base": "EUR", "quote": "USD"},
-        "GBPUSD=X":  {"label": "GBP / USD",  "flag": "🇬🇧", "name": "British Pound",     "base": "GBP", "quote": "USD"},
-        "USDCHF=X":  {"label": "USD / CHF",  "flag": "🇨🇭", "name": "Swiss Franc",       "base": "USD", "quote": "CHF"},
+    ALL_META = {
+        "USDINR=X": {"label":"USD/INR","flag":"🇮🇳","name":"Indian Rupee"},
+        "USDJPY=X": {"label":"USD/JPY","flag":"🇯🇵","name":"Japanese Yen"},
+        "USDCNY=X": {"label":"USD/CNY","flag":"🇨🇳","name":"Chinese Yuan"},
+        "EURUSD=X": {"label":"EUR/USD","flag":"🇪🇺","name":"Euro"},
+        "GBPUSD=X": {"label":"GBP/USD","flag":"🇬🇧","name":"British Pound"},
+        "USDCHF=X": {"label":"USD/CHF","flag":"🇨🇭","name":"Swiss Franc"},
+        "USDKRW=X": {"label":"USD/KRW","flag":"🇰🇷","name":"S. Korean Won"},
+        "USDBRL=X": {"label":"USD/BRL","flag":"🇧🇷","name":"Brazilian Real"},
+        "USDCAD=X": {"label":"USD/CAD","flag":"🇨🇦","name":"Canadian Dollar"},
+        "USDAUD=X": {"label":"USD/AUD","flag":"🇦🇺","name":"Australian Dollar"},
+        "USDSGD=X": {"label":"USD/SGD","flag":"🇸🇬","name":"Singapore Dollar"},
+        "USDHKD=X": {"label":"USD/HKD","flag":"🇭🇰","name":"Hong Kong Dollar"},
+        "USDMXN=X": {"label":"USD/MXN","flag":"🇲🇽","name":"Mexican Peso"},
+        "USDTRY=X": {"label":"USD/TRY","flag":"🇹🇷","name":"Turkish Lira"},
+        "USDRUB=X": {"label":"USD/RUB","flag":"🇷🇺","name":"Russian Ruble"},
+        "USDZAR=X": {"label":"USD/ZAR","flag":"🇿🇦","name":"S. African Rand"},
+        "USDAED=X": {"label":"USD/AED","flag":"🇦🇪","name":"UAE Dirham"},
+        "USDNOK=X": {"label":"USD/NOK","flag":"🇳🇴","name":"Norwegian Krone"},
+        "USDSEK=X": {"label":"USD/SEK","flag":"🇸🇪","name":"Swedish Krona"},
+        "USDDKK=X": {"label":"USD/DKK","flag":"🇩🇰","name":"Danish Krone"},
+        "USDNZD=X": {"label":"USD/NZD","flag":"🇳🇿","name":"New Zealand Dollar"},
+        "USDPLN=X": {"label":"USD/PLN","flag":"🇵🇱","name":"Polish Zloty"},
+        "USDTHB=X": {"label":"USD/THB","flag":"🇹🇭","name":"Thai Baht"},
+        "USDIDR=X": {"label":"USD/IDR","flag":"🇮🇩","name":"Indonesian Rupiah"},
+        "USDPHP=X": {"label":"USD/PHP","flag":"🇵🇭","name":"Philippine Peso"},
     }
     results = {}
     headers = {"User-Agent": "Mozilla/5.0"}
-    for symbol, meta in pairs.items():
+    for symbol in syms:
         try:
-            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=2d&interval=1d"
-            r   = requests.get(url, headers=headers, timeout=8)
+            url  = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=2d&interval=1d"
+            r    = requests.get(url, headers=headers, timeout=8)
             r.raise_for_status()
             data  = r.json()
             res   = data["chart"]["result"][0]
@@ -920,7 +933,8 @@ def fetch_fx():
             rate = close[-1]
             prev = close[-2] if len(close) >= 2 else rate
             pct  = (rate - prev) / prev * 100 if prev else 0.0
-            results[symbol] = {**meta, "rate": rate, "prev": prev, "pct": pct}
+            meta = ALL_META.get(symbol, {"label": symbol, "flag": "💱", "name": symbol})
+            results[symbol] = {**meta, "rate": rate, "pct": pct}
         except Exception:
             continue
     return results
@@ -929,24 +943,28 @@ if symbols:
     period   = period_map[rng]
     interval = interval_map[rng]
 
-    # ── Ticker chips (live quotes) ────────────────────────────────
-    chip_html = '<div class="ticker-row">'
-    any_chip  = False
+    # ── Ticker chips (live quotes) — fully inline-styled ─────────
+    chip_parts = []
     for sym in symbols:
         info = fetch_quote(sym)
         if info:
-            any_chip = True
-            arrow = "▲" if info["pct"] >= 0 else "▼"
-            cls   = "up" if info["pct"] >= 0 else "down"
-            chip_html += f"""
-            <div class="ticker-chip">
-              <div class="ticker-sym">{sym}</div>
-              <div class="ticker-prc">${info['price']:,.2f}</div>
-              <div class="ticker-chg {cls}">{arrow} {abs(info['pct']):.2f}%</div>
-            </div>"""
-    chip_html += '</div>'
-    if any_chip:
-        st.markdown(chip_html, unsafe_allow_html=True)
+            arrow     = "▲" if info["pct"] >= 0 else "▼"
+            chg_color = "#4ade80" if info["pct"] >= 0 else "#f87171"
+            chip_parts.append(f"""
+            <div style="display:flex;flex-direction:column;align-items:center;
+                        background:#120E1A;border:1px solid rgba(139,58,139,0.22);
+                        border-radius:8px;padding:0.45rem 0.75rem;min-width:80px;
+                        font-family:'Space Mono',monospace;">
+              <span style="font-size:0.62rem;color:#C084C8;font-weight:700;">{sym}</span>
+              <span style="font-size:0.74rem;color:#EDE8F5;margin-top:0.1rem;">${info['price']:,.2f}</span>
+              <span style="font-size:0.58rem;color:{chg_color};">{arrow} {abs(info['pct']):.2f}%</span>
+            </div>""")
+    if chip_parts:
+        st.markdown(
+            '<div style="display:flex;gap:0.55rem;flex-wrap:wrap;margin-bottom:0.8rem;">'
+            + "".join(chip_parts) + '</div>',
+            unsafe_allow_html=True,
+        )
 
     # ── Historical chart ──────────────────────────────────────────
     chart = pd.DataFrame()
@@ -969,73 +987,134 @@ else:
 st.markdown("</div>", unsafe_allow_html=True)  # close stock-panel
 
 # ══════════════════════════════════════════════════════════════════════════════
-# CURRENCY PANEL — historical chart + live cards vs USD
+# CURRENCY PANEL — selectable pairs, comparative chart vs USD, compact chips
 # ══════════════════════════════════════════════════════════════════════════════
-st.markdown('<div class="fx-panel">', unsafe_allow_html=True)
+st.markdown('<div style="background:#0D0B12;border:1px solid rgba(139,58,139,0.22);border-radius:12px;padding:1.1rem 1.4rem 0.9rem;margin-bottom:1.4rem;">', unsafe_allow_html=True)
+st.markdown('<div style="font-family:\'Cormorant Garamond\',serif;font-size:1.1rem;font-weight:300;color:#EDE8F5;margin-bottom:0.9rem;display:flex;align-items:center;gap:0.5rem;"><span style=\'display:inline-block;width:3px;height:1.1rem;background:linear-gradient(180deg,#6B2D6B,#C084C8);border-radius:2px;\'></span>Currencies vs USD</div>', unsafe_allow_html=True)
 
-fx_col1, fx_col2 = st.columns([4, 1])
-with fx_col1:
-    st.markdown('<div class="fx-title">Major Currencies vs USD</div>', unsafe_allow_html=True)
-with fx_col2:
-    fx_rng = st.selectbox("fx_range", ["1M","3M","6M","1Y"], index=0, label_visibility="collapsed", key="fx_rng")
+# Full catalogue of available pairs
+ALL_FX = {
+    "USDINR=X": {"label": "USD/INR", "flag": "🇮🇳", "name": "Indian Rupee",      "invert": False},
+    "USDJPY=X": {"label": "USD/JPY", "flag": "🇯🇵", "name": "Japanese Yen",      "invert": False},
+    "USDCNY=X": {"label": "USD/CNY", "flag": "🇨🇳", "name": "Chinese Yuan",      "invert": False},
+    "EURUSD=X": {"label": "EUR/USD", "flag": "🇪🇺", "name": "Euro",              "invert": True},
+    "GBPUSD=X": {"label": "GBP/USD", "flag": "🇬🇧", "name": "British Pound",     "invert": True},
+    "USDCHF=X": {"label": "USD/CHF", "flag": "🇨🇭", "name": "Swiss Franc",       "invert": False},
+    "USDKRW=X": {"label": "USD/KRW", "flag": "🇰🇷", "name": "S. Korean Won",     "invert": False},
+    "USDBRL=X": {"label": "USD/BRL", "flag": "🇧🇷", "name": "Brazilian Real",    "invert": False},
+    "USDCAD=X": {"label": "USD/CAD", "flag": "🇨🇦", "name": "Canadian Dollar",   "invert": False},
+    "USDAUD=X": {"label": "USD/AUD", "flag": "🇦🇺", "name": "Australian Dollar", "invert": False},
+    "USDSGD=X": {"label": "USD/SGD", "flag": "🇸🇬", "name": "Singapore Dollar",  "invert": False},
+    "USDHKD=X": {"label": "USD/HKD", "flag": "🇭🇰", "name": "Hong Kong Dollar",  "invert": False},
+    "USDMXN=X": {"label": "USD/MXN", "flag": "🇲🇽", "name": "Mexican Peso",      "invert": False},
+    "USDTRY=X": {"label": "USD/TRY", "flag": "🇹🇷", "name": "Turkish Lira",      "invert": False},
+    "USDRUB=X": {"label": "USD/RUB", "flag": "🇷🇺", "name": "Russian Ruble",     "invert": False},
+    "USDZAR=X": {"label": "USD/ZAR", "flag": "🇿🇦", "name": "S. African Rand",   "invert": False},
+    "USDAED=X": {"label": "USD/AED", "flag": "🇦🇪", "name": "UAE Dirham",        "invert": False},
+    "USDNOK=X": {"label": "USD/NOK", "flag": "🇳🇴", "name": "Norwegian Krone",   "invert": False},
+    "USDSEK=X": {"label": "USD/SEK", "flag": "🇸🇪", "name": "Swedish Krona",     "invert": False},
+    "USDDKK=X": {"label": "USD/DKK", "flag": "🇩🇰", "name": "Danish Krone",      "invert": False},
+    "USDNZD=X": {"label": "USD/NZD", "flag": "🇳🇿", "name": "New Zealand Dollar","invert": False},
+    "USDPLN=X": {"label": "USD/PLN", "flag": "🇵🇱", "name": "Polish Zloty",      "invert": False},
+    "USDTHB=X": {"label": "USD/THB", "flag": "🇹🇭", "name": "Thai Baht",         "invert": False},
+    "USDIDR=X": {"label": "USD/IDR", "flag": "🇮🇩", "name": "Indonesian Rupiah", "invert": False},
+    "USDPHP=X": {"label": "USD/PHP", "flag": "🇵🇭", "name": "Philippine Peso",   "invert": False},
+}
+
+# Build display options: "🇮🇳 USD/INR · Indian Rupee"
+fx_options     = {f"{m['flag']} {m['label']} · {m['name']}": sym for sym, m in ALL_FX.items()}
+default_labels = [
+    k for k, v in fx_options.items()
+    if v in ("USDINR=X","USDJPY=X","USDCNY=X","EURUSD=X","GBPUSD=X","USDCHF=X")
+]
+
+fx_row1, fx_row2 = st.columns([5, 1])
+with fx_row1:
+    selected_labels = st.multiselect(
+        "currencies",
+        options=list(fx_options.keys()),
+        default=default_labels,
+        label_visibility="collapsed",
+        key="fx_select",
+    )
+with fx_row2:
+    fx_rng = st.selectbox(
+        "fx_range", ["1M","3M","6M","1Y"],
+        index=0, label_visibility="collapsed", key="fx_rng"
+    )
+
+selected_syms = [fx_options[lbl] for lbl in selected_labels]
+st.session_state["fx_select_syms"] = selected_syms  # used by chatbot context
 
 fx_period_map   = {"1M": "1mo", "3M": "3mo", "6M": "6mo", "1Y": "1y"}
 fx_interval_map = {"1M": "1d",  "3M": "1d",  "6M": "1d",  "1Y": "1wk"}
 
-# Currency pairs config
-FX_PAIRS = {
-    "USDINR=X": {"label": "USD/INR", "flag": "🇮🇳", "name": "Indian Rupee",   "invert": False},
-    "USDJPY=X": {"label": "USD/JPY", "flag": "🇯🇵", "name": "Japanese Yen",   "invert": False},
-    "USDCNY=X": {"label": "USD/CNY", "flag": "🇨🇳", "name": "Chinese Yuan",   "invert": False},
-    "EURUSD=X": {"label": "EUR/USD", "flag": "🇪🇺", "name": "Euro",           "invert": True},
-    "GBPUSD=X": {"label": "GBP/USD", "flag": "🇬🇧", "name": "British Pound",  "invert": True},
-    "USDCHF=X": {"label": "USD/CHF", "flag": "🇨🇭", "name": "Swiss Franc",    "invert": False},
-}
+if selected_syms:
+    # ── Historical % change chart ─────────────────────────────────────────
+    fx_chart = pd.DataFrame()
+    for sym in selected_syms:
+        meta = ALL_FX[sym]
+        s    = fetch_yahoo(sym, fx_period_map[fx_rng], fx_interval_map[fx_rng])
+        if s is not None and not s.empty:
+            if meta["invert"]:
+                s = 1.0 / s          # EUR/USD, GBP/USD → invert so "rising = USD stronger"
+            s = (s / s.iloc[0] - 1) * 100
+            s.name = meta["flag"] + " " + meta["label"]
+            fx_chart[s.name] = s
 
-# Build historical chart — all pairs normalised to "USD strength" (how many units of that currency per $1)
-fx_chart = pd.DataFrame()
-for sym, meta in FX_PAIRS.items():
-    s = fetch_yahoo(sym, fx_period_map[fx_rng], fx_interval_map[fx_rng])
-    if s is not None and not s.empty:
-        # For EUR/USD and GBP/USD, invert so chart reads as "USD per EUR/GBP" i.e. USD cost
-        if meta["invert"]:
-            s = 1.0 / s
-        # Normalise to % change vs period start for comparability
-        s = (s / s.iloc[0] - 1) * 100
-        fx_chart[meta["label"]] = s
+    if not fx_chart.empty:
+        fx_chart = fx_chart.dropna(how="all").ffill()
+        st.line_chart(fx_chart, height=220, use_container_width=True)
+        st.caption(
+            f"% change from {fx_rng} start · Rising = USD strengthening · "
+            f"EUR/GBP inverted for consistency · Yahoo Finance"
+        )
+    else:
+        st.warning("Chart data unavailable — Yahoo Finance may be rate-limiting. Try again shortly.")
 
-if not fx_chart.empty:
-    fx_chart = fx_chart.dropna(how="all").ffill()
-    st.line_chart(fx_chart, height=220, use_container_width=True)
-    st.caption(
-        f"% change from {fx_rng} start · INR/JPY/CNY/CHF: USD weakening = line rises · "
-        f"EUR/GBP: inverted to show USD cost · Yahoo Finance"
-    )
+    # ── Compact chip row (live rates) — fully inline-styled ──────────────
+    import datetime as _dt
+    any_chip  = False
+    chip_parts = []
+    for sym in selected_syms:
+        meta = ALL_FX[sym]
+        info = fetch_quote(sym)
+        if info:
+            any_chip = True
+            rate  = info["price"]
+            pct   = info["pct"]
+            arrow = "▲" if pct > 0.005 else ("▼" if pct < -0.005 else "●")
+            chg_color = "#4ade80" if pct > 0.005 else ("#f87171" if pct < -0.005 else "#4A3858")
+            rate_str  = f"{rate:,.2f}" if rate >= 10 else f"{rate:.4f}"
+            chip_parts.append(f"""
+            <div style="display:flex;flex-direction:column;align-items:center;
+                        background:#120E1A;border:1px solid rgba(139,58,139,0.22);
+                        border-radius:8px;padding:0.45rem 0.75rem;min-width:88px;
+                        font-family:'Space Mono',monospace;">
+              <span style="font-size:0.62rem;color:#C084C8;font-weight:700;white-space:nowrap;">
+                {meta['flag']} {meta['label']}
+              </span>
+              <span style="font-size:0.74rem;color:#EDE8F5;margin-top:0.15rem;">
+                {rate_str}
+              </span>
+              <span style="font-size:0.58rem;color:{chg_color};margin-top:0.05rem;">
+                {arrow} {abs(pct):.3f}%
+              </span>
+            </div>""")
+
+    if any_chip:
+        now_ist  = _dt.datetime.utcnow() + _dt.timedelta(hours=5, minutes=30)
+        chips_joined = "\n".join(chip_parts)
+        st.markdown(f"""
+        <div style="display:flex;gap:0.55rem;flex-wrap:wrap;margin-top:0.75rem;">
+          {chips_joined}
+        </div>
+        <div style="font-family:'Space Mono',monospace;font-size:0.5rem;
+                    letter-spacing:0.1em;color:#4A3858;margin-top:0.6rem;text-align:right;">
+          Live · {now_ist.strftime("%H:%M")} IST · 60s cache
+        </div>""", unsafe_allow_html=True)
 else:
-    st.warning("Currency chart unavailable — Yahoo Finance may be rate-limiting. Try again in a moment.")
-
-# Live rate cards row
-import datetime as _dt
-fx_data = fetch_fx()
-if fx_data:
-    now_ist = _dt.datetime.utcnow() + _dt.timedelta(hours=5, minutes=30)
-    cards_html = '<div class="fx-grid" style="margin-top:0.9rem;">'
-    for sym, info in fx_data.items():
-        rate  = info["rate"]
-        pct   = info["pct"]
-        arrow = "▲" if pct > 0.005 else ("▼" if pct < -0.005 else "●")
-        cls   = "up" if pct > 0.005 else ("down" if pct < -0.005 else "flat")
-        rate_str = f"{rate:,.2f}" if rate >= 10 else (f"{rate:.4f}" if rate >= 1 else f"{rate:.5f}")
-        cards_html += f"""
-        <div class="fx-card">
-          <div class="fx-flag">{info['flag']}</div>
-          <div class="fx-pair">{info['label']}</div>
-          <div class="fx-rate">{rate_str}</div>
-          <div class="fx-chg {cls}">{arrow} {abs(pct):.3f}%</div>
-          <div class="fx-name">{info['name']}</div>
-        </div>"""
-    cards_html += f'</div><div class="fx-updated">Live · {now_ist.strftime("%H:%M")} IST · 60s cache</div>'
-    st.markdown(cards_html, unsafe_allow_html=True)
+    st.info("Select at least one currency pair above.")
 
 st.markdown("</div>", unsafe_allow_html=True)  # close fx-panel
 
@@ -1148,7 +1227,8 @@ if q:
                 live_stocks_str = "\n".join(live_stocks_lines) if live_stocks_lines else "  (no stocks selected)"
 
                 live_fx_lines = []
-                fx_now = fetch_fx()
+                fx_syms_for_chat = tuple(st.session_state.get("fx_select_syms", ("USDINR=X","USDJPY=X","USDCNY=X","EURUSD=X","GBPUSD=X","USDCHF=X")))
+                fx_now = fetch_fx(fx_syms_for_chat)
                 if fx_now:
                     for sym, info in fx_now.items():
                         arrow = "▲" if info["pct"] > 0 else ("▼" if info["pct"] < 0 else "●")
