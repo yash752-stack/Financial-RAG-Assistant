@@ -5,3 +5,7 @@ sentence-transformers
 pypdf
 python-dotenv
 langchain-text-splitters
+yfinance
+pandas
+yfinance
+pandas
