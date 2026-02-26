@@ -767,114 +767,93 @@ with col_sym:
 with col_rng:
     rng = st.selectbox("range", ["1D","5D","1M","3M","6M","1Y"], index=2, label_visibility="collapsed")
 
-days_map = {"1D": 2, "5D": 7, "1M": 32, "3M": 95, "6M": 185, "1Y": 370}
-interval_map = {"1D": "1m", "5D": "5m", "1M": "1d", "3M": "1d", "6M": "1d", "1Y": "1d"}
+period_map   = {"1D": "1d",  "5D": "5d",  "1M": "1mo", "3M": "3mo", "6M": "6mo", "1Y": "1y"}
+interval_map = {"1D": "5m",  "5D": "30m", "1M": "1d",  "3M": "1d",  "6M": "1d",  "1Y": "1wk"}
+
+import requests, pandas as pd
+
+@st.cache_data(ttl=300)
+def fetch_yahoo(symbol: str, period: str, interval: str):
+    """
+    Fetch OHLCV data from Yahoo Finance v8 JSON API — no yfinance needed.
+    Returns a pandas Series of Close prices indexed by datetime, or None on failure.
+    """
+    url = (
+        f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+        f"?range={period}&interval={interval}&includePrePost=false"
+    )
+    headers = {"User-Agent": "Mozilla/5.0"}
+    try:
+        r = requests.get(url, headers=headers, timeout=10)
+        r.raise_for_status()
+        data  = r.json()
+        res   = data["chart"]["result"][0]
+        ts    = res["timestamp"]
+        close = res["indicators"]["quote"][0]["close"]
+        idx   = pd.to_datetime(ts, unit="s", utc=True).tz_convert("US/Eastern")
+        s     = pd.Series(close, index=idx, name=symbol).dropna()
+        return s
+    except Exception:
+        return None
+
+@st.cache_data(ttl=60)
+def fetch_quote(symbol: str):
+    """Fetch latest price + day change % from Yahoo Finance."""
+    url     = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=2d&interval=1d"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    try:
+        r    = requests.get(url, headers=headers, timeout=8)
+        r.raise_for_status()
+        data = r.json()
+        res  = data["chart"]["result"][0]
+        q    = res["indicators"]["quote"][0]["close"]
+        q    = [x for x in q if x is not None]
+        if len(q) >= 2:
+            pct = (q[-1] - q[-2]) / q[-2] * 100
+        else:
+            pct = 0.0
+        return {"price": q[-1], "pct": pct} if q else None
+    except Exception:
+        return None
 
 if symbols:
-    try:
-        import pandas as pd
-        import yfinance as yf
+    period   = period_map[rng]
+    interval = interval_map[rng]
 
-        end_dt   = date.today()
-        start_dt = end_dt - timedelta(days=days_map[rng])
-        interval = interval_map[rng]
+    # ── Ticker chips (live quotes) ────────────────────────────────
+    chip_html = '<div class="ticker-row">'
+    any_chip  = False
+    for sym in symbols:
+        info = fetch_quote(sym)
+        if info:
+            any_chip = True
+            arrow = "▲" if info["pct"] >= 0 else "▼"
+            cls   = "up" if info["pct"] >= 0 else "down"
+            chip_html += f"""
+            <div class="ticker-chip">
+              <div class="ticker-sym">{sym}</div>
+              <div class="ticker-prc">${info['price']:,.2f}</div>
+              <div class="ticker-chg {cls}">{arrow} {abs(info['pct']):.2f}%</div>
+            </div>"""
+    chip_html += '</div>'
+    if any_chip:
+        st.markdown(chip_html, unsafe_allow_html=True)
 
-        # Download data
-        if rng in ("1D", "5D"):
-            raw = yf.download(
-                tickers=symbols,
-                period="5d" if rng == "5D" else "1d",
-                interval=interval,
-                auto_adjust=True,
-                progress=False,
-                group_by="ticker",
-                threads=True,
-            )
-        else:
-            raw = yf.download(
-                tickers=symbols,
-                start=start_dt.isoformat(),
-                end=end_dt.isoformat(),
-                interval=interval,
-                auto_adjust=True,
-                progress=False,
-                group_by="ticker",
-                threads=True,
-            )
+    # ── Historical chart ──────────────────────────────────────────
+    chart = pd.DataFrame()
+    for sym in symbols:
+        s = fetch_yahoo(sym, period, interval)
+        if s is not None and not s.empty:
+            chart[sym] = s
 
-        chart = pd.DataFrame()
-        if len(symbols) == 1:
-            sym = symbols[0]
-            if "Close" in raw.columns:
-                chart[sym] = raw["Close"]
-            elif hasattr(raw.columns, "levels"):
-                chart[sym] = raw.xs("Close", axis=1, level=1) if "Close" in raw.columns.get_level_values(1) else raw.iloc[:, 0]
-            else:
-                chart[sym] = raw.iloc[:, 0]
-        else:
-            for sym in symbols:
-                key = (sym, "Close")
-                if key in raw.columns:
-                    chart[sym] = raw[key]
-
-        chart = chart.dropna(how="all")
-
-        # Ticker chips — show latest price + daily change
-        if not chart.empty:
-            latest_prices = {}
-            try:
-                tinfo = yf.download(
-                    tickers=symbols,
-                    period="2d",
-                    interval="1d",
-                    auto_adjust=True,
-                    progress=False,
-                    group_by="ticker",
-                    threads=True,
-                )
-                for sym in symbols:
-                    try:
-                        if len(symbols) == 1:
-                            col_close = tinfo["Close"]
-                        else:
-                            col_close = tinfo[(sym, "Close")]
-                        vals = col_close.dropna()
-                        if len(vals) >= 2:
-                            pct = (float(vals.iloc[-1]) - float(vals.iloc[-2])) / float(vals.iloc[-2]) * 100
-                            latest_prices[sym] = {"price": float(vals.iloc[-1]), "pct": pct}
-                        elif len(vals) == 1:
-                            latest_prices[sym] = {"price": float(vals.iloc[-1]), "pct": 0.0}
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-
-            # Render ticker chips
-            if latest_prices:
-                chip_html = '<div class="ticker-row">'
-                for sym, info in latest_prices.items():
-                    pct   = info["pct"]
-                    price = info["price"]
-                    arrow = "▲" if pct >= 0 else "▼"
-                    cls   = "up" if pct >= 0 else "down"
-                    chip_html += f"""
-                    <div class="ticker-chip">
-                      <div class="ticker-sym">{sym}</div>
-                      <div class="ticker-prc">${price:,.2f}</div>
-                      <div class="ticker-chg {cls}">{arrow} {abs(pct):.2f}%</div>
-                    </div>"""
-                chip_html += '</div>'
-                st.markdown(chip_html, unsafe_allow_html=True)
-
-            # Normalised % return chart
-            normed = (chart / chart.iloc[0] - 1) * 100
-            st.line_chart(normed, height=220, use_container_width=True)
-            st.caption(f"% return · {rng} · {len(chart)} data points · Yahoo Finance")
-        else:
-            st.info("No market data returned. Try a different range or symbols.")
-
-    except Exception as e:
-        st.info(f"Stock chart unavailable: {e}")
+    if not chart.empty:
+        chart   = chart.dropna(how="all").ffill()
+        # Normalise to % return for comparability
+        normed  = (chart / chart.iloc[0] - 1) * 100
+        st.line_chart(normed, height=230, use_container_width=True)
+        st.caption(f"% return from period start · {rng} · {len(chart)} data points · Yahoo Finance")
+    else:
+        st.warning("Could not load chart data. Yahoo Finance may be rate-limiting — try again in a moment.")
 else:
     st.info("Select at least one symbol above to show the chart.")
 
