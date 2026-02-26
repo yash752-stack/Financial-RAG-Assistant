@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 app.py — Financial RAG Assistant
 Royal Velvet & Black Theme  |  v4
@@ -234,7 +235,6 @@ for k, v in [
 # ══════════════════════════════════════════════════════════════════════════════
 # ANALYTICS ENGINE (inlined from analytics.py)
 # ══════════════════════════════════════════════════════════════════════════════
-from __future__ import annotations
 import re, json, math
 from typing import Any, Optional
 import pandas as pd
