@@ -567,85 +567,589 @@ st.markdown(f"""
 # FINANCIAL NEWS  (WSJ & The Economist RSS)
 # ══════════════════════════════════════════════════════════════════════════════
 news_feeds = [
-    ("https://feeds.a.dj.com/rss/RSSMarketsMain.xml", "Wall Street Journal"),
-    ("https://www.economist.com/finance-and-economics/rss.xml", "The Economist"),
-    ("https://feeds.bloomberg.com/markets/news.rss", "Bloomberg"),
-    ("https://www.ft.com/rss/home/uk", "Financial Times"),
+    ("https://feeds.a.dj.com/rss/RSSMarketsMain.xml",              "Wall Street Journal"),
+    ("https://www.economist.com/finance-and-economics/rss.xml",     "The Economist"),
+    ("https://feeds.bloomberg.com/markets/news.rss",                "Bloomberg"),
+    ("https://www.ft.com/rss/home/uk",                              "Financial Times"),
 ]
 
 all_news = []
 for feed_url, source in news_feeds:
-    items = fetch_news_rss(feed_url, source, max_items=3)
+    items = fetch_news_rss(feed_url, source, max_items=4)
     all_news.extend(items)
-    if len(all_news) >= 10:
-        break
 
-# Build news cards HTML
+# ── ANIMATED SLIDING HEADLINE CAROUSEL ───────────────────────────────────────
+SRC_COLORS = {
+    "Wall Street Journal": "#F0C040",
+    "The Economist":       "#C084C8",
+    "Bloomberg":           "#4ADE80",
+    "Financial Times":     "#FB923C",
+}
+
 if all_news:
-    news_cards_html = ""
-    for item in all_news[:9]:
-        src = item["source"]
-        title = item["title"].replace("<", "&lt;").replace(">", "&gt;")
-        link = item["link"]
-        pub  = item["pub"]
-        src_color_map = {
-            "Wall Street Journal": "#F0C040",
-            "The Economist":       "#C084C8",
-            "Bloomberg":           "#4ADE80",
-            "Financial Times":     "#FB923C",
-        }
-        src_color = src_color_map.get(src, "#B06BB0")
-        news_cards_html += (
-            '<div class="news-card">'
-            f'<div class="news-src" style="color:{src_color};">{src}</div>'
-            f'<div class="news-hl"><a href="{link}" target="_blank">{title}</a></div>'
-            f'<div class="news-time">{pub}</div>'
-            '</div>'
-        )
+    import json as _json
+    # Build JSON array for JS (safe — titles already html-unescaped by parser)
+    slides_data = []
+    for item in all_news[:16]:
+        slides_data.append({
+            "title":  item["title"],
+            "link":   item["link"],
+            "pub":    item["pub"],
+            "source": item["source"],
+            "color":  SRC_COLORS.get(item["source"], "#B06BB0"),
+        })
+    slides_json = _json.dumps(slides_data)
 
-    n_col1, n_col2 = st.columns(2)
-    half = (len(all_news[:9]) + 1) // 2
-    left_items  = all_news[:9][:half]
-    right_items = all_news[:9][half:]
+    st.markdown(f"""
+<style>
+.hl-wrap {{
+  background: #0D0B12;
+  border: 1px solid rgba(139,58,139,0.22);
+  border-radius: 14px;
+  padding: 1.2rem 1.6rem 1.4rem;
+  margin-bottom: 1.4rem;
+  position: relative;
+  overflow: hidden;
+}}
+.hl-header {{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}}
+.hl-header-left {{
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 1.1rem;
+  font-weight: 300;
+  color: #EDE8F5;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}}
+.hl-header-left::before {{
+  content: '';
+  display: inline-block;
+  width: 3px; height: 1.1rem;
+  background: linear-gradient(180deg, #6B2D6B, #C084C8);
+  border-radius: 2px;
+}}
+.hl-dots {{
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}}
+.hl-dot {{
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: rgba(139,58,139,0.3);
+  border: 1px solid rgba(139,58,139,0.4);
+  cursor: pointer;
+  transition: background 0.3s, transform 0.2s;
+}}
+.hl-dot.active {{
+  background: #C084C8;
+  transform: scale(1.3);
+}}
+/* Viewport */
+.hl-viewport {{
+  overflow: hidden;
+  position: relative;
+  min-height: 100px;
+}}
+.hl-track {{
+  display: flex;
+  transition: transform 0.55s cubic-bezier(0.4, 0, 0.2, 1);
+}}
+.hl-slide {{
+  min-width: 100%;
+  box-sizing: border-box;
+  padding: 0 0.1rem;
+}}
+.hl-card {{
+  background: #120E1A;
+  border: 1px solid rgba(139,58,139,0.22);
+  border-left: 3px solid #B06BB0;
+  border-radius: 0 12px 12px 0;
+  padding: 1rem 1.2rem;
+  transition: border-left-color 0.2s, background 0.2s;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}}
+.hl-card::before {{
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(192,132,200,0.3), transparent);
+}}
+.hl-card:hover {{ background: rgba(107,45,107,0.12); }}
+.hl-src {{
+  font-family: 'Space Mono', monospace;
+  font-size: 0.55rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  margin-bottom: 0.45rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}}
+.hl-src::before {{
+  content: '◈';
+  font-size: 0.5rem;
+  opacity: 0.7;
+}}
+.hl-title {{
+  font-family: 'Syne', sans-serif;
+  font-size: 1.05rem;
+  font-weight: 500;
+  color: #EDE8F5;
+  line-height: 1.45;
+  text-decoration: none;
+  display: block;
+  margin-bottom: 0.5rem;
+}}
+.hl-title:hover {{ color: #C084C8; text-decoration: none; }}
+.hl-time {{
+  font-family: 'Space Mono', monospace;
+  font-size: 0.5rem;
+  letter-spacing: 0.08em;
+  color: #4A3858;
+}}
+/* Progress bar */
+.hl-progress-track {{
+  height: 2px;
+  background: rgba(139,58,139,0.15);
+  border-radius: 1px;
+  margin-top: 1rem;
+  overflow: hidden;
+}}
+.hl-progress-bar {{
+  height: 100%;
+  background: linear-gradient(90deg, #6B2D6B, #C084C8);
+  border-radius: 1px;
+  width: 0%;
+  transition: width linear;
+}}
+/* Counter */
+.hl-counter {{
+  font-family: 'Space Mono', monospace;
+  font-size: 0.52rem;
+  color: #4A3858;
+  letter-spacing: 0.12em;
+  margin-top: 0.4rem;
+  text-align: right;
+}}
+/* Nav arrows */
+.hl-nav {{
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(107,45,107,0.25);
+  border: 1px solid rgba(139,58,139,0.4);
+  color: #C084C8;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: background 0.2s;
+  z-index: 10;
+  user-select: none;
+}}
+.hl-nav:hover {{ background: rgba(107,45,107,0.5); }}
+.hl-nav.prev {{ left: -14px; }}
+.hl-nav.next {{ right: -14px; }}
+</style>
 
-    def _news_card(item):
-        src = item["source"]
-        title = item["title"].replace("<", "&lt;").replace(">", "&gt;")
-        link = item["link"]
-        pub  = item["pub"]
-        src_color_map = {
-            "Wall Street Journal": "#F0C040",
-            "The Economist":       "#C084C8",
-            "Bloomberg":           "#4ADE80",
-            "Financial Times":     "#FB923C",
-        }
-        sc = src_color_map.get(src, "#B06BB0")
-        return (
-            '<div class="news-card">'
-            f'<div class="news-src" style="color:{sc};">{src}</div>'
-            f'<div class="news-hl"><a href="{link}" target="_blank">{title}</a></div>'
-            f'<div class="news-time">{pub}</div>'
-            '</div>'
-        )
+<div class="hl-wrap" id="hl-wrap">
+  <div class="hl-header">
+    <div class="hl-header-left">Financial Headlines</div>
+    <div class="hl-dots" id="hl-dots"></div>
+  </div>
 
-    with n_col1:
-        st.markdown(
-            '<div class="news-panel"><div class="news-title">Financial Headlines</div>'
-            + "".join(_news_card(i) for i in left_items) + "</div>",
-            unsafe_allow_html=True,
-        )
-    with n_col2:
-        st.markdown(
-            '<div class="news-panel" style="border-left:none;">'
-            + "".join(_news_card(i) for i in right_items) + "</div>",
-            unsafe_allow_html=True,
-        )
+  <div style="position:relative;">
+    <div class="hl-nav prev" id="hl-prev">&#8249;</div>
+    <div class="hl-viewport">
+      <div class="hl-track" id="hl-track"></div>
+    </div>
+    <div class="hl-nav next" id="hl-next">&#8250;</div>
+  </div>
+
+  <div class="hl-progress-track">
+    <div class="hl-progress-bar" id="hl-prog"></div>
+  </div>
+  <div class="hl-counter" id="hl-counter"></div>
+</div>
+
+<script>
+(function() {{
+  const SLIDES  = {slides_json};
+  const DELAY   = 3000;  // ms per slide
+  let current   = 0;
+  let timer     = null;
+  let progTimer = null;
+  let paused    = false;
+
+  const track   = document.getElementById('hl-track');
+  const dotsEl  = document.getElementById('hl-dots');
+  const prog    = document.getElementById('hl-prog');
+  const counter = document.getElementById('hl-counter');
+  const wrap    = document.getElementById('hl-wrap');
+
+  // Build slides
+  SLIDES.forEach((s, i) => {{
+    const slide = document.createElement('div');
+    slide.className = 'hl-slide';
+    slide.innerHTML = `
+      <div class="hl-card" style="border-left-color:${{s.color}};">
+        <div class="hl-src" style="color:${{s.color}};">${{s.source}}</div>
+        <a class="hl-title" href="${{s.link}}" target="_blank">${{s.title}}</a>
+        <div class="hl-time">${{s.pub}}</div>
+      </div>`;
+    track.appendChild(slide);
+
+    const dot = document.createElement('div');
+    dot.className = 'hl-dot' + (i === 0 ? ' active' : '');
+    dot.addEventListener('click', () => goTo(i, true));
+    dotsEl.appendChild(dot);
+  }});
+
+  function updateDots() {{
+    document.querySelectorAll('.hl-dot').forEach((d, i) => {{
+      d.classList.toggle('active', i === current);
+    }});
+  }}
+
+  function updateCounter() {{
+    counter.textContent = (current + 1) + ' / ' + SLIDES.length;
+  }}
+
+  function goTo(idx, manual) {{
+    current = ((idx % SLIDES.length) + SLIDES.length) % SLIDES.length;
+    track.style.transform = `translateX(-${{current * 100}}%)`;
+    updateDots();
+    updateCounter();
+    if (manual) restartTimer();
+  }}
+
+  function startProgress() {{
+    prog.style.transition = 'none';
+    prog.style.width = '0%';
+    requestAnimationFrame(() => {{
+      requestAnimationFrame(() => {{
+        prog.style.transition = `width ${{DELAY}}ms linear`;
+        prog.style.width = '100%';
+      }});
+    }});
+  }}
+
+  function restartTimer() {{
+    clearInterval(timer);
+    startProgress();
+    timer = setInterval(() => {{
+      if (!paused) goTo(current + 1, false);
+    }}, DELAY);
+  }}
+
+  // Pause on hover
+  wrap.addEventListener('mouseenter', () => {{ paused = true; }});
+  wrap.addEventListener('mouseleave', () => {{ paused = false; }});
+
+  // Nav arrows
+  document.getElementById('hl-prev').addEventListener('click', () => goTo(current - 1, true));
+  document.getElementById('hl-next').addEventListener('click', () => goTo(current + 1, true));
+
+  // Touch swipe
+  let touchStartX = 0;
+  wrap.addEventListener('touchstart', e => {{ touchStartX = e.touches[0].clientX; }}, {{passive:true}});
+  wrap.addEventListener('touchend', e => {{
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    if (Math.abs(dx) > 40) goTo(current + (dx < 0 ? 1 : -1), true);
+  }});
+
+  updateCounter();
+  restartTimer();
+}})();
+</script>
+""", unsafe_allow_html=True)
+
 else:
     st.markdown("""
     <div class="news-panel">
       <div class="news-title">Financial Headlines</div>
       <div style="font-family:'Space Mono',monospace;font-size:0.62rem;color:#4A3858;padding:1rem 0;">
         News feeds temporarily unavailable — check network settings.
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# GOVERNMENT & CENTRAL BANK POLICY DECISIONS (this week)
+# ══════════════════════════════════════════════════════════════════════════════
+POLICY_FEEDS = [
+    ("https://www.federalreserve.gov/feeds/press_all.xml",                          "Federal Reserve",   "🇺🇸", "#60A5FA"),
+    ("https://www.ecb.europa.eu/rss/press.html",                                    "European Central Bank","🇪🇺","#34D399"),
+    ("https://www.bankofengland.co.uk/rss/news",                                    "Bank of England",   "🇬🇧", "#F472B6"),
+    ("https://www.imf.org/en/News/rss?language=eng",                                "IMF",               "🌐", "#A78BFA"),
+    ("https://www.worldbank.org/en/news/all.rss",                                   "World Bank",        "🌍", "#FBBF24"),
+    ("https://www.bis.org/press/rss.xml",                                           "BIS",               "🏦", "#38BDF8"),
+    ("https://www.rbi.org.in/scripts/rss.aspx",                                     "RBI India",         "🇮🇳", "#FB923C"),
+    ("https://www.bankofcanada.ca/feed/",                                           "Bank of Canada",    "🇨🇦", "#4ADE80"),
+]
+
+all_policy = []
+for feed_url, source, flag, color in POLICY_FEEDS:
+    items = fetch_news_rss(feed_url, source, max_items=3)
+    for item in items:
+        item["flag"]  = flag
+        item["color"] = color
+    all_policy.extend(items)
+
+import json as _json2, datetime as _dt2
+
+# Filter to last 10 days to keep it "this week"
+def _is_recent(pub_str, days=10):
+    import email.utils
+    try:
+        ts = email.utils.parsedate_to_datetime(pub_str)
+        return (_dt2.datetime.now(_dt2.timezone.utc) - ts).days <= days
+    except Exception:
+        return True   # include if date unparseable
+
+recent_policy = [p for p in all_policy if _is_recent(p.get("pub", ""), days=10)]
+# fallback: show latest 12 even if older
+if len(recent_policy) < 4:
+    recent_policy = all_policy[:12]
+
+if recent_policy:
+    pol_slides_data = []
+    for item in recent_policy[:18]:
+        pol_slides_data.append({
+            "title":  item["title"],
+            "link":   item["link"],
+            "pub":    item["pub"],
+            "source": item["source"],
+            "flag":   item.get("flag", "🏛️"),
+            "color":  item.get("color", "#A78BFA"),
+        })
+    pol_slides_json = _json2.dumps(pol_slides_data)
+
+    st.markdown(f"""
+<style>
+.pol-wrap {{
+  background: #0D0B12;
+  border: 1px solid rgba(96,165,250,0.22);
+  border-radius: 14px;
+  padding: 1.2rem 1.6rem 1.4rem;
+  margin-bottom: 1.4rem;
+  position: relative;
+  overflow: hidden;
+}}
+.pol-wrap::before {{
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(96,165,250,0.5), rgba(167,139,250,0.5), transparent);
+}}
+.pol-header {{
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;
+}}
+.pol-header-left {{
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 1.1rem; font-weight: 300; color: #EDE8F5;
+  display: flex; align-items: center; gap: 0.5rem;
+}}
+.pol-header-left::before {{
+  content: '';
+  display: inline-block; width: 3px; height: 1.1rem;
+  background: linear-gradient(180deg, #3B82F6, #A78BFA);
+  border-radius: 2px;
+}}
+.pol-sub {{
+  font-family: 'Space Mono', monospace;
+  font-size: 0.52rem; letter-spacing: 0.15em; text-transform: uppercase;
+  color: #4A5568; margin-left: 0.5rem;
+}}
+.pol-dots {{ display: flex; gap: 0.35rem; align-items: center; }}
+.pol-dot {{
+  width: 6px; height: 6px; border-radius: 50%;
+  background: rgba(96,165,250,0.25);
+  border: 1px solid rgba(96,165,250,0.35);
+  cursor: pointer; transition: background 0.3s, transform 0.2s;
+}}
+.pol-dot.active {{ background: #60A5FA; transform: scale(1.3); }}
+.pol-viewport {{ overflow: hidden; position: relative; min-height: 110px; }}
+.pol-track {{ display: flex; transition: transform 0.55s cubic-bezier(0.4,0,0.2,1); }}
+.pol-slide {{ min-width: 100%; box-sizing: border-box; padding: 0 0.1rem; }}
+.pol-card {{
+  background: #0A0F1E;
+  border: 1px solid rgba(96,165,250,0.18);
+  border-left: 3px solid #3B82F6;
+  border-radius: 0 12px 12px 0;
+  padding: 1rem 1.2rem;
+  position: relative; overflow: hidden;
+  transition: background 0.2s, border-left-color 0.2s;
+}}
+.pol-card::before {{
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(96,165,250,0.2), transparent);
+}}
+.pol-card:hover {{ background: rgba(59,130,246,0.07); }}
+.pol-src {{
+  font-family: 'Space Mono', monospace;
+  font-size: 0.55rem; letter-spacing: 0.15em; text-transform: uppercase;
+  margin-bottom: 0.4rem; display: flex; align-items: center; gap: 0.45rem;
+}}
+.pol-badge {{
+  font-family: 'Space Mono', monospace;
+  font-size: 0.48rem; letter-spacing: 0.1em; text-transform: uppercase;
+  background: rgba(59,130,246,0.12);
+  border: 1px solid rgba(59,130,246,0.25);
+  color: #93C5FD; padding: 0.1rem 0.4rem; border-radius: 3px;
+  margin-left: auto;
+}}
+.pol-title {{
+  font-family: 'Syne', sans-serif;
+  font-size: 1rem; font-weight: 500; color: #E2E8F0;
+  line-height: 1.5; text-decoration: none; display: block; margin-bottom: 0.45rem;
+}}
+.pol-title:hover {{ color: #93C5FD; }}
+.pol-time {{
+  font-family: 'Space Mono', monospace;
+  font-size: 0.5rem; letter-spacing: 0.08em; color: #374151;
+}}
+.pol-progress-track {{
+  height: 2px; background: rgba(59,130,246,0.12);
+  border-radius: 1px; margin-top: 1rem; overflow: hidden;
+}}
+.pol-progress-bar {{
+  height: 100%;
+  background: linear-gradient(90deg, #3B82F6, #A78BFA);
+  border-radius: 1px; width: 0%;
+}}
+.pol-counter {{
+  font-family: 'Space Mono', monospace;
+  font-size: 0.52rem; color: #374151; letter-spacing: 0.12em;
+  margin-top: 0.4rem; text-align: right;
+}}
+.pol-nav {{
+  position: absolute; top: 50%; transform: translateY(-50%);
+  background: rgba(59,130,246,0.18);
+  border: 1px solid rgba(96,165,250,0.35);
+  color: #60A5FA; width: 28px; height: 28px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 0.8rem; transition: background 0.2s; z-index: 10;
+  user-select: none;
+}}
+.pol-nav:hover {{ background: rgba(59,130,246,0.35); }}
+.pol-nav.prev {{ left: -14px; }}
+.pol-nav.next {{ right: -14px; }}
+</style>
+
+<div class="pol-wrap" id="pol-wrap">
+  <div class="pol-header">
+    <div class="pol-header-left">
+      Policy &amp; Government Decisions
+      <span class="pol-sub">This Week</span>
+    </div>
+    <div class="pol-dots" id="pol-dots"></div>
+  </div>
+
+  <div style="position:relative;">
+    <div class="pol-nav prev" id="pol-prev">&#8249;</div>
+    <div class="pol-viewport">
+      <div class="pol-track" id="pol-track"></div>
+    </div>
+    <div class="pol-nav next" id="pol-next">&#8250;</div>
+  </div>
+
+  <div class="pol-progress-track">
+    <div class="pol-progress-bar" id="pol-prog"></div>
+  </div>
+  <div class="pol-counter" id="pol-counter"></div>
+</div>
+
+<script>
+(function() {{
+  const SLIDES  = {pol_slides_json};
+  const DELAY   = 3500;
+  let current   = 0, paused = false, timer = null;
+
+  const track   = document.getElementById('pol-track');
+  const dotsEl  = document.getElementById('pol-dots');
+  const prog    = document.getElementById('pol-prog');
+  const counter = document.getElementById('pol-counter');
+  const wrap    = document.getElementById('pol-wrap');
+
+  SLIDES.forEach((s, i) => {{
+    const slide = document.createElement('div');
+    slide.className = 'pol-slide';
+    slide.innerHTML = `
+      <div class="pol-card" style="border-left-color:${{s.color}};">
+        <div class="pol-src" style="color:${{s.color}};">
+          <span>${{s.flag}}</span> ${{s.source}}
+          <span class="pol-badge">Policy</span>
+        </div>
+        <a class="pol-title" href="${{s.link}}" target="_blank">${{s.title}}</a>
+        <div class="pol-time">${{s.pub}}</div>
+      </div>`;
+    track.appendChild(slide);
+    const dot = document.createElement('div');
+    dot.className = 'pol-dot' + (i===0?' active':'');
+    dot.addEventListener('click', () => goTo(i, true));
+    dotsEl.appendChild(dot);
+  }});
+
+  function updateDots() {{
+    document.querySelectorAll('.pol-dot').forEach((d,i)=>d.classList.toggle('active',i===current));
+  }}
+  function updateCounter() {{
+    counter.textContent = (current+1) + ' / ' + SLIDES.length;
+  }}
+  function startProgress() {{
+    prog.style.transition = 'none'; prog.style.width = '0%';
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{{
+      prog.style.transition = `width ${{DELAY}}ms linear`; prog.style.width = '100%';
+    }}));
+  }}
+  function goTo(idx, manual) {{
+    current = ((idx % SLIDES.length)+SLIDES.length)%SLIDES.length;
+    track.style.transform = `translateX(-${{current*100}}%)`;
+    updateDots(); updateCounter();
+    if (manual) restartTimer();
+  }}
+  function restartTimer() {{
+    clearInterval(timer); startProgress();
+    timer = setInterval(()=>{{ if(!paused) goTo(current+1,false); }}, DELAY);
+  }}
+
+  wrap.addEventListener('mouseenter',()=>{{paused=true;}});
+  wrap.addEventListener('mouseleave',()=>{{paused=false;}});
+  document.getElementById('pol-prev').addEventListener('click',()=>goTo(current-1,true));
+  document.getElementById('pol-next').addEventListener('click',()=>goTo(current+1,true));
+
+  let tx=0;
+  wrap.addEventListener('touchstart',e=>{{tx=e.touches[0].clientX;}},{{passive:true}});
+  wrap.addEventListener('touchend',e=>{{
+    const dx=e.changedTouches[0].clientX-tx;
+    if(Math.abs(dx)>40) goTo(current+(dx<0?1:-1),true);
+  }});
+
+  updateCounter(); restartTimer();
+}})();
+</script>
+""", unsafe_allow_html=True)
+
+else:
+    st.markdown("""
+    <div style="background:#0D0B12;border:1px solid rgba(96,165,250,0.18);border-radius:14px;
+                padding:1.2rem 1.6rem;margin-bottom:1.4rem;">
+      <div style="font-family:'Cormorant Garamond',serif;font-size:1.1rem;font-weight:300;color:#EDE8F5;margin-bottom:0.5rem;">
+        Policy &amp; Government Decisions
+      </div>
+      <div style="font-family:'Space Mono',monospace;font-size:0.62rem;color:#374151;padding:0.5rem 0;">
+        Policy feeds temporarily unavailable.
       </div>
     </div>
     """, unsafe_allow_html=True)
