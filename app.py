@@ -278,39 +278,62 @@ def fetch_multi_quotes(symbols: tuple):
             results[sym] = info
     return results
 
-@st.cache_data(ttl=300)
-def fetch_news_rss(feed_url: str, source_name: str, max_items: int = 4):
-    """Parse an RSS feed and return list of {title, link, pubDate}."""
+def _parse_rss_text(text, source_name, max_items):
     import re, html as _html
+    results = []
+    items = re.findall(r"<item[^>]*>(.*?)</item>", text, re.DOTALL)
+    if not items:
+        items = re.findall(r"<entry[^>]*>(.*?)</entry>", text, re.DOTALL)
+    for item in items[:max_items]:
+        title_m = re.search(r"<title[^>]*>(.*?)</title>", item, re.DOTALL | re.IGNORECASE)
+        link_m  = re.search(r'<link[^>]*href=["\'](https?://[^"\' ]+)["\']', item, re.DOTALL | re.IGNORECASE)
+        if not link_m:
+            link_m = re.search(r"<link[^>]*>\s*(https?://[^\s<\"]+)", item, re.DOTALL | re.IGNORECASE)
+        if not link_m:
+            link_m = re.search(r"<link>(.*?)</link>", item, re.DOTALL | re.IGNORECASE)
+        date_m  = re.search(r"<pubDate[^>]*>(.*?)</pubDate>|<published[^>]*>(.*?)</published>", item, re.IGNORECASE | re.DOTALL)
+        raw = title_m.group(1).strip() if title_m else ""
+        cdata = re.match(r"<!\[CDATA\[(.*?)\]\]>", raw, re.DOTALL)
+        title = cdata.group(1).strip() if cdata else raw
+        title = _html.unescape(re.sub(r"<[^>]+>", "", title)).strip()
+        link  = (link_m.group(1) or "").strip() if link_m else "#"
+        if not link.startswith("http"):
+            link = "#"
+        grp = ""
+        if date_m:
+            grp = date_m.group(1) or date_m.group(2) or ""
+        pub = grp.strip()[:22]
+        if title and len(title) > 8:
+            results.append({"title": title, "link": link, "pub": pub, "source": source_name})
+    return results
+
+
+@st.cache_data(ttl=300)
+def fetch_gnews(query, source_label, max_items=5):
+    import urllib.parse
+    q_enc = urllib.parse.quote(query)
+    url = f"https://news.google.com/rss/search?q={q_enc}&hl=en-US&gl=US&ceid=US:en"
     try:
-        r = requests.get(feed_url, headers=_HEADERS, timeout=8)
+        r = requests.get(url, headers=_HEADERS, timeout=10)
         r.raise_for_status()
-        items = re.findall(r'<item[^>]*>(.*?)</item>', r.text, re.DOTALL)
-        results = []
-        for item in items[:max_items]:
-            # Extract raw title tag content (handles CDATA and plain)
-            title_m = re.search(r'<title[^>]*>(.*?)</title>', item, re.DOTALL | re.IGNORECASE)
-            link_m  = re.search(r'<link[^>]*>\s*(https?://[^\s<]+)', item, re.DOTALL | re.IGNORECASE)
-            if not link_m:
-                link_m = re.search(r'<link[^>]*/?>([^<]+)</link>', item, re.DOTALL | re.IGNORECASE)
-            date_m  = re.search(r'<pubDate[^>]*>(.*?)</pubDate>', item, re.IGNORECASE)
-
-            raw_title = title_m.group(1).strip() if title_m else ""
-            # Strip CDATA wrapper: <![CDATA[...]]>
-            cdata_m = re.match(r'<!\[CDATA\[(.*?)\]\]>', raw_title, re.DOTALL)
-            title = cdata_m.group(1).strip() if cdata_m else raw_title
-            # Decode any HTML entities (e.g. &amp; &rsquo; &#8217;)
-            title = _html.unescape(title).strip()
-            # Final safety strip of any residual tags
-            title = re.sub(r'<[^>]+>', '', title).strip()
-
-            link = link_m.group(1).strip() if link_m else "#"
-            pub  = date_m.group(1).strip()[:22] if date_m else ""
-            if title and len(title) > 5:
-                results.append({"title": title, "link": link, "pub": pub, "source": source_name})
-        return results
+        return _parse_rss_text(r.text, source_label, max_items)
     except Exception:
         return []
+
+
+@st.cache_data(ttl=300)
+def fetch_news_rss(feed_url, source_name, max_items=4):
+    try:
+        hdrs = {**_HEADERS, "Accept": "application/rss+xml,application/xml,text/xml,*/*"}
+        r = requests.get(feed_url, headers=hdrs, timeout=8)
+        r.raise_for_status()
+        results = _parse_rss_text(r.text, source_name, max_items)
+        if results:
+            return results
+    except Exception:
+        pass
+    return fetch_gnews(f"{source_name} finance economy", source_name, max_items)
+
 
 @st.cache_data(ttl=300)
 def fetch_fear_greed():
@@ -566,16 +589,26 @@ st.markdown(f"""
 # ══════════════════════════════════════════════════════════════════════════════
 # FINANCIAL NEWS  (WSJ & The Economist RSS)
 # ══════════════════════════════════════════════════════════════════════════════
-news_feeds = [
-    ("https://feeds.a.dj.com/rss/RSSMarketsMain.xml",              "Wall Street Journal"),
-    ("https://www.economist.com/finance-and-economics/rss.xml",     "The Economist"),
-    ("https://feeds.bloomberg.com/markets/news.rss",                "Bloomberg"),
-    ("https://www.ft.com/rss/home/uk",                              "Financial Times"),
+# Use Google News RSS search — reliably accessible from Streamlit Cloud
+GNEWS_QUERIES = [
+    ("site:wsj.com finance OR economy OR markets",     "Wall Street Journal", "#F0C040"),
+    ("site:economist.com finance OR economy",          "The Economist",       "#C084C8"),
+    ("site:bloomberg.com markets OR economy OR fed",   "Bloomberg",           "#4ADE80"),
+    ("site:ft.com finance OR economy OR markets",      "Financial Times",     "#FB923C"),
 ]
 
 all_news = []
-for feed_url, source in news_feeds:
-    items = fetch_news_rss(feed_url, source, max_items=4)
+for query, source, color in GNEWS_QUERIES:
+    items = fetch_gnews(query, source, max_items=4)
+    for item in items:
+        item["color"] = color
+    all_news.extend(items)
+
+# If still empty, try broad finance search
+if not all_news:
+    items = fetch_gnews("global finance markets economy 2025", "Financial News", max_items=12)
+    for item in items:
+        item["color"] = "#C084C8"
     all_news.extend(items)
 
 # ── ANIMATED SLIDING HEADLINE CAROUSEL ───────────────────────────────────────
@@ -596,7 +629,7 @@ if all_news:
             "link":   item["link"],
             "pub":    item["pub"],
             "source": item["source"],
-            "color":  SRC_COLORS.get(item["source"], "#B06BB0"),
+            "color":  item.get("color", "#C084C8"),
         })
     slides_json = _json.dumps(slides_data)
 
@@ -886,24 +919,35 @@ else:
 # ══════════════════════════════════════════════════════════════════════════════
 # GOVERNMENT & CENTRAL BANK POLICY DECISIONS (this week)
 # ══════════════════════════════════════════════════════════════════════════════
-POLICY_FEEDS = [
-    ("https://www.federalreserve.gov/feeds/press_all.xml",                          "Federal Reserve",   "🇺🇸", "#60A5FA"),
-    ("https://www.ecb.europa.eu/rss/press.html",                                    "European Central Bank","🇪🇺","#34D399"),
-    ("https://www.bankofengland.co.uk/rss/news",                                    "Bank of England",   "🇬🇧", "#F472B6"),
-    ("https://www.imf.org/en/News/rss?language=eng",                                "IMF",               "🌐", "#A78BFA"),
-    ("https://www.worldbank.org/en/news/all.rss",                                   "World Bank",        "🌍", "#FBBF24"),
-    ("https://www.bis.org/press/rss.xml",                                           "BIS",               "🏦", "#38BDF8"),
-    ("https://www.rbi.org.in/scripts/rss.aspx",                                     "RBI India",         "🇮🇳", "#FB923C"),
-    ("https://www.bankofcanada.ca/feed/",                                           "Bank of Canada",    "🇨🇦", "#4ADE80"),
+# Google News queries for government/central bank policy — avoids blocked feeds
+POLICY_GNEWS = [
+    ("Federal Reserve interest rate decision policy",        "Federal Reserve",      "🇺🇸", "#60A5FA"),
+    ("European Central Bank ECB monetary policy decision",   "European Central Bank","🇪🇺", "#34D399"),
+    ("Bank of England interest rate policy decision",        "Bank of England",      "🇬🇧", "#F472B6"),
+    ("IMF fiscal policy recommendation country",             "IMF",                  "🌐", "#A78BFA"),
+    ("US Treasury government fiscal budget policy",          "US Treasury",          "🇺🇸", "#FBBF24"),
+    ("RBI Reserve Bank India rate policy decision",          "RBI India",            "🇮🇳", "#FB923C"),
+    ("China PBOC monetary policy stimulus",                  "PBOC China",           "🇨🇳", "#38BDF8"),
+    ("UK government budget fiscal policy chancellor",        "UK Government",        "🇬🇧", "#F9A8D4"),
+    ("Japan BOJ monetary policy decision",                   "Bank of Japan",        "🇯🇵", "#A78BFA"),
+    ("World Bank development finance policy",                "World Bank",           "🌍", "#4ADE80"),
 ]
 
 all_policy = []
-for feed_url, source, flag, color in POLICY_FEEDS:
-    items = fetch_news_rss(feed_url, source, max_items=3)
+for query, source, flag, color in POLICY_GNEWS:
+    items = fetch_gnews(query + " when:7d", source, max_items=2)
     for item in items:
         item["flag"]  = flag
         item["color"] = color
     all_policy.extend(items)
+
+# Broad fallback if queries return nothing
+if len(all_policy) < 4:
+    fallback = fetch_gnews("central bank government interest rate policy decision 2025", "Policy Update", max_items=10)
+    for item in fallback:
+        item["flag"]  = "🏛️"
+        item["color"] = "#A78BFA"
+    all_policy.extend(fallback)
 
 import json as _json2, datetime as _dt2
 
