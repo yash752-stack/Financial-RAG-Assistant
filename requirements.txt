@@ -9,3 +9,5 @@ yfinance
 pandas
 yfinance
 pandas
+
+rank-bm25
