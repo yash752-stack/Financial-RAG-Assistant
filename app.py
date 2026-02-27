@@ -50,6 +50,8 @@ for _k, _v in [
     # Portfolio state
     ("portfolio",       {}),       # {sym: {"shares": float, "avg_cost": float, "added": str}}
     ("portfolio_notes", {}),       # {sym: str}  analyst notes per holding
+    # Chat mode
+    ("analyst_mode",    False),    # v8: structured analyst output vs free-form chat
 ]:
     if _k not in st.session_state:
         st.session_state[_k] = _v
@@ -456,6 +458,70 @@ hr{border-color:var(--border)!important}
 .signal.hold{background:rgba(240,192,64,.10);border:1px solid rgba(240,192,64,.3);color:#F0C040}
 .signal.sell{background:rgba(248,113,113,.10);border:1px solid rgba(248,113,113,.3);color:#f87171}
 .signal.watch{background:rgba(192,132,200,.10);border:1px solid rgba(192,132,200,.3);color:#C084C8}
+
+/* ════════════════════════════════════════════
+   v8  SOURCE PANEL + ANALYST MODE STYLES
+   ════════════════════════════════════════════ */
+
+/* Mode toggle bar */
+.mode-toggle-wrap{display:flex;align-items:center;gap:.5rem;padding:.4rem .7rem;margin-bottom:.5rem;
+  background:rgba(107,45,107,.08);border:1px solid var(--border);border-radius:8px;width:fit-content;}
+.mode-toggle-label{font-family:'Space Mono',monospace;font-size:.5rem;letter-spacing:.15em;text-transform:uppercase;color:#4A3858;}
+.mode-badge.chat-mode{background:rgba(192,132,200,.15);border:1px solid rgba(192,132,200,.35);color:#C084C8;
+  font-family:'Space Mono',monospace;font-size:.52rem;padding:.18rem .55rem;border-radius:4px;
+  letter-spacing:.06em;text-transform:uppercase;font-weight:700;}
+.mode-badge.analyst-mode{background:rgba(240,192,64,.12);border:1px solid rgba(240,192,64,.35);color:#F0C040;
+  font-family:'Space Mono',monospace;font-size:.52rem;padding:.18rem .55rem;border-radius:4px;
+  letter-spacing:.06em;text-transform:uppercase;font-weight:700;}
+
+/* Source evidence panel */
+.evidence-panel{border:1px solid var(--border);border-radius:10px;padding:.6rem .8rem .5rem;
+  margin-top:.5rem;background:linear-gradient(180deg,rgba(107,45,107,.04),rgba(13,11,18,.97));}
+.evidence-source-card{background:var(--card-2);border:1px solid var(--border);border-radius:8px;
+  margin-bottom:.6rem;overflow:hidden;}
+.esc-header{display:flex;align-items:center;justify-content:space-between;padding:.45rem .75rem;
+  background:rgba(107,45,107,.10);border-bottom:1px solid var(--border);flex-wrap:wrap;gap:.4rem;}
+.esc-source-num{font-family:'Space Mono',monospace;font-size:.48rem;letter-spacing:.15em;text-transform:uppercase;color:var(--velvet-gl);}
+.esc-filename{font-family:'Space Mono',monospace;font-size:.56rem;color:var(--accent);}
+.esc-meta{display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;}
+.esc-chip{background:rgba(107,45,107,.15);border:1px solid var(--border);border-radius:3px;
+  font-family:'Space Mono',monospace;font-size:.44rem;color:var(--text-ghost);padding:.08rem .35rem;white-space:nowrap;}
+.esc-chip.score-hi{background:rgba(74,222,128,.08);border-color:rgba(74,222,128,.22);color:#86efac;}
+.esc-chip.score-mid{background:rgba(240,192,64,.08);border-color:rgba(240,192,64,.22);color:#F0C040;}
+.esc-chip.score-lo{background:rgba(248,113,113,.07);border-color:rgba(248,113,113,.2);color:#fca5a5;}
+.esc-section{font-family:'Space Mono',monospace;font-size:.48rem;letter-spacing:.1em;text-transform:uppercase;
+  color:#C084C8;padding:.4rem .75rem .1rem;}
+.esc-body{font-family:'Syne',sans-serif;font-size:.8rem;color:var(--text-dim);line-height:1.7;
+  padding:.25rem .75rem .6rem;border-left:2px solid rgba(139,58,139,.25);margin:.1rem .5rem .1rem .75rem;}
+.esc-page{font-family:'Space Mono',monospace;font-size:.44rem;color:#4A3858;padding:.1rem .75rem .45rem;text-align:right;}
+
+/* Analyst Mode structured output */
+.analyst-output{font-family:'Syne',sans-serif;border-radius:12px;overflow:hidden;
+  border:1px solid rgba(240,192,64,.2);margin:.3rem 0;
+  background:linear-gradient(135deg,rgba(107,45,107,.06),rgba(13,11,18,.98));}
+.ao-header{padding:.55rem .9rem;display:flex;align-items:center;justify-content:space-between;
+  background:linear-gradient(90deg,rgba(107,45,107,.18),rgba(13,11,18,.95));
+  border-bottom:1px solid rgba(139,58,139,.2);}
+.ao-title{font-family:'Space Mono',monospace;font-size:.52rem;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--velvet-gl);display:flex;align-items:center;gap:.4rem;}
+.ao-title::before{content:'◈';color:#F0C040;}
+.ao-mode-badge{background:rgba(240,192,64,.1);border:1px solid rgba(240,192,64,.3);color:#F0C040;
+  font-family:'Space Mono',monospace;font-size:.44rem;padding:.1rem .4rem;border-radius:3px;
+  letter-spacing:.08em;text-transform:uppercase;}
+.ao-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:.4rem;padding:.7rem .9rem;}
+.ao-metric{background:var(--card-2);border:1px solid var(--border);border-radius:8px;padding:.55rem .75rem;}
+.ao-metric-label{font-family:'Space Mono',monospace;font-size:.44rem;letter-spacing:.12em;
+  text-transform:uppercase;color:#4A3858;margin-bottom:.15rem;}
+.ao-metric-value{font-family:'Cormorant Garamond',serif;font-size:1.3rem;font-weight:300;color:#EDE8F5;line-height:1;}
+.ao-metric-value.pos{color:#4ade80;}.ao-metric-value.neg{color:#f87171;}.ao-metric-value.neu{color:#C084C8;}
+.ao-section{padding:.4rem .9rem .7rem;}
+.ao-section-title{font-family:'Space Mono',monospace;font-size:.46rem;letter-spacing:.15em;text-transform:uppercase;
+  color:#4A3858;margin-bottom:.3rem;border-bottom:1px solid var(--border);padding-bottom:.2rem;}
+.ao-section-body{font-family:'Syne',sans-serif;font-size:.82rem;color:var(--text-dim);line-height:1.7;}
+.ao-risk-item{display:flex;align-items:flex-start;gap:.4rem;font-family:'Syne',sans-serif;font-size:.8rem;
+  color:var(--text-dim);padding:.25rem 0;border-bottom:1px solid rgba(139,58,139,.08);}
+.ao-risk-item::before{content:'⚠';font-size:.7rem;color:#F0C040;flex-shrink:0;margin-top:.05rem;}
+
 .cmp-table{width:100%;border-collapse:collapse;font-size:.75rem}
 .cmp-table th{background:rgba(107,45,107,.18);border:1px solid var(--border);
   padding:.45rem .8rem;font-family:'Space Mono',monospace;font-size:.5rem;
@@ -2107,6 +2173,214 @@ Be specific with numbers. Max 350 words. Use the investor's actual position data
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+#  v8 HELPERS: SOURCE EVIDENCE PANEL + ANALYST MODE
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Section classifier: map chunk text → probable report section
+_SECTION_PATTERNS = [
+    (r"management.{0,20}discussion|MD&A",                        "Management Discussion & Analysis"),
+    (r"risk factor",                                              "Risk Factors"),
+    (r"financial statement|balance sheet|income statement|P&L",  "Financial Statements"),
+    (r"cash flow",                                                "Cash Flow Statement"),
+    (r"note\s+\d|notes to|accounting polic",                     "Notes to Accounts"),
+    (r"auditor.{0,15}report|independent auditor",                "Auditor's Report"),
+    (r"segment|business unit|division",                          "Segment Reporting"),
+    (r"revenue|sales|turnover",                                   "Revenue & Sales"),
+    (r"profit|margin|EBITDA|operating income",                   "Profitability"),
+    (r"debt|borrowing|loan|credit facilit",                      "Debt & Financing"),
+    (r"dividend|share capital|equity",                            "Shareholders' Equity"),
+    (r"outlook|guidance|forward.looking",                        "Outlook & Guidance"),
+    (r"corporate governance",                                     "Corporate Governance"),
+    (r"chairman|board of director|CEO|management team",          "Board & Leadership"),
+    (r"macroeconomic|market condition|industry trend",           "Market & Industry"),
+]
+
+def guess_section(text: str) -> str:
+    """Infer probable document section from chunk text."""
+    t = text[:600].lower()
+    for pattern, label in _SECTION_PATTERNS:
+        if re.search(pattern, t, re.IGNORECASE):
+            return label
+    return "General / Other"
+
+def render_source_panel(sources: list[dict]) -> None:
+    """
+    Render rich expandable evidence panel below an answer.
+    sources: list of {"filename", "score", "preview", "chunk_full"(optional), "chunk_idx"(optional)}
+    """
+    if not sources:
+        return
+    n = len(sources)
+    with st.expander(f"📂  View Sources  ·  {n} evidence chunk{'s' if n>1 else ''} retrieved"):
+        st.markdown('<div class="evidence-panel">', unsafe_allow_html=True)
+        for i, src in enumerate(sources, 1):
+            score     = src.get("score", 0)
+            score_pct = int(score * 100)
+            score_cls = "score-hi" if score_pct >= 75 else ("score-mid" if score_pct >= 50 else "score-lo")
+            score_lbl = "High relevance" if score_pct >= 75 else ("Moderate" if score_pct >= 50 else "Low relevance")
+            # Use full chunk if available, else preview
+            chunk_text = src.get("chunk_full") or src.get("preview","")
+            section    = guess_section(chunk_text)
+            chunk_idx  = src.get("chunk_idx", "")
+            page_est   = f"Chunk #{chunk_idx}" if chunk_idx != "" else f"Chunk ~{i}"
+            fname      = _ht.escape(src.get("filename","Unknown"))
+            chunk_disp = _ht.escape(chunk_text[:500] + ("…" if len(chunk_text) > 500 else ""))
+
+            st.markdown(
+                f'<div class="evidence-source-card">'
+                f'  <div class="esc-header">'
+                f'    <div style="display:flex;align-items:center;gap:.6rem;">'
+                f'      <span class="esc-source-num">Source {i}</span>'
+                f'      <span class="esc-filename">📄 {fname}</span>'
+                f'    </div>'
+                f'    <div class="esc-meta">'
+                f'      <span class="esc-chip">{page_est}</span>'
+                f'      <span class="esc-chip {score_cls}">⬡ {score_pct}% · {score_lbl}</span>'
+                f'    </div>'
+                f'  </div>'
+                f'  <div class="esc-section">📑 {_ht.escape(section)}</div>'
+                f'  <div class="esc-body">{chunk_disp}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        st.markdown('</div>', unsafe_allow_html=True)
+
+
+def render_analyst_output(raw_json_str: str, question: str) -> None:
+    """
+    Parse the structured JSON from Analyst Mode and render as a rich card.
+    Falls back gracefully to markdown if JSON is malformed.
+    """
+    # Strip possible fences
+    clean = re.sub(r"```(?:json)?", "", raw_json_str, flags=re.IGNORECASE).strip().strip("`").strip()
+
+    try:
+        data = json.loads(clean)
+    except json.JSONDecodeError:
+        # Graceful fallback — render raw markdown
+        st.markdown(raw_json_str)
+        return
+
+    metrics  = data.get("metrics", [])       # list of {label, value, unit, change, direction}
+    summary  = data.get("summary", "")
+    risks    = data.get("key_risks", [])
+    outlook  = data.get("outlook", "")
+    signal   = data.get("recommendation", "") # BUY / HOLD / SELL / WATCH / N/A
+
+    sig_css = {"BUY":"buy","HOLD":"hold","SELL":"sell","WATCH":"watch"}.get(
+                signal.upper() if signal else "", "watch")
+    sig_emoji = {"BUY":"🟢","HOLD":"🟡","SELL":"🔴","WATCH":"🔵","N/A":"⚪"}.get(
+                  signal.upper() if signal else "N/A","⚪")
+
+    # ── Header ────────────────────────────────────────────────────────────
+    st.markdown(
+        f'<div class="analyst-output">'
+        f'<div class="ao-header">'
+        f'  <div class="ao-title">Analyst Report</div>'
+        f'  <div style="display:flex;align-items:center;gap:.5rem;">'
+        f'    <span class="ao-mode-badge">📊 Analyst Mode</span>'
+        + (f'    <span class="signal {sig_css}" style="font-size:.5rem;">{sig_emoji} {signal.upper()}</span>'
+           if signal and signal.upper() != "N/A" else "") +
+        f'  </div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ── Metrics grid ──────────────────────────────────────────────────────
+    if metrics:
+        metrics_html = '<div class="ao-grid">'
+        for m in metrics:
+            val   = str(m.get("value","—"))
+            unit  = m.get("unit","")
+            chg   = m.get("change","")
+            dirn  = str(m.get("direction","")).lower()
+            v_cls = "pos" if dirn == "up" else ("neg" if dirn == "down" else "neu")
+            chg_html = ""
+            if chg:
+                chg_col = "#4ade80" if dirn=="up" else ("#f87171" if dirn=="down" else "#9A8AAA")
+                chg_html = (f'<div style="font-family:Space Mono,monospace;font-size:.44rem;'
+                            f'color:{chg_col};margin-top:.1rem;">'
+                            f'{"▲" if dirn=="up" else ("▼" if dirn=="down" else "●")} {_ht.escape(str(chg))}</div>')
+            metrics_html += (
+                f'<div class="ao-metric">'
+                f'  <div class="ao-metric-label">{_ht.escape(m.get("label",""))}</div>'
+                f'  <div class="ao-metric-value {v_cls}">{_ht.escape(val)}'
+                f'  <span style="font-family:Space Mono,monospace;font-size:.5rem;color:#4A3858;"> {_ht.escape(unit)}</span></div>'
+                + chg_html +
+                f'</div>'
+            )
+        metrics_html += "</div>"
+        st.markdown(metrics_html, unsafe_allow_html=True)
+
+    # ── Summary ───────────────────────────────────────────────────────────
+    if summary:
+        st.markdown(
+            f'<div class="ao-section">'
+            f'<div class="ao-section-title">Executive Summary</div>'
+            f'<div class="ao-section-body">{_ht.escape(summary).replace(chr(10),"<br>")}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Key risks ─────────────────────────────────────────────────────────
+    if risks:
+        risk_items = "".join(
+            f'<div class="ao-risk-item">{_ht.escape(str(r))}</div>'
+            for r in risks
+        )
+        st.markdown(
+            f'<div class="ao-section">'
+            f'<div class="ao-section-title">Key Risk Highlights</div>'
+            f'{risk_items}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Outlook ───────────────────────────────────────────────────────────
+    if outlook:
+        st.markdown(
+            f'<div class="ao-section">'
+            f'<div class="ao-section-title">Outlook</div>'
+            f'<div class="ao-section-body">{_ht.escape(outlook).replace(chr(10),"<br>")}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("</div>", unsafe_allow_html=True)   # close .analyst-output
+
+
+# Analyst Mode system prompt + user prompt templates
+_ANALYST_SYSTEM = """You are a senior financial analyst. The user is querying financial documents.
+You MUST respond ONLY with a valid JSON object — no prose, no markdown fences, no preamble.
+
+JSON schema (all fields optional except metrics):
+{
+  "metrics": [
+    {"label": "Revenue FY24", "value": "₹2,43,020 Cr", "unit": "INR Cr", "change": "+12.3% YoY", "direction": "up"},
+    {"label": "Net Income", "value": "₹26,S248 Cr", "unit": "INR Cr", "change": "+8.1% YoY", "direction": "up"},
+    ...
+  ],
+  "summary": "2-3 sentence executive summary of the key findings.",
+  "key_risks": ["Risk 1 text", "Risk 2 text", "Risk 3 text"],
+  "outlook": "Forward-looking commentary based on document.",
+  "recommendation": "BUY | HOLD | SELL | WATCH | N/A"
+}
+
+Rules:
+- Extract exact numbers from the document context. Never fabricate values.
+- If a value is not found, omit that metric rather than guessing.
+- direction must be exactly "up", "down", or "flat".
+- recommendation must be exactly one of: BUY, HOLD, SELL, WATCH, N/A.
+- Return ONLY the JSON. No other text whatsoever."""
+
+def build_analyst_prompt(question: str, live_context: str, doc_context: str) -> str:
+    return (f"{live_context}\n\n=== DOCUMENT CONTEXT ===\n{doc_context}\n\n"
+            f"User question: {question}\n\n"
+            f"Extract structured financial data as specified. Return ONLY JSON.")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # INDIA NEWS RSS
 # ─────────────────────────────────────────────────────────────────────────────
 NEWS_SOURCES = {
@@ -2535,6 +2809,34 @@ if st.session_state.show_chat:
                 '<div class="chat-panel-body">',
                 unsafe_allow_html=True)
 
+    # ── Mode Toggle ────────────────────────────────────────────────────────
+    _mode_cols = st.columns([2, 8])
+    with _mode_cols[0]:
+        _analyst = st.toggle(
+            "📊 Analyst Mode",
+            value=st.session_state.analyst_mode,
+            key="analyst_toggle",
+            help="OFF = Chat Mode (free-form answers)  ·  ON = Analyst Mode (structured financial extraction)",
+        )
+        if _analyst != st.session_state.analyst_mode:
+            st.session_state.analyst_mode = _analyst
+            st.rerun()
+    with _mode_cols[1]:
+        if st.session_state.analyst_mode:
+            st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;color:#F0C040;'
+                        'padding:.3rem .5rem;background:rgba(240,192,64,.06);border:1px solid rgba(240,192,64,.2);'
+                        'border-radius:5px;">📊 Analyst Mode — returns structured metrics table, '
+                        'risks &amp; outlook as a JSON-parsed report card</div>',
+                        unsafe_allow_html=True)
+        else:
+            st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;color:#C084C8;'
+                        'padding:.3rem .5rem;background:rgba(192,132,200,.05);border:1px solid rgba(192,132,200,.15);'
+                        'border-radius:5px;">💬 Chat Mode — conversational answers with source evidence panel</div>',
+                        unsafe_allow_html=True)
+
+    st.markdown("<hr style='border-color:rgba(139,58,139,.12);margin:.4rem 0 .6rem;'>",
+                unsafe_allow_html=True)
+
     if not st.session_state.messages:
         st.markdown("""
         <div style="text-align:center;padding:2rem 1rem;">
@@ -2550,14 +2852,15 @@ if st.session_state.show_chat:
 
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+            is_analyst = msg.get("analyst_mode", False)
+            if msg["role"] == "assistant" and is_analyst:
+                # Render structured analyst output card
+                render_analyst_output(msg["content"], msg.get("question",""))
+            else:
+                st.markdown(msg["content"])
+            # ── Source Evidence Panel ─────────────────────────────────────
             if msg.get("sources"):
-                with st.expander(f"↳ {len(msg['sources'])} source(s)"):
-                    for src in msg["sources"]:
-                        st.markdown(f'<div class="src-card"><div class="src-name">📄 {src["filename"]}</div>'
-                                    f'<div class="src-score">relevance: {src["score"]}</div>'
-                                    f'<div class="src-preview">{src["preview"]}…</div></div>',
-                                    unsafe_allow_html=True)
+                render_source_panel(msg["sources"])
 
     st.markdown("</div></div>", unsafe_allow_html=True)
 
@@ -2872,7 +3175,7 @@ if q:
 
     st.session_state.messages.append({"role":"user","content":q})
 
-    with st.spinner("Thinking…"):
+    with st.spinner("Thinking…" if not st.session_state.analyst_mode else "Extracting structured insights…"):
         try:
             from openai import OpenAI
             oai = OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
@@ -2901,6 +3204,7 @@ if q:
                 f"MARKET MOOD: Fear & Greed = {fng_val} ({fng_label})"
             ).strip()
 
+            # ── Document retrieval (richer source metadata) ───────────────
             doc_context = ""; sources_data = []
             if st.session_state.vectorstore:
                 vs    = st.session_state.vectorstore
@@ -2909,28 +3213,59 @@ if q:
                                                include=["documents","metadatas","distances"])
                 cks, mts, dts = res["documents"][0], res["metadatas"][0], res["distances"][0]
                 doc_context  = "\n---\n".join(f"[{m['filename']}]\n{c}" for c, m in zip(cks, mts))
-                sources_data = [{"filename":m["filename"],"score":round(1-d/2,3),"preview":c[:220]}
-                                for c, m, d in zip(cks, mts, dts)]
+                sources_data = [
+                    {
+                        "filename":   m["filename"],
+                        "score":      round(1 - d/2, 3),
+                        "preview":    c[:220],
+                        "chunk_full": c,                          # full chunk for evidence panel
+                        "chunk_idx":  m.get("chunk", ""),         # chunk number for page approximation
+                        "section":    guess_section(c),           # inferred section label
+                    }
+                    for c, m, d in zip(cks, mts, dts)
+                ]
 
-            user_msg = (f"{live_context}\n\n=== DOCUMENT CONTEXT ===\n{doc_context}\n\nQuestion: {q}"
-                        if doc_context else f"{live_context}\n\nQuestion: {q}")
+            # ── Branch: Analyst Mode vs Chat Mode ────────────────────────
+            if st.session_state.analyst_mode:
+                # Analyst Mode: JSON-structured extraction
+                user_msg = build_analyst_prompt(q, live_context, doc_context)
+                resp = oai.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[
+                        {"role": "system", "content": _ANALYST_SYSTEM},
+                        {"role": "user",   "content": user_msg},
+                    ],
+                    temperature=0.05, max_tokens=1200,
+                    response_format={"type": "json_object"},
+                )
+                answer = resp.choices[0].message.content
+                st.session_state.messages.append({
+                    "role": "assistant", "content": answer,
+                    "sources": sources_data, "analyst_mode": True, "question": q,
+                })
+            else:
+                # Chat Mode: normal conversational answer
+                user_msg = (f"{live_context}\n\n=== DOCUMENT CONTEXT ===\n{doc_context}\n\nQuestion: {q}"
+                            if doc_context else f"{live_context}\n\nQuestion: {q}")
+                resp = oai.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[
+                        {"role":"system","content":(
+                            "You are an expert financial analyst with real-time data access. "
+                            "You have live prices for stocks, gold, silver, oil, crypto, and FX rates. "
+                            "Use live data for market questions. For document questions, cite specific numbers. "
+                            "Be concise, precise, never fabricate numbers.")},
+                        *[{"role":m["role"],"content":m["content"]} for m in st.session_state.messages[:-1]],
+                        {"role":"user","content":user_msg},
+                    ],
+                    temperature=0.15, max_tokens=1500,
+                )
+                answer = resp.choices[0].message.content
+                st.session_state.messages.append({
+                    "role": "assistant", "content": answer,
+                    "sources": sources_data, "analyst_mode": False,
+                })
 
-            resp = oai.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[
-                    {"role":"system","content":(
-                        "You are an expert financial analyst with real-time data access. "
-                        "You have live prices for stocks, gold, silver, oil, crypto, and FX rates. "
-                        "Use live data for market questions. For document questions, cite specific numbers. "
-                        "Be concise, precise, never fabricate numbers.")},
-                    *[{"role":m["role"],"content":m["content"]} for m in st.session_state.messages[:-1]],
-                    {"role":"user","content":user_msg},
-                ],
-                temperature=0.15, max_tokens=1500,
-            )
-            answer = resp.choices[0].message.content
-            tokens = resp.usage.total_tokens
-            st.session_state.messages.append({"role":"assistant","content":answer,"sources":sources_data})
             st.rerun()  # re-render so new messages appear in the chat panel above
 
         except Exception as e:
@@ -2942,8 +3277,8 @@ if q:
 st.markdown("""
 <div class="vfooter">
   <div class="vfooter-text">
-    Built by Yash Chaudhary &nbsp;·&nbsp; Financial RAG Assistant v7 &nbsp;·&nbsp;
-    Llama 3.3 × Groq × ChromaDB × FinBERT · Portfolio Engine
+    Built by Yash Chaudhary &nbsp;·&nbsp; Financial RAG Assistant v8 &nbsp;·&nbsp;
+    Llama 3.3 × Groq × ChromaDB × FinBERT · Portfolio · Analyst Mode
   </div>
 </div>
 """, unsafe_allow_html=True)
