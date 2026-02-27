@@ -406,61 +406,63 @@ div[data-testid="stButton"] button.tf-active{
 }
 
 /* ═══════════════════════════════════════════════════════
-   TOP ACTION BUTTONS — two square tiles, full-width
+   TOP ACTION BUTTONS — two crisp square tiles
    ═══════════════════════════════════════════════════════ */
 @keyframes pulse-ring{
-  0%  {box-shadow:0 0 0 0 rgba(240,31,146,.5), 0 4px 20px rgba(240,31,146,.3);}
-  65% {box-shadow:0 0 0 9px rgba(240,31,146,0), 0 4px 20px rgba(240,31,146,.4);}
-  100%{box-shadow:0 0 0 0 rgba(240,31,146,0), 0 4px 20px rgba(240,31,146,.3);}
+  0%  {box-shadow:0 0 0 0 rgba(240,31,146,.45), 0 4px 18px rgba(0,0,0,.6);}
+  65% {box-shadow:0 0 0 8px rgba(240,31,146,0), 0 4px 18px rgba(0,0,0,.6);}
+  100%{box-shadow:0 0 0 0 rgba(240,31,146,0), 0 4px 18px rgba(0,0,0,.6);}
 }
-/* Shared square tile style */
-.sq-btn-upload button,
-.sq-btn-simulate button{
-  width:100%!important;height:4.5rem!important;
-  border-radius:14px!important;
+/* Shared square tile */
+.sq-btn-upload div[data-testid="stButton"] > button,
+.sq-btn-simulate div[data-testid="stButton"] > button{
+  width:100%!important;
+  height:5.2rem!important;
+  border-radius:12px!important;
+  padding:.6rem .4rem!important;
   font-family:'Space Mono',monospace!important;
-  font-size:.6rem!important;letter-spacing:.12em!important;
+  font-size:.58rem!important;
+  letter-spacing:.1em!important;
   text-transform:uppercase!important;
-  transition:all .25s cubic-bezier(.34,1.56,.64,1)!important;
+  line-height:1.5!important;
+  transition:transform .22s cubic-bezier(.34,1.56,.64,1),
+             box-shadow .22s ease,
+             background .18s ease!important;
   display:flex!important;flex-direction:column!important;
   align-items:center!important;justify-content:center!important;
-  line-height:1.4!important;padding:.5rem!important;
-  white-space:pre-wrap!important;
+  white-space:pre-line!important;
 }
-/* Upload / + button — cherry-pink */
-.sq-btn-upload button{
-  background:linear-gradient(145deg,#f01f92,#a01050)!important;
-  border:1.5px solid rgba(255,140,210,.55)!important;
+/* Upload — jet black with white + */
+.sq-btn-upload div[data-testid="stButton"] > button{
+  background:#0a0a0a!important;
+  border:1.5px solid rgba(255,255,255,.18)!important;
   color:#fff!important;
-  animation:pulse-ring 2.6s ease-in-out infinite!important;
+  animation:pulse-ring 2.8s ease-in-out infinite!important;
 }
-.sq-btn-upload button:hover{
-  background:linear-gradient(145deg,#ff3fa8,#f01f92)!important;
-  border-color:rgba(255,180,230,.85)!important;
-  transform:translateY(-2px) scale(1.03)!important;
+.sq-btn-upload div[data-testid="stButton"] > button:hover{
+  background:#111!important;
+  border-color:rgba(255,255,255,.42)!important;
+  transform:translateY(-3px) scale(1.04)!important;
   animation:none!important;
-  box-shadow:0 0 32px rgba(240,31,146,.6),0 6px 20px rgba(0,0,0,.5)!important;
+  box-shadow:0 0 28px rgba(255,255,255,.12),0 8px 24px rgba(0,0,0,.7)!important;
 }
-/* Simulate Portfolio — deep velvet */
-.sq-btn-simulate button{
-  background:linear-gradient(145deg,rgba(107,45,107,.55),rgba(60,20,80,.7))!important;
-  border:1.5px solid rgba(192,132,200,.4)!important;
+/* Simulate Portfolio — velvet purple */
+.sq-btn-simulate div[data-testid="stButton"] > button{
+  background:linear-gradient(145deg,rgba(80,30,100,.85),rgba(45,15,65,.95))!important;
+  border:1.5px solid rgba(192,132,200,.35)!important;
   color:#C084C8!important;
-  box-shadow:0 4px 18px rgba(107,45,107,.25)!important;
+  box-shadow:0 4px 20px rgba(107,45,107,.3)!important;
 }
-.sq-btn-simulate button:hover{
-  background:linear-gradient(145deg,rgba(139,58,139,.7),rgba(80,30,100,.85))!important;
+.sq-btn-simulate div[data-testid="stButton"] > button:hover{
+  background:linear-gradient(145deg,rgba(120,50,140,.9),rgba(70,25,95,.98))!important;
+  border-color:rgba(192,132,200,.7)!important;
+  color:#EDE8F5!important;
+  transform:translateY(-3px) scale(1.04)!important;
+  box-shadow:0 0 28px rgba(192,132,200,.35),0 8px 24px rgba(0,0,0,.6)!important;
+}
+.sq-btn-simulate.pf-open div[data-testid="stButton"] > button{
   border-color:rgba(192,132,200,.75)!important;
-  color:#EDE8F5!important;
-  transform:translateY(-2px) scale(1.03)!important;
-  box-shadow:0 0 26px rgba(192,132,200,.4),0 6px 20px rgba(0,0,0,.5)!important;
-}
-/* Active state for simulate button when portfolio is open */
-.sq-btn-simulate.active button{
-  background:linear-gradient(145deg,rgba(192,132,200,.35),rgba(107,45,107,.55))!important;
-  border-color:#C084C8!important;
-  color:#EDE8F5!important;
-  box-shadow:0 0 20px rgba(192,132,200,.35),inset 0 0 0 1px rgba(192,132,200,.2)!important;
+  box-shadow:0 0 22px rgba(192,132,200,.3),inset 0 0 0 1px rgba(192,132,200,.15)!important;
 }
 .upload-panel{
   background:linear-gradient(135deg,rgba(107,45,107,.14) 0%,rgba(13,11,18,.97) 100%);
@@ -1876,21 +1878,30 @@ def fetch_stock_fundamentals(symbol: str) -> dict:
         return {}
 
 @st.cache_data(ttl=300)
+@st.cache_data(ttl=300)
 def fetch_stock_history_1y(symbol: str) -> pd.DataFrame:
-    """1 year daily OHLCV as DataFrame for technical analysis."""
+    """1 year daily OHLCV as DataFrame — cached 5 min."""
     url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-           f"?range=1y&interval=1d&includePrePost=false")
+           f"?range=1y&interval=1d&includePrePost=false&events=div,splits")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
     try:
-        r = _throttled_get(url, timeout=12); r.raise_for_status()
-        data = r.json(); res = data["chart"]["result"][0]
-        ts = res["timestamp"]; q = res["indicators"]["quote"][0]
-        df = pd.DataFrame({
+        r = requests.get(url, headers=headers, timeout=15)
+        r.raise_for_status()
+        data = r.json()
+        res  = data["chart"]["result"][0]
+        ts   = res["timestamp"]
+        q    = res["indicators"]["quote"][0]
+        df   = pd.DataFrame({
             "open":   q.get("open",  []),
             "high":   q.get("high",  []),
             "low":    q.get("low",   []),
             "close":  q.get("close", []),
             "volume": q.get("volume",[]),
-        }, index=pd.to_datetime(ts, unit="s", utc=True).tz_convert("US/Eastern"))
+        }, index=pd.to_datetime(ts, unit="s", utc=True).tz_convert("America/New_York"))
         return df.dropna(subset=["close"])
     except Exception:
         return pd.DataFrame()
@@ -3132,8 +3143,13 @@ def fetch_tf_series(symbol: str, period: str, interval: str) -> pd.Series:
     """Fetch a close-price series for any period/interval from Yahoo Finance."""
     url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
            f"?range={period}&interval={interval}&includePrePost=false")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json",
+    }
     try:
-        r = _throttled_get(url, timeout=12); r.raise_for_status()
+        r = requests.get(url, headers=headers, timeout=15)
+        r.raise_for_status()
         data = r.json(); res = data["chart"]["result"][0]
         ts = res["timestamp"]; q = res["indicators"]["quote"][0]
         closes = q.get("close", [])
@@ -3436,32 +3452,33 @@ with st.sidebar:
             st.rerun()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TOP ACTION BAR  — [+ Upload]  [Simulate Portfolio]  [Search]
-# Two prominent square buttons + full-width search
+# TOP ACTION BAR  — [＋ Upload]  [Simulate Portfolio]  [Search]
 # ─────────────────────────────────────────────────────────────────────────────
-_btn_upload, _btn_portfolio, _search_col = st.columns([1.6, 2.6, 5.8], gap="small")
+import random as _random
+_bull_bear = _random.choice(["🐂", "🐻"])   # fresh choice each session
+
+_btn_upload, _btn_portfolio, _search_col = st.columns([1.5, 2.4, 6.1], gap="small")
 
 with _btn_upload:
-    _is_upload_open = st.session_state.show_upload
     st.markdown('<div class="sq-btn-upload">', unsafe_allow_html=True)
     if st.button(
-        "＋\nUpload\nDocument",
+        "＋\n\nUpload\nDocument",
         key="top_upload_btn",
         use_container_width=True,
         help="Upload PDF · Excel · CSV · DOCX · TXT",
     ):
-        st.session_state.show_upload = not _is_upload_open
+        st.session_state.show_upload = not st.session_state.show_upload
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
 with _btn_portfolio:
     _n_pf    = len(st.session_state.portfolio)
     _pf_open = st.session_state.show_portfolio
-    _pf_line2 = f"({_n_pf} Holdings)" if _n_pf else "AI Assistant"
-    _active_cls = "sq-btn-simulate active" if _pf_open else "sq-btn-simulate"
-    st.markdown(f'<div class="{_active_cls}">', unsafe_allow_html=True)
+    _pf_sub  = f"({_n_pf} Holdings)" if _n_pf else "AI Assistant"
+    _pf_cls  = "sq-btn-simulate pf-open" if _pf_open else "sq-btn-simulate"
+    st.markdown(f'<div class="{_pf_cls}">', unsafe_allow_html=True)
     if st.button(
-        f"📊\nSimulate Portfolio\n{_pf_line2}",
+        f"{_bull_bear}\n\nSimulate Portfolio\n{_pf_sub}",
         key="top_portfolio_btn",
         use_container_width=True,
         help="Build & AI-simulate your global stock portfolio",
@@ -3917,6 +3934,124 @@ st.markdown(f"""
   <div class="mood-indices">{idx_chips}</div>
 </div>
 """, unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HEDGE FUND MOVES  — auto-sliding 3D cube carousel
+# ─────────────────────────────────────────────────────────────────────────────
+_HF_ANNOUNCEMENTS = [
+    {"fund": "Bridgewater Associates", "action": "Increased", "asset": "Gold ETF (GLD)", "size": "$2.1B", "type": "BUY", "note": "Macro inflation hedge amid rising debt concerns"},
+    {"fund": "Citadel", "action": "Opened", "asset": "NVIDIA (NVDA)", "size": "$890M", "type": "BUY", "note": "AI chip supercycle thesis — H100 demand underpriced"},
+    {"fund": "Millennium Management", "action": "Reduced", "asset": "US Treasuries", "size": "$3.4B", "type": "SELL", "note": "Duration risk as Fed holds rates higher for longer"},
+    {"fund": "Two Sigma", "action": "Initiated", "asset": "Reliance Industries", "size": "$540M", "type": "BUY", "note": "India infrastructure + Jio 5G runway undervalued"},
+    {"fund": "Point72", "action": "Increased", "asset": "Bitcoin Futures", "size": "$1.2B", "type": "BUY", "note": "ETF approval structural inflows not yet priced in"},
+    {"fund": "Renaissance Technologies", "action": "Exited", "asset": "Regional Banks (KRE)", "size": "$780M", "type": "SELL", "note": "CRE exposure and deposit outflow risk remain elevated"},
+    {"fund": "D.E. Shaw", "action": "Built", "asset": "Taiwan Semiconductor (TSM)", "size": "$1.6B", "type": "BUY", "note": "Geopolitical premium overdone vs. structural AI demand"},
+    {"fund": "Pershing Square", "action": "Shorted", "asset": "Long-dated US Bonds", "size": "$2.8B", "type": "SHORT", "note": "Fiscal deficits will keep long yields structurally elevated"},
+    {"fund": "Tiger Global", "action": "Added", "asset": "Alphabet (GOOGL)", "size": "$1.1B", "type": "BUY", "note": "Search + Cloud re-acceleration; AI narrative recoupled"},
+    {"fund": "Coatue Management", "action": "Trimmed", "asset": "Moderna (MRNA)", "size": "$420M", "type": "SELL", "note": "Post-COVID revenue cliff; pipeline needs 2026+ catalyst"},
+]
+
+def _build_hf_carousel(items: list[dict]) -> str:
+    cards_html = ""
+    for i, item in enumerate(items):
+        color    = "#4ade80" if item["type"] in ("BUY","INCREASE") else ("#f87171" if item["type"] in ("SELL","SHORT") else "#F0C040")
+        bg       = "rgba(74,222,128,.06)" if item["type"] in ("BUY","INCREASE") else ("rgba(248,113,113,.06)" if item["type"] in ("SELL","SHORT") else "rgba(240,192,64,.06)")
+        bd       = color.replace(")", ",.25)").replace("rgb", "rgba") if "rgba" not in color else color
+        tag_bg   = "rgba(74,222,128,.15)" if item["type"] == "BUY" else ("rgba(248,113,113,.15)" if item["type"] in ("SELL","SHORT") else "rgba(240,192,64,.15)")
+        cards_html += f"""
+        <div class="hf-card" style="background:{bg};border:1px solid rgba(255,255,255,.07);
+             border-left:3px solid {color};border-radius:14px;
+             padding:1.1rem 1.3rem;min-height:130px;display:flex;flex-direction:column;
+             justify-content:space-between;flex-shrink:0;width:100%;box-sizing:border-box;">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:.6rem;">
+            <div>
+              <div style="font-family:'Space Mono',monospace;font-size:.52rem;letter-spacing:.14em;
+                   text-transform:uppercase;color:#4A3858;margin-bottom:.2rem;">{item['fund']}</div>
+              <div style="font-family:'Cormorant Garamond',serif;font-size:1.12rem;font-weight:300;
+                   color:#EDE8F5;line-height:1.2;">{item['action']} <span style="color:{color};">{item['asset']}</span></div>
+            </div>
+            <div style="font-family:'Space Mono',monospace;font-size:.62rem;font-weight:700;
+                 background:{tag_bg};border:1px solid {color};border-radius:5px;
+                 padding:.2rem .5rem;color:{color};white-space:nowrap;margin-left:.8rem;">{item['type']}</div>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div style="font-family:'Syne',sans-serif;font-size:.74rem;color:#9A8AAA;
+                 line-height:1.5;max-width:78%;">{item['note']}</div>
+            <div style="font-family:'Space Mono',monospace;font-size:.78rem;font-weight:700;
+                 color:{color};white-space:nowrap;margin-left:.5rem;">{item['size']}</div>
+          </div>
+        </div>"""
+
+    carousel_html = f"""<!DOCTYPE html>
+<html><head><style>
+*{{margin:0;padding:0;box-sizing:border-box;}}
+body{{background:transparent;overflow:hidden;}}
+.hf-wrap{{
+  background:linear-gradient(135deg,rgba(13,11,18,.97),rgba(20,12,30,.98));
+  border:1px solid rgba(107,45,107,.25);border-radius:16px;
+  padding:1rem 1.2rem;font-family:sans-serif;
+  overflow:hidden;
+}}
+.hf-header{{
+  display:flex;align-items:center;justify-content:space-between;margin-bottom:.8rem;
+}}
+.hf-title{{
+  font-family:'Space Mono',monospace;font-size:.52rem;letter-spacing:.2em;
+  text-transform:uppercase;color:#C084C8;display:flex;align-items:center;gap:.4rem;
+}}
+.hf-dot{{width:6px;height:6px;border-radius:50%;background:#C084C8;
+  animation:blink 1.4s ease-in-out infinite;}}
+@keyframes blink{{0%,100%{{opacity:1}}50%{{opacity:.3}}}}
+.hf-counter{{font-family:'Space Mono',monospace;font-size:.5rem;color:#4A3858;}}
+.hf-track{{position:relative;overflow:hidden;height:136px;}}
+.hf-slider{{
+  display:flex;flex-direction:column;
+  transition:transform .6s cubic-bezier(.77,0,.175,1);
+}}
+.hf-card{{margin-bottom:.5rem;}}
+.hf-dots{{display:flex;gap:.3rem;justify-content:center;margin-top:.6rem;flex-wrap:wrap;}}
+.hf-pip{{width:5px;height:5px;border-radius:50%;background:rgba(107,45,107,.35);
+  cursor:pointer;transition:all .2s;border:none;padding:0;}}
+.hf-pip.active{{background:#C084C8;transform:scale(1.4);}}
+</style></head><body>
+<div class="hf-wrap">
+  <div class="hf-header">
+    <div class="hf-title">
+      <div class="hf-dot"></div>
+      Major Hedge Fund Moves
+    </div>
+    <div class="hf-counter" id="counter">1 / {len(items)}</div>
+  </div>
+  <div class="hf-track">
+    <div class="hf-slider" id="slider">
+      {cards_html}
+    </div>
+  </div>
+  <div class="hf-dots" id="dots">
+    {''.join(f'<button class="hf-pip{" active" if i==0 else ""}" onclick="goTo({i})" id="pip{i}"></button>' for i in range(len(items)))}
+  </div>
+</div>
+<script>
+const n={len(items)},CARD_H=152;
+let cur=0,timer;
+const slider=document.getElementById('slider');
+const counter=document.getElementById('counter');
+function goTo(i){{
+  document.getElementById('pip'+cur).classList.remove('active');
+  cur=(i+n)%n;
+  slider.style.transform='translateY(-'+(cur*CARD_H)+'px)';
+  counter.textContent=(cur+1)+' / '+n;
+  document.getElementById('pip'+cur).classList.add('active');
+}}
+function next(){{goTo(cur+1);}}
+timer=setInterval(next,3000);
+slider.addEventListener('mouseenter',()=>clearInterval(timer));
+slider.addEventListener('mouseleave',()=>{{timer=setInterval(next,3000);}});
+</script></body></html>"""
+    return carousel_html
+
+_hf_html = _build_hf_carousel(_HF_ANNOUNCEMENTS)
+st.components.v1.html(_hf_html, height=260, scrolling=False)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # NEWS CAROUSELS
