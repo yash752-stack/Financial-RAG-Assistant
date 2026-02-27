@@ -202,16 +202,77 @@ hr{border-color:var(--border)!important}
 .mood-indices{display:flex;gap:1rem;margin-top:.8rem;flex-wrap:wrap}
 .mood-idx-chip{display:flex;flex-direction:column;background:var(--card-2);
   border:1px solid var(--border);border-radius:8px;padding:.4rem .8rem;
-  font-family:'Space Mono',monospace;min-width:90px}
+  font-family:'Space Mono',monospace;min-width:90px;
+  position:relative;overflow:hidden;transition:border-color .2s;}
+.mood-idx-chip.chip-up{border-color:rgba(74,222,128,.25);box-shadow:inset 0 0 0 1px rgba(74,222,128,.08);}
+.mood-idx-chip.chip-up::before{content:'';position:absolute;top:0;right:0;width:100%;height:100%;
+  background:linear-gradient(135deg,transparent 55%,rgba(74,222,128,.07) 55%,rgba(74,222,128,.11) 68%,transparent 68%);
+  border-radius:8px;pointer-events:none;}
+.mood-idx-chip.chip-down{border-color:rgba(248,113,113,.25);box-shadow:inset 0 0 0 1px rgba(248,113,113,.08);}
+.mood-idx-chip.chip-down::before{content:'';position:absolute;top:0;right:0;width:100%;height:100%;
+  background:linear-gradient(135deg,transparent 55%,rgba(248,113,113,.07) 55%,rgba(248,113,113,.11) 68%,transparent 68%);
+  border-radius:8px;pointer-events:none;}
 .mood-idx-name{font-size:.52rem;color:var(--text-ghost);letter-spacing:.1em}
 .mood-idx-val{font-size:.72rem;color:var(--text);margin-top:.1rem}
 .mood-idx-chg.up{font-size:.56rem;color:#4ade80}
 .mood-idx-chg.down{font-size:.56rem;color:#f87171}
 
 /* ── PRICE CHIP ── */
-.price-chip{display:flex;flex-direction:column;background:var(--card-2);
-  border:1px solid var(--border);border-radius:10px;padding:.75rem 1rem;
-  min-width:120px;font-family:'Space Mono',monospace;transition:border-color .2s}
+.price-chip{
+  display:flex;flex-direction:column;
+  background:var(--card-2);
+  border:1px solid var(--border);
+  border-radius:10px;padding:.75rem 1rem;
+  min-width:120px;font-family:'Space Mono',monospace;
+  transition:border-color .2s, box-shadow .2s;
+  position:relative;overflow:hidden;
+}
+.price-chip:hover{border-color:var(--border-l)}
+
+/* diagonal stripe — injected via ::before, colour set inline by JS-free class */
+.price-chip::before{
+  content:'';position:absolute;top:0;right:0;
+  width:100%;height:100%;
+  pointer-events:none;border-radius:10px;
+  opacity:0;transition:opacity .25s;
+}
+.price-chip.chip-up{
+  border-color:rgba(74,222,128,.28);
+  box-shadow:inset 0 0 0 1px rgba(74,222,128,.12), 0 2px 12px rgba(74,222,128,.06);
+}
+.price-chip.chip-up::before{
+  background:linear-gradient(135deg,
+    transparent 60%,
+    rgba(74,222,128,.08) 60%,
+    rgba(74,222,128,.13) 72%,
+    transparent 72%
+  );
+  opacity:1;
+}
+.price-chip.chip-down{
+  border-color:rgba(248,113,113,.28);
+  box-shadow:inset 0 0 0 1px rgba(248,113,113,.12), 0 2px 12px rgba(248,113,113,.06);
+}
+.price-chip.chip-down::before{
+  background:linear-gradient(135deg,
+    transparent 60%,
+    rgba(248,113,113,.08) 60%,
+    rgba(248,113,113,.13) 72%,
+    transparent 72%
+  );
+  opacity:1;
+}
+
+/* Left edge accent bar */
+.price-chip.chip-up::after{
+  content:'';position:absolute;top:0;left:0;width:2px;height:100%;
+  background:linear-gradient(180deg,#4ade80,rgba(74,222,128,.3));border-radius:10px 0 0 10px;
+}
+.price-chip.chip-down::after{
+  content:'';position:absolute;top:0;left:0;width:2px;height:100%;
+  background:linear-gradient(180deg,#f87171,rgba(248,113,113,.3));border-radius:10px 0 0 10px;
+}
+
 .price-chip:hover{border-color:var(--border-l)}
 .pc-sym{font-size:.6rem;color:var(--accent);font-weight:700;letter-spacing:.08em;white-space:nowrap}
 .pc-name{font-size:.5rem;color:var(--text-ghost);margin-bottom:.2rem}
@@ -323,7 +384,26 @@ hr{border-color:var(--border)!important}
 .tab-icon-btn .tb-label{font-size:.58rem;letter-spacing:.08em;text-transform:uppercase}
 .tab-divider{flex:1;height:1px;background:linear-gradient(90deg,rgba(107,45,107,.25),transparent)}
 
-/* Upload panel drop-zone (replaces old drawer) */
+/* Upload + button styling — minimal circle */
+div[data-testid="stButton"] button[kind="secondary"]#top_upload_btn,
+div[data-testid="column"]:first-child div[data-testid="stButton"] > button {
+  /* overridden inline via key targeting below */
+}
+.plus-btn-wrap button{
+  width:2.4rem!important;height:2.4rem!important;min-width:2.4rem!important;
+  padding:0!important;border-radius:50%!important;
+  background:rgba(107,45,107,.14)!important;
+  border:1px solid rgba(139,58,139,.38)!important;
+  color:var(--accent)!important;font-size:1.15rem!important;
+  line-height:1!important;transition:all .2s!important;
+  box-shadow:none!important;display:flex;align-items:center;justify-content:center!important;
+}
+.plus-btn-wrap button:hover{
+  background:rgba(107,45,107,.3)!important;
+  border-color:var(--velvet-gl)!important;
+  box-shadow:0 0 14px rgba(107,45,107,.35)!important;
+  transform:rotate(90deg) scale(1.08)!important;
+}
 .upload-panel{
   background:linear-gradient(135deg,rgba(107,45,107,.14) 0%,rgba(13,11,18,.97) 100%);
   border:1px solid rgba(139,58,139,.4);border-radius:14px;
@@ -1215,10 +1295,12 @@ def fetch_gnews_with_images(query, source_label, accent, max_items=6):
         source_label, accent, max_items)
 
 def make_chip_html(sym, name, price, pct, prefix="$", suffix="", decimals=2, icon=""):
-    arrow = "▲" if pct > 0.005 else ("▼" if pct < -0.005 else "●")
-    cls   = "up" if pct > 0.005 else ("down" if pct < -0.005 else "flat")
-    ih    = f'<span style="font-size:1rem;margin-right:.2rem;">{icon}</span>' if icon else ""
-    return (f'<div class="price-chip"><div class="pc-sym">{ih}{sym}</div>'
+    arrow    = "▲" if pct > 0.005 else ("▼" if pct < -0.005 else "●")
+    cls      = "up" if pct > 0.005 else ("down" if pct < -0.005 else "flat")
+    chip_cls = "chip-up" if pct > 0.005 else ("chip-down" if pct < -0.005 else "")
+    ih       = f'<span style="font-size:1rem;margin-right:.2rem;">{icon}</span>' if icon else ""
+    return (f'<div class="price-chip {chip_cls}">'
+            f'<div class="pc-sym">{ih}{sym}</div>'
             f'<div class="pc-name">{name}</div>'
             f'<div class="pc-val">{prefix}{price:,.{decimals}f}{suffix}</div>'
             f'<div class="pc-chg {cls}">{arrow} {abs(pct):.2f}%</div></div>')
@@ -1489,6 +1571,186 @@ POPULAR_STOCKS = [
     "BTC-USD","ETH-USD","SOL-USD",
 ]
 
+# ── Global ticker catalog — covers US, India, Europe, Asia, LatAm, Crypto ──
+# Format: (display_name, yahoo_symbol, exchange, sector)
+GLOBAL_TICKERS: list[tuple[str,str,str,str]] = [
+    # ── US Large Cap ──────────────────────────────────────────────────────────
+    ("Apple",                    "AAPL",        "NASDAQ","Technology"),
+    ("Microsoft",                "MSFT",        "NASDAQ","Technology"),
+    ("NVIDIA",                   "NVDA",        "NASDAQ","Technology"),
+    ("Alphabet (Google)",        "GOOGL",       "NASDAQ","Technology"),
+    ("Amazon",                   "AMZN",        "NASDAQ","Consumer"),
+    ("Meta Platforms",           "META",        "NASDAQ","Technology"),
+    ("Tesla",                    "TSLA",        "NASDAQ","EV/Auto"),
+    ("Berkshire Hathaway",       "BRK-B",       "NYSE",  "Financials"),
+    ("Netflix",                  "NFLX",        "NASDAQ","Media"),
+    ("AMD",                      "AMD",         "NASDAQ","Technology"),
+    ("Intel",                    "INTC",        "NASDAQ","Technology"),
+    ("Salesforce",               "CRM",         "NYSE",  "Technology"),
+    ("Oracle",                   "ORCL",        "NYSE",  "Technology"),
+    ("IBM",                      "IBM",         "NYSE",  "Technology"),
+    ("Qualcomm",                 "QCOM",        "NASDAQ","Technology"),
+    ("Broadcom",                 "AVGO",        "NASDAQ","Technology"),
+    ("Texas Instruments",        "TXN",         "NASDAQ","Technology"),
+    ("Palantir",                 "PLTR",        "NYSE",  "Technology"),
+    # ── US Financials ─────────────────────────────────────────────────────────
+    ("JPMorgan Chase",           "JPM",         "NYSE",  "Financials"),
+    ("Goldman Sachs",            "GS",          "NYSE",  "Financials"),
+    ("Bank of America",          "BAC",         "NYSE",  "Financials"),
+    ("Morgan Stanley",           "MS",          "NYSE",  "Financials"),
+    ("Visa",                     "V",           "NYSE",  "Financials"),
+    ("Mastercard",               "MA",          "NYSE",  "Financials"),
+    ("American Express",         "AXP",         "NYSE",  "Financials"),
+    ("Wells Fargo",              "WFC",         "NYSE",  "Financials"),
+    ("Citigroup",                "C",           "NYSE",  "Financials"),
+    ("BlackRock",                "BLK",         "NYSE",  "Financials"),
+    # ── US Healthcare ─────────────────────────────────────────────────────────
+    ("Johnson & Johnson",        "JNJ",         "NYSE",  "Healthcare"),
+    ("Pfizer",                   "PFE",         "NYSE",  "Healthcare"),
+    ("UnitedHealth",             "UNH",         "NYSE",  "Healthcare"),
+    ("AbbVie",                   "ABBV",        "NYSE",  "Healthcare"),
+    ("Merck",                    "MRK",         "NYSE",  "Healthcare"),
+    ("Eli Lilly",                "LLY",         "NYSE",  "Healthcare"),
+    ("Bristol-Myers Squibb",     "BMY",         "NYSE",  "Healthcare"),
+    ("Moderna",                  "MRNA",        "NASDAQ","Healthcare"),
+    # ── US Energy ─────────────────────────────────────────────────────────────
+    ("ExxonMobil",               "XOM",         "NYSE",  "Energy"),
+    ("Chevron",                  "CVX",         "NYSE",  "Energy"),
+    ("ConocoPhillips",           "COP",         "NYSE",  "Energy"),
+    # ── US Consumer ───────────────────────────────────────────────────────────
+    ("Walmart",                  "WMT",         "NYSE",  "Consumer"),
+    ("Costco",                   "COST",        "NASDAQ","Consumer"),
+    ("Home Depot",               "HD",          "NYSE",  "Consumer"),
+    ("Nike",                     "NKE",         "NYSE",  "Consumer"),
+    ("Disney",                   "DIS",         "NYSE",  "Media"),
+    ("Starbucks",                "SBUX",        "NASDAQ","Consumer"),
+    ("McDonald's",               "MCD",         "NYSE",  "Consumer"),
+    ("Coca-Cola",                "KO",          "NYSE",  "Consumer"),
+    ("PepsiCo",                  "PEP",         "NASDAQ","Consumer"),
+    # ── India NSE ─────────────────────────────────────────────────────────────
+    ("Reliance Industries",      "RELIANCE.NS", "NSE",   "Energy/Congl"),
+    ("TCS",                      "TCS.NS",      "NSE",   "Technology"),
+    ("Infosys",                  "INFY.NS",     "NSE",   "Technology"),
+    ("HDFC Bank",                "HDFCBANK.NS", "NSE",   "Financials"),
+    ("ICICI Bank",               "ICICIBANK.NS","NSE",   "Financials"),
+    ("Wipro",                    "WIPRO.NS",    "NSE",   "Technology"),
+    ("HCL Technologies",         "HCLTECH.NS",  "NSE",   "Technology"),
+    ("Bajaj Finance",            "BAJFINANCE.NS","NSE",  "Financials"),
+    ("Kotak Mahindra Bank",      "KOTAKBANK.NS","NSE",   "Financials"),
+    ("State Bank of India",      "SBIN.NS",     "NSE",   "Financials"),
+    ("Adani Enterprises",        "ADANIENT.NS", "NSE",   "Conglomerate"),
+    ("Adani Ports",              "ADANIPORTS.NS","NSE",  "Infrastructure"),
+    ("Tata Motors",              "TATAMOTORS.NS","NSE",  "Auto"),
+    ("Tata Steel",               "TATASTEEL.NS","NSE",   "Metals"),
+    ("Hindalco",                 "HINDALCO.NS", "NSE",   "Metals"),
+    ("Asian Paints",             "ASIANPAINT.NS","NSE",  "Consumer"),
+    ("Maruti Suzuki",            "MARUTI.NS",   "NSE",   "Auto"),
+    ("Sun Pharma",               "SUNPHARMA.NS","NSE",   "Healthcare"),
+    ("Dr Reddy's",               "DRREDDY.NS",  "NSE",   "Healthcare"),
+    ("ONGC",                     "ONGC.NS",     "NSE",   "Energy"),
+    ("NTPC",                     "NTPC.NS",     "NSE",   "Utilities"),
+    ("Power Grid",               "POWERGRID.NS","NSE",   "Utilities"),
+    ("Bajaj Auto",               "BAJAJ-AUTO.NS","NSE",  "Auto"),
+    ("Hero MotoCorp",            "HEROMOTOCO.NS","NSE",  "Auto"),
+    ("Larsen & Toubro",          "LT.NS",       "NSE",   "Industrials"),
+    ("UltraTech Cement",         "ULTRACEMCO.NS","NSE",  "Materials"),
+    ("Wipro",                    "WIPRO.BO",    "BSE",   "Technology"),
+    # ── UK / Europe ───────────────────────────────────────────────────────────
+    ("BP",                       "BP",          "NYSE",  "Energy"),
+    ("Shell",                    "SHEL",        "NYSE",  "Energy"),
+    ("ASML",                     "ASML",        "NASDAQ","Technology"),
+    ("SAP",                      "SAP",         "NYSE",  "Technology"),
+    ("Novo Nordisk",             "NVO",         "NYSE",  "Healthcare"),
+    ("LVMH",                     "LVMUY",       "OTC",   "Luxury"),
+    ("Nestlé",                   "NSRGY",       "OTC",   "Consumer"),
+    ("AstraZeneca",              "AZN",         "NASDAQ","Healthcare"),
+    ("Unilever",                 "UL",          "NYSE",  "Consumer"),
+    ("Siemens",                  "SIEGY",       "OTC",   "Industrials"),
+    ("Volkswagen",               "VWAGY",       "OTC",   "Auto"),
+    ("BMW",                      "BMWYY",       "OTC",   "Auto"),
+    ("TotalEnergies",            "TTE",         "NYSE",  "Energy"),
+    ("HSBC",                     "HSBC",        "NYSE",  "Financials"),
+    ("Barclays",                 "BCS",         "NYSE",  "Financials"),
+    ("Roche",                    "RHHBY",       "OTC",   "Healthcare"),
+    # ── Japan ────────────────────────────────────────────────────────────────
+    ("Sony",                     "SONY",        "NYSE",  "Technology"),
+    ("Toyota",                   "TM",          "NYSE",  "Auto"),
+    ("Honda",                    "HMC",         "NYSE",  "Auto"),
+    ("SoftBank",                 "SFTBY",       "OTC",   "Technology"),
+    ("Nintendo",                 "NTDOY",       "OTC",   "Technology"),
+    ("Keyence",                  "KYCCF",       "OTC",   "Technology"),
+    # ── South Korea ──────────────────────────────────────────────────────────
+    ("Samsung Electronics",      "005930.KS",   "KRX",   "Technology"),
+    ("SK Hynix",                 "000660.KS",   "KRX",   "Technology"),
+    ("LG Electronics",           "066570.KS",   "KRX",   "Technology"),
+    ("Hyundai Motor",            "005380.KS",   "KRX",   "Auto"),
+    ("POSCO",                    "PKX",         "NYSE",  "Metals"),
+    # ── China / Hong Kong ────────────────────────────────────────────────────
+    ("Alibaba",                  "BABA",        "NYSE",  "Technology"),
+    ("Tencent",                  "TCEHY",       "OTC",   "Technology"),
+    ("JD.com",                   "JD",          "NASDAQ","Consumer"),
+    ("Baidu",                    "BIDU",        "NASDAQ","Technology"),
+    ("NIO",                      "NIO",         "NYSE",  "EV/Auto"),
+    ("BYD",                      "BYDDY",       "OTC",   "EV/Auto"),
+    ("Meituan",                  "3690.HK",     "HKEX",  "Technology"),
+    ("CNOOC",                    "CEO",         "NYSE",  "Energy"),
+    # ── Taiwan ───────────────────────────────────────────────────────────────
+    ("TSMC",                     "TSM",         "NYSE",  "Technology"),
+    ("MediaTek",                 "2454.TW",     "TWSE",  "Technology"),
+    ("Hon Hai (Foxconn)",        "2317.TW",     "TWSE",  "Technology"),
+    # ── LatAm / Other ────────────────────────────────────────────────────────
+    ("Petrobras",                "PBR",         "NYSE",  "Energy"),
+    ("Vale",                     "VALE",        "NYSE",  "Metals"),
+    ("Itaú Unibanco",            "ITUB",        "NYSE",  "Financials"),
+    ("MercadoLibre",             "MELI",        "NASDAQ","Technology"),
+    ("Copa Holdings",            "CPA",         "NYSE",  "Airlines"),
+    # ── Australia ────────────────────────────────────────────────────────────
+    ("BHP Group",                "BHP",         "NYSE",  "Metals"),
+    ("Rio Tinto",                "RIO",         "NYSE",  "Metals"),
+    ("Commonwealth Bank",        "CBA.AX",      "ASX",   "Financials"),
+    ("Westpac",                  "WBC.AX",      "ASX",   "Financials"),
+    # ── ETFs & Indices ───────────────────────────────────────────────────────
+    ("S&P 500 ETF (SPY)",        "SPY",         "NYSE",  "ETF"),
+    ("QQQ (NASDAQ 100 ETF)",     "QQQ",         "NASDAQ","ETF"),
+    ("Gold ETF (GLD)",           "GLD",         "NYSE",  "ETF"),
+    ("Oil ETF (USO)",            "USO",         "NYSE",  "ETF"),
+    ("VIX",                      "^VIX",        "CBOE",  "Index"),
+    # ── Crypto ───────────────────────────────────────────────────────────────
+    ("Bitcoin",                  "BTC-USD",     "Crypto","Crypto"),
+    ("Ethereum",                 "ETH-USD",     "Crypto","Crypto"),
+    ("Solana",                   "SOL-USD",     "Crypto","Crypto"),
+    ("BNB",                      "BNB-USD",     "Crypto","Crypto"),
+    ("XRP",                      "XRP-USD",     "Crypto","Crypto"),
+    ("Cardano",                  "ADA-USD",     "Crypto","Crypto"),
+    ("Dogecoin",                 "DOGE-USD",    "Crypto","Crypto"),
+    ("Avalanche",                "AVAX-USD",    "Crypto","Crypto"),
+    ("Chainlink",                "LINK-USD",    "Crypto","Crypto"),
+    ("Polkadot",                 "DOT-USD",     "Crypto","Crypto"),
+]
+
+# Build a fast lookup dict: lowercase name/symbol → row
+_TICKER_SEARCH_INDEX: dict[str, list] = {}
+for _row in GLOBAL_TICKERS:
+    for _key in [_row[0].lower(), _row[1].lower()]:
+        _TICKER_SEARCH_INDEX.setdefault(_key, []).append(_row)
+
+def search_tickers(query: str, max_results: int = 12) -> list[tuple]:
+    """Fast fuzzy search over GLOBAL_TICKERS by name or symbol prefix."""
+    if not query:
+        return []
+    q = query.lower().strip()
+    exact   = [r for r in GLOBAL_TICKERS if r[1].lower() == q]
+    prefix  = [r for r in GLOBAL_TICKERS if r[1].lower().startswith(q) and r not in exact]
+    name_m  = [r for r in GLOBAL_TICKERS
+                if q in r[0].lower() and r not in exact and r not in prefix]
+    combined = exact + prefix + name_m
+    # Deduplicate preserving order
+    seen = set(); out = []
+    for r in combined:
+        if r[1] not in seen:
+            seen.add(r[1]); out.append(r)
+    return out[:max_results]
+
 @st.cache_data(ttl=120)
 def fetch_stock_fundamentals(symbol: str) -> dict:
     """Fetch summary quote data: price, change, 52w range, volume, mkt cap, P/E."""
@@ -1684,28 +1946,95 @@ def render_portfolio_panel(groq_api_key: str) -> None:
     portfolio = st.session_state.portfolio
 
     # ── Add / Remove Holdings ──────────────────────────────────────────────
-    with st.expander("➕  Manage Holdings", expanded=not bool(portfolio)):
-        c1, c2, c3, c4 = st.columns([3, 1.5, 1.5, 1])
-        with c1:
-            sym_raw = st.text_input("Ticker symbol", placeholder="e.g. AAPL  RELIANCE.NS  BTC-USD",
-                                    label_visibility="collapsed", key="pf_sym")
-        with c2:
-            shares_in = st.number_input("Shares / Units", min_value=0.0001, value=1.0,
-                                        step=0.1, format="%.4f", label_visibility="collapsed",
-                                        key="pf_shares")
-        with c3:
-            cost_in = st.number_input("Avg buy price", min_value=0.0, value=0.0,
-                                      step=0.01, format="%.2f",
-                                      help="Leave 0 to use current price",
-                                      label_visibility="collapsed", key="pf_cost")
-        with c4:
-            add_clicked = st.button("Add", use_container_width=True, key="pf_add")
+    with st.expander("➕  Add Holdings", expanded=not bool(portfolio)):
 
-        if add_clicked and sym_raw.strip():
-            sym = sym_raw.strip().upper()
+        # ── Global Search ────────────────────────────────────────────────
+        st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;letter-spacing:.15em;'
+                    'text-transform:uppercase;color:#4A3858;margin-bottom:.35rem;">'
+                    'Search any stock · ETF · crypto across all global markets</div>',
+                    unsafe_allow_html=True)
+
+        srch_col, add_col = st.columns([5, 1])
+        with srch_col:
+            ticker_q = st.text_input(
+                "Search",
+                placeholder="Type name or ticker — e.g. Tesla, TSLA, Reliance, HDFCBANK.NS, BTC...",
+                label_visibility="collapsed", key="pf_search_q",
+            )
+        with add_col:
+            add_custom = st.button("Add ticker →", key="pf_add_custom", use_container_width=True)
+
+        # Live search results
+        search_results = search_tickers(ticker_q) if ticker_q and len(ticker_q) >= 1 else []
+
+        if search_results:
+            st.markdown('<div style="font-family:Space Mono,monospace;font-size:.48rem;letter-spacing:.12em;'
+                        'text-transform:uppercase;color:#4A3858;margin:.4rem 0 .3rem;">'
+                        f'{len(search_results)} matches · click to select</div>', unsafe_allow_html=True)
+            # Show as clickable chips — up to 4 per row
+            for row_s in range(0, min(len(search_results), 12), 4):
+                r_cols = st.columns(4)
+                for ci, (name, sym, exch, sector) in enumerate(search_results[row_s:row_s+4]):
+                    with r_cols[ci]:
+                        exch_color = {
+                            "NASDAQ":"#60a5fa","NYSE":"#4ade80","NSE":"#fb923c",
+                            "BSE":"#fb923c","KRX":"#a78bfa","HKEX":"#f87171",
+                            "Crypto":"#F0C040","ETF":"#34d399","OTC":"#9CA3AF",
+                        }.get(exch, "#9CA3AF")
+                        st.markdown(
+                            f'<div style="background:var(--card-2);border:1px solid var(--border);'
+                            f'border-radius:8px;padding:.5rem .7rem;margin-bottom:.3rem;">'
+                            f'<div style="font-family:Space Mono,monospace;font-size:.62rem;'
+                            f'color:var(--accent);font-weight:700;">{sym}</div>'
+                            f'<div style="font-family:Syne,sans-serif;font-size:.7rem;color:var(--text-dim);'
+                            f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{name}</div>'
+                            f'<div style="display:flex;gap:.3rem;margin-top:.2rem;">'
+                            f'<span style="font-family:Space Mono,monospace;font-size:.44rem;'
+                            f'color:{exch_color};background:rgba(0,0,0,.3);border-radius:3px;'
+                            f'padding:.05rem .3rem;">{exch}</span>'
+                            f'<span style="font-family:Space Mono,monospace;font-size:.44rem;'
+                            f'color:#4A3858;background:rgba(107,45,107,.1);border-radius:3px;'
+                            f'padding:.05rem .3rem;">{sector}</span>'
+                            f'</div></div>',
+                            unsafe_allow_html=True,
+                        )
+                        if st.button(f"+ {sym}", key=f"sr_{sym}", use_container_width=True):
+                            st.session_state["_pf_selected_sym"] = sym
+                            st.rerun()
+
+        # If a ticker was selected from search results, pre-fill entry form
+        selected_sym = st.session_state.pop("_pf_selected_sym", "") or ""
+        resolved_sym = selected_sym or (ticker_q.strip().upper() if add_custom and ticker_q.strip() else "")
+
+        # ── Entry form ───────────────────────────────────────────────────
+        st.markdown("<hr style='border-color:rgba(139,58,139,.12);margin:.5rem 0 .4rem;'>",
+                    unsafe_allow_html=True)
+        st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;letter-spacing:.15em;'
+                    'text-transform:uppercase;color:#4A3858;margin-bottom:.3rem;">'
+                    'Set position size</div>', unsafe_allow_html=True)
+
+        ef1, ef2, ef3, ef4 = st.columns([2.5, 1.5, 1.5, 1])
+        with ef1:
+            sym_entry = st.text_input("Ticker", value=resolved_sym,
+                                      placeholder="Symbol e.g. AAPL",
+                                      label_visibility="collapsed", key="pf_sym")
+        with ef2:
+            shares_in = st.number_input("Shares", min_value=0.0001, value=1.0,
+                                        step=0.1, format="%.4f",
+                                        label_visibility="collapsed", key="pf_shares")
+        with ef3:
+            cost_in = st.number_input("Buy price ($)", min_value=0.0, value=0.0,
+                                      step=0.01, format="%.2f",
+                                      help="Leave 0 to use today's price",
+                                      label_visibility="collapsed", key="pf_cost")
+        with ef4:
+            add_clicked = st.button("Add ✓", use_container_width=True, key="pf_add")
+
+        if add_clicked and sym_entry.strip():
+            sym = sym_entry.strip().upper()
             info = fetch_stock_fundamentals(sym)
             if not info or not info.get("price"):
-                st.error(f"Could not fetch data for '{sym}'. Check the ticker symbol.")
+                st.error(f"Could not fetch '{sym}'. Try the Yahoo Finance symbol (e.g. RELIANCE.NS, BTC-USD).")
             else:
                 buy_price = cost_in if cost_in > 0 else info["price"]
                 st.session_state.portfolio[sym] = {
@@ -1713,39 +2042,55 @@ def render_portfolio_panel(groq_api_key: str) -> None:
                     "avg_cost": buy_price,
                     "added":    _dt.datetime.utcnow().strftime("%Y-%m-%d"),
                 }
-                st.success(f"✓ Added {shares_in:,.4f} × {sym} @ ${buy_price:,.2f}")
+                st.success(f"✓ {shares_in:,.4g} × {sym} ({info.get('short_name','')}) @ ${buy_price:,.2f}")
                 st.rerun()
 
-        # Quick-add popular stocks
-        st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;'
-                    'letter-spacing:.15em;text-transform:uppercase;color:#4A3858;margin:.5rem 0 .3rem;">'
-                    'Quick Add Popular</div>', unsafe_allow_html=True)
-        qa_cols = st.columns(8)
-        popular_show = ["AAPL","MSFT","NVDA","TSLA","GOOGL","AMZN","RELIANCE.NS","TCS.NS"]
-        for i, ps in enumerate(popular_show):
-            with qa_cols[i % 8]:
-                if st.button(ps, key=f"qa_{ps}", use_container_width=True):
-                    info2 = fetch_stock_fundamentals(ps)
-                    if info2 and info2.get("price"):
-                        st.session_state.portfolio[ps] = {
-                            "shares": 1.0,
-                            "avg_cost": info2["price"],
-                            "added": _dt.datetime.utcnow().strftime("%Y-%m-%d"),
-                        }
-                        st.rerun()
+        # ── Quick-add by sector ──────────────────────────────────────────
+        st.markdown("<hr style='border-color:rgba(139,58,139,.1);margin:.5rem 0 .4rem;'>",
+                    unsafe_allow_html=True)
+        st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;letter-spacing:.15em;'
+                    'text-transform:uppercase;color:#4A3858;margin-bottom:.35rem;">'
+                    'Quick-add by region / sector</div>', unsafe_allow_html=True)
 
-        # Remove a holding
+        sector_groups = {
+            "🇺🇸 US Tech":     ["AAPL","MSFT","NVDA","GOOGL","META"],
+            "🇺🇸 US Finance":  ["JPM","GS","V","MA","BRK-B"],
+            "🇮🇳 India":       ["RELIANCE.NS","TCS.NS","HDFCBANK.NS","INFY.NS","ICICIBANK.NS"],
+            "🌏 Asia":         ["TSM","SONY","005930.KS","BABA","TM"],
+            "🌍 Europe":       ["ASML","SAP","NVO","AZN","SHEL"],
+            "₿ Crypto":       ["BTC-USD","ETH-USD","SOL-USD","BNB-USD","XRP-USD"],
+        }
+        sg_cols = st.columns(len(sector_groups))
+        for gi, (grp_label, grp_syms) in enumerate(sector_groups.items()):
+            with sg_cols[gi]:
+                st.markdown(f'<div style="font-family:Space Mono,monospace;font-size:.44rem;'
+                            f'letter-spacing:.1em;text-transform:uppercase;color:#4A3858;'
+                            f'margin-bottom:.25rem;">{grp_label}</div>', unsafe_allow_html=True)
+                for ps in grp_syms:
+                    if st.button(ps, key=f"qa_{ps}", use_container_width=True):
+                        info2 = fetch_stock_fundamentals(ps)
+                        if info2 and info2.get("price"):
+                            st.session_state.portfolio[ps] = {
+                                "shares":   1.0,
+                                "avg_cost": info2["price"],
+                                "added":    _dt.datetime.utcnow().strftime("%Y-%m-%d"),
+                            }
+                            st.rerun()
+
+        # ── Remove ───────────────────────────────────────────────────────
         if portfolio:
-            st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;'
-                        'letter-spacing:.15em;text-transform:uppercase;color:#4A3858;margin:.5rem 0 .25rem;">'
-                        'Remove Holding</div>', unsafe_allow_html=True)
-            rm_sym = st.selectbox("Remove", ["—"] + list(portfolio.keys()),
-                                  label_visibility="collapsed", key="pf_rm")
-            if rm_sym != "—" and st.button(f"🗑 Remove {rm_sym}", key="pf_rm_btn"):
-                del st.session_state.portfolio[rm_sym]
-                if rm_sym in st.session_state.portfolio_notes:
-                    del st.session_state.portfolio_notes[rm_sym]
-                st.rerun()
+            st.markdown("<hr style='border-color:rgba(139,58,139,.1);margin:.5rem 0 .4rem;'>",
+                        unsafe_allow_html=True)
+            rm_col1, rm_col2 = st.columns([4, 1])
+            with rm_col1:
+                rm_sym = st.selectbox("Remove holding", ["—"] + list(portfolio.keys()),
+                                      label_visibility="collapsed", key="pf_rm")
+            with rm_col2:
+                if rm_sym != "—" and st.button("🗑 Remove", key="pf_rm_btn", use_container_width=True):
+                    del st.session_state.portfolio[rm_sym]
+                    if rm_sym in st.session_state.portfolio_notes:
+                        del st.session_state.portfolio_notes[rm_sym]
+                    st.rerun()
 
     if not portfolio:
         st.markdown('<div style="text-align:center;padding:2.5rem 1rem;">'
@@ -2544,16 +2889,17 @@ with st.sidebar:
             st.rerun()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TOP ACTION BAR  — sticky icon strip at absolute top of page
-# Upload 📂 · Chat 💬 · Search 🔍  (always visible)
+# TOP ACTION BAR  — + · Chat · Portfolio · Search
 # ─────────────────────────────────────────────────────────────────────────────
-_tab_col1, _tab_col2, _tab_col3, _tab_col4 = st.columns([1.6, 1.4, 1.8, 5.2], gap="small")
+_tab_plus, _tab_col2, _tab_col3, _tab_col4 = st.columns([0.45, 1.35, 1.75, 6.45], gap="small")
 
-with _tab_col1:
-    if st.button("📂  Upload Report", key="top_upload_btn", use_container_width=True,
+with _tab_plus:
+    st.markdown('<div class="plus-btn-wrap">', unsafe_allow_html=True)
+    if st.button("＋", key="top_upload_btn",
                  help="Upload PDF · Excel · CSV · DOCX · TXT"):
         st.session_state.show_upload = not st.session_state.show_upload
         st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
 with _tab_col2:
     if st.button("💬  Chat", key="top_chat_btn", use_container_width=True,
@@ -2915,9 +3261,11 @@ idx_chips  = ""
 for sym, meta in INDEX_SYMS.items():
     info = idx_quotes.get(sym)
     if info:
-        arrow = "▲" if info["pct"] >= 0 else "▼"
-        cls   = "up" if info["pct"] >= 0 else "down"
-        idx_chips += (f'<div class="mood-idx-chip"><div class="mood-idx-name">{meta["flag"]} {meta["name"]}</div>'
+        arrow    = "▲" if info["pct"] >= 0 else "▼"
+        cls      = "up" if info["pct"] >= 0 else "down"
+        chip_cls = "chip-up" if info["pct"] >= 0 else "chip-down"
+        idx_chips += (f'<div class="mood-idx-chip {chip_cls}">'
+                      f'<div class="mood-idx-name">{meta["flag"]} {meta["name"]}</div>'
                       f'<div class="mood-idx-val">{info["price"]:,.0f}</div>'
                       f'<div class="mood-idx-chg {cls}">{arrow} {abs(info["pct"]):.2f}%</div></div>')
 mood_color = "#f87171" if fng_val<25 else ("#fb923c" if fng_val<45 else ("#facc15" if fng_val<55 else ("#86efac" if fng_val<75 else "#4ade80")))
@@ -3277,7 +3625,7 @@ if q:
 st.markdown("""
 <div class="vfooter">
   <div class="vfooter-text">
-    Built by Yash Chaudhary &nbsp;·&nbsp; Financial RAG Assistant v8 &nbsp;·&nbsp;
+    Built by Yash Chaudhary &nbsp;·&nbsp; Financial RAG Assistant v9 &nbsp;·&nbsp;
     Llama 3.3 × Groq × ChromaDB × FinBERT · Portfolio · Analyst Mode
   </div>
 </div>
