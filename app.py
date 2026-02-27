@@ -1,13 +1,4 @@
 from __future__ import annotations
-"""
-app.py  —  Financial RAG Assistant  v5
-New features:
-  ① Global search bar above all market indicators (sticky)
-  ② Multi-format upload: PDF · XLSX · XLS · CSV · DOCX · TXT
-  ③ Analytics auto-generated immediately after ingest
-  ④ Doc vs Market comparison tab in Analytics Dashboard
-Run: streamlit run app.py
-"""
 
 import os, re, json, math, io, html as _ht
 import datetime as _dt
@@ -384,25 +375,35 @@ hr{border-color:var(--border)!important}
 .tab-icon-btn .tb-label{font-size:.58rem;letter-spacing:.08em;text-transform:uppercase}
 .tab-divider{flex:1;height:1px;background:linear-gradient(90deg,rgba(107,45,107,.25),transparent)}
 
-/* Upload + button styling — minimal circle */
-div[data-testid="stButton"] button[kind="secondary"]#top_upload_btn,
-div[data-testid="column"]:first-child div[data-testid="stButton"] > button {
-  /* overridden inline via key targeting below */
-}
+/* ═══════════════════════════════════════════
+   UPLOAD + BUTTON  — cherry-pink glowing circle
+   ═══════════════════════════════════════════ */
+.plus-btn-wrap{display:flex;align-items:center;justify-content:center;}
 .plus-btn-wrap button{
-  width:2.4rem!important;height:2.4rem!important;min-width:2.4rem!important;
+  width:2.8rem!important;height:2.8rem!important;min-width:2.8rem!important;
   padding:0!important;border-radius:50%!important;
-  background:rgba(107,45,107,.14)!important;
-  border:1px solid rgba(139,58,139,.38)!important;
-  color:var(--accent)!important;font-size:1.15rem!important;
-  line-height:1!important;transition:all .2s!important;
-  box-shadow:none!important;display:flex;align-items:center;justify-content:center!important;
+  background:linear-gradient(145deg,#f01f92,#ad1457)!important;
+  border:2px solid rgba(255,120,190,.55)!important;
+  color:#fff!important;font-size:1.45rem!important;font-weight:200!important;
+  line-height:1!important;
+  transition:all .28s cubic-bezier(.34,1.56,.64,1)!important;
+  box-shadow:0 0 0 3px rgba(240,31,146,.15),0 0 22px rgba(240,31,146,.4),0 2px 8px rgba(0,0,0,.5)!important;
+  display:flex!important;align-items:center!important;justify-content:center!important;
 }
 .plus-btn-wrap button:hover{
-  background:rgba(107,45,107,.3)!important;
-  border-color:var(--velvet-gl)!important;
-  box-shadow:0 0 14px rgba(107,45,107,.35)!important;
-  transform:rotate(90deg) scale(1.08)!important;
+  background:linear-gradient(145deg,#ff3fa8,#f01f92)!important;
+  border-color:rgba(255,160,220,.75)!important;
+  box-shadow:0 0 0 5px rgba(240,31,146,.2),0 0 36px rgba(240,31,146,.7),0 4px 16px rgba(0,0,0,.5)!important;
+  transform:rotate(45deg) scale(1.15)!important;
+}
+/* Portfolio button — cherry-pink accent */
+button[data-testid="top_portfolio_btn"]{
+  border:1px solid rgba(240,31,146,.38)!important;
+  color:#ff80c0!important;
+}
+button[data-testid="top_portfolio_btn"]:hover{
+  border-color:rgba(240,31,146,.65)!important;
+  box-shadow:0 0 14px rgba(240,31,146,.28)!important;
 }
 .upload-panel{
   background:linear-gradient(135deg,rgba(107,45,107,.14) 0%,rgba(13,11,18,.97) 100%);
@@ -471,14 +472,26 @@ div[data-testid="column"]:first-child div[data-testid="stButton"] > button {
 }
 .portfolio-panel-hdr{
   padding:.7rem 1.1rem .6rem;
-  background:linear-gradient(90deg,rgba(107,45,107,.22),rgba(13,11,18,.9));
-  border-bottom:1px solid var(--border);
+  background:linear-gradient(90deg,rgba(233,30,140,.18),rgba(107,45,107,.12),rgba(13,11,18,.9));
+  border-bottom:1px solid rgba(233,30,140,.2);
   display:flex;align-items:center;justify-content:space-between;
 }
 .pph-title{font-family:'Cormorant Garamond',serif;font-size:1.1rem;font-weight:300;
   color:var(--text);display:flex;align-items:center;gap:.5rem}
 .pph-title::before{content:'';display:inline-block;width:3px;height:1rem;
-  background:linear-gradient(180deg,#F0C040,#C084C8);border-radius:2px}
+  background:linear-gradient(180deg,#ff4db8,#e91e8c);border-radius:2px}
+
+/* Add Holdings expander cherry accent */
+.add-holdings-panel{
+  background:linear-gradient(135deg,rgba(233,30,140,.07) 0%,rgba(107,45,107,.10) 60%,rgba(13,11,18,.97) 100%);
+  border:1px solid rgba(233,30,140,.22);border-radius:12px;
+  padding:1rem 1.2rem .9rem;margin-bottom:.8rem;
+  animation:slideDown .22s ease;
+}
+.ah-title{font-family:'Space Mono',monospace;font-size:.58rem;letter-spacing:.18em;
+  text-transform:uppercase;color:#ff80c0;margin-bottom:.6rem;
+  display:flex;align-items:center;gap:.5rem;}
+.ah-title::before{content:'✦';color:#e91e8c;font-size:.7rem;}
 .pph-stats{display:flex;gap:1.2rem;flex-wrap:wrap}
 .pph-stat{font-family:'Space Mono',monospace;font-size:.52rem;text-align:right}
 .pph-stat-lbl{color:var(--text-ghost);text-transform:uppercase;letter-spacing:.1em}
@@ -491,15 +504,35 @@ div[data-testid="column"]:first-child div[data-testid="stButton"] > button {
 .holding-card{
   background:var(--card-2);border:1px solid var(--border);border-radius:10px;
   padding:.8rem 1rem .7rem;position:relative;transition:border-color .2s;
+  overflow:hidden;
 }
-.holding-card:hover{border-color:var(--border-l)}
+.holding-card.hc-up{
+  border-color:rgba(74,222,128,.25);
+  box-shadow:inset 0 0 0 1px rgba(74,222,128,.06);
+}
+.holding-card.hc-up::after{
+  content:'';position:absolute;top:0;right:0;width:100%;height:100%;
+  background:linear-gradient(135deg,transparent 62%,rgba(74,222,128,.06) 62%,rgba(74,222,128,.10) 74%,transparent 74%);
+  pointer-events:none;
+}
+.holding-card.hc-down{
+  border-color:rgba(248,113,113,.25);
+  box-shadow:inset 0 0 0 1px rgba(248,113,113,.06);
+}
+.holding-card.hc-down::after{
+  content:'';position:absolute;top:0;right:0;width:100%;height:100%;
+  background:linear-gradient(135deg,transparent 62%,rgba(248,113,113,.06) 62%,rgba(248,113,113,.10) 74%,transparent 74%);
+  pointer-events:none;
+}
 .holding-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
   border-radius:2px 2px 0 0;background:linear-gradient(90deg,var(--velvet),var(--accent));
   opacity:0;transition:opacity .2s}
 .holding-card:hover::before{opacity:1}
-.hc-sym{font-family:'Space Mono',monospace;font-size:.7rem;font-weight:700;
+.hc-sym{font-family:'Space Mono',monospace;font-size:.82rem;font-weight:700;
   color:var(--accent);letter-spacing:.06em}
-.hc-name{font-family:'Syne',sans-serif;font-size:.64rem;color:var(--text-ghost);
+.hc-country{font-family:'Space Mono',monospace;font-size:.58rem;font-weight:600;
+  letter-spacing:.08em;text-transform:uppercase;margin-bottom:.1rem;}
+.hc-name{font-family:'Syne',sans-serif;font-size:.72rem;color:var(--text-ghost);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:.4rem}
 .hc-price{font-family:'Cormorant Garamond',serif;font-size:1.55rem;font-weight:300;
   color:var(--text);line-height:1}
@@ -2162,6 +2195,28 @@ def render_portfolio_panel(groq_api_key: str) -> None:
                 gain_cls = "gain" if h["pnl"] >= 0 else "loss"
                 pnl_sg2  = "+" if h["pnl"] >= 0 else ""
                 price_str = f"{h['currency']} {h['price']:,.4f}" if h["price"] < 1 else f"{h['currency']} {h['price']:,.2f}"
+                hc_dir_cls = "hc-up" if h["pct"] >= 0 else "hc-down"
+
+                # Infer exchange label from symbol suffix
+                sym_up = h["sym"].upper()
+                if sym_up.endswith(".NS") or sym_up.endswith(".BO"):
+                    exch_label = "🇮🇳 NSE · India"; exch_color = "#fb923c"
+                elif sym_up.endswith("-USD") or sym_up.endswith("-BTC"):
+                    exch_label = "₿ Crypto"; exch_color = "#F0C040"
+                elif sym_up.endswith(".KS"):
+                    exch_label = "🇰🇷 KRX · South Korea"; exch_color = "#a78bfa"
+                elif sym_up.endswith(".HK"):
+                    exch_label = "🇭🇰 HKEX · Hong Kong"; exch_color = "#f87171"
+                elif sym_up.endswith(".TW"):
+                    exch_label = "🇹🇼 TWSE · Taiwan"; exch_color = "#34d399"
+                elif sym_up.endswith(".AX"):
+                    exch_label = "🇦🇺 ASX · Australia"; exch_color = "#60a5fa"
+                elif sym_up.endswith(".L"):
+                    exch_label = "🇬🇧 LSE · London"; exch_color = "#e2e8f0"
+                elif "Y" in sym_up and len(sym_up) <= 5 and not sym_up.isalpha() is False:
+                    exch_label = "🌐 OTC / ADR"; exch_color = "#9CA3AF"
+                else:
+                    exch_label = "🇺🇸 NYSE / NASDAQ"; exch_color = "#4ade80"
 
                 # 52w position bar
                 if h.get("52w_high") and h.get("52w_low") and h["52w_high"] != h["52w_low"]:
@@ -2171,9 +2226,16 @@ def render_portfolio_panel(groq_api_key: str) -> None:
                     pos52 = 50
 
                 st.markdown(
-                    f'<div class="holding-card">'
-                    f'<div class="hc-sym">{h["sym"]}</div>'
-                    f'<div class="hc-name">{h["short_name"][:30]}</div>'
+                    f'<div class="holding-card {hc_dir_cls}">'
+                    f'<div style="display:flex;align-items:flex-start;justify-content:space-between;">'
+                    f'  <div>'
+                    f'    <div class="hc-sym">{h["sym"]}</div>'
+                    f'    <div class="hc-country" style="color:{exch_color};">{exch_label}</div>'
+                    f'  </div>'
+                    f'  <div style="text-align:right;font-family:Space Mono,monospace;font-size:.5rem;'
+                    f'    color:#4A3858;margin-top:.1rem;">{h["currency"]}</div>'
+                    f'</div>'
+                    f'<div class="hc-name">{h["short_name"][:32]}</div>'
                     f'<div class="hc-price">{price_str}</div>'
                     f'<div class="hc-chg {cls}">{arr} {abs(h["pct"]):.2f}% today</div>'
                     f'<div class="hc-meta">'
@@ -2891,24 +2953,26 @@ with st.sidebar:
 # ─────────────────────────────────────────────────────────────────────────────
 # TOP ACTION BAR  — + · Chat · Portfolio · Search
 # ─────────────────────────────────────────────────────────────────────────────
-_tab_plus, _tab_col2, _tab_col3, _tab_col4 = st.columns([0.45, 1.35, 1.75, 6.45], gap="small")
+# TOP ACTION BAR  — + · Portfolio · Search
+# ─────────────────────────────────────────────────────────────────────────────
+_tab_plus, _tab_col3, _tab_col4 = st.columns([0.7, 2.2, 7.1], gap="small")
 
 with _tab_plus:
-    st.markdown('<div class="plus-btn-wrap">', unsafe_allow_html=True)
+    # Cherry-pink upload button — full height aligned
+    st.markdown(
+        '<div style="display:flex;align-items:center;height:100%;padding-top:.15rem;">'
+        '<div class="plus-btn-wrap">',
+        unsafe_allow_html=True
+    )
     if st.button("＋", key="top_upload_btn",
                  help="Upload PDF · Excel · CSV · DOCX · TXT"):
         st.session_state.show_upload = not st.session_state.show_upload
         st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
-
-with _tab_col2:
-    if st.button("💬  Chat", key="top_chat_btn", use_container_width=True,
-                 help="Ask markets, crypto, currency, or document questions"):
-        st.session_state.show_chat = not st.session_state.show_chat
-        st.rerun()
+    st.markdown('</div></div>', unsafe_allow_html=True)
 
 with _tab_col3:
-    _pf_label = f"📊  Portfolio ({len(st.session_state.portfolio)})" if st.session_state.portfolio else "📊  Portfolio"
+    _n_pf = len(st.session_state.portfolio)
+    _pf_label = f"📊  Portfolio  ({_n_pf})" if _n_pf else "📊  Portfolio"
     if st.button(_pf_label, key="top_portfolio_btn", use_container_width=True,
                  help="Build & simulate your stock portfolio with AI analysis"):
         st.session_state.show_portfolio = not st.session_state.show_portfolio
@@ -3131,16 +3195,89 @@ if st.session_state.auto_generated:
 # ─────────────────────────────────────────────────────────────────────────────
 if st.session_state.show_portfolio:
     n_holdings = len(st.session_state.portfolio)
-    st.markdown(
-        f'<div class="portfolio-panel">'
-        f'<div class="portfolio-panel-hdr">'
-        f'<div class="pph-title">Portfolio</div>'
-        f'<div style="font-family:Space Mono,monospace;font-size:.52rem;color:#4A3858;">'
-        f'{n_holdings} holding{"s" if n_holdings != 1 else ""} · Live prices · FinBERT RAG</div>'
-        f'</div></div>',
-        unsafe_allow_html=True,
-    )
-    render_portfolio_panel(GROQ_API_KEY)
+
+    # ── 2-column layout: live markets strip | portfolio ───────────────────
+    _pf_mkt_col, _pf_main_col = st.columns([1, 3], gap="small")
+
+    with _pf_mkt_col:
+        # Live global markets side panel — shown only when Portfolio is open
+        st.markdown(
+            '<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;'
+            'padding:.8rem .9rem;position:sticky;top:0;">'
+            '<div style="font-family:Space Mono,monospace;font-size:.5rem;letter-spacing:.18em;'
+            'text-transform:uppercase;color:var(--velvet-gl);margin-bottom:.7rem;">◈ Live Markets</div>',
+            unsafe_allow_html=True,
+        )
+        # Global indices
+        _pf_idx_syms = {
+            "^GSPC":("S&P 500","🇺🇸"), "^IXIC":("NASDAQ","🇺🇸"),
+            "^NSEI":("NIFTY 50","🇮🇳"), "^N225":("Nikkei","🇯🇵"),
+            "^FTSE":("FTSE 100","🇬🇧"), "^GDAXI":("DAX","🇩🇪"),
+        }
+        _pf_idx_q = fetch_multi_quotes(tuple(_pf_idx_syms.keys()))
+        _idx_rows = ""
+        for sym, (name, flag) in _pf_idx_syms.items():
+            info = _pf_idx_q.get(sym)
+            if info:
+                arr  = "▲" if info["pct"] >= 0 else "▼"
+                col  = "#4ade80" if info["pct"] >= 0 else "#f87171"
+                bg   = "rgba(74,222,128,.05)" if info["pct"] >= 0 else "rgba(248,113,113,.05)"
+                bd   = "rgba(74,222,128,.15)" if info["pct"] >= 0 else "rgba(248,113,113,.15)"
+                _idx_rows += (
+                    f'<div style="display:flex;align-items:center;justify-content:space-between;'
+                    f'padding:.35rem .5rem;background:{bg};border:1px solid {bd};'
+                    f'border-radius:6px;margin-bottom:.3rem;">'
+                    f'<div>'
+                    f'  <div style="font-family:Space Mono,monospace;font-size:.52rem;color:var(--accent);">'
+                    f'    {flag} {name}</div>'
+                    f'  <div style="font-family:Cormorant Garamond,serif;font-size:1.05rem;'
+                    f'    font-weight:300;color:#EDE8F5;line-height:1;">{info["price"]:,.0f}</div>'
+                    f'</div>'
+                    f'<div style="font-family:Space Mono,monospace;font-size:.56rem;color:{col};'
+                    f'font-weight:700;">{arr} {abs(info["pct"]):.2f}%</div>'
+                    f'</div>'
+                )
+        st.markdown(_idx_rows + "</div>", unsafe_allow_html=True)
+
+        # Top movers in portfolio
+        if st.session_state.portfolio:
+            st.markdown(
+                '<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;'
+                'padding:.8rem .9rem;margin-top:.6rem;">'
+                '<div style="font-family:Space Mono,monospace;font-size:.5rem;letter-spacing:.18em;'
+                'text-transform:uppercase;color:var(--velvet-gl);margin-bottom:.6rem;">◈ Your Movers</div>',
+                unsafe_allow_html=True,
+            )
+            _mover_rows = ""
+            for sym in list(st.session_state.portfolio.keys())[:8]:
+                _mi = fetch_quote(sym)
+                if _mi:
+                    arr  = "▲" if _mi["pct"] >= 0 else "▼"
+                    col  = "#4ade80" if _mi["pct"] >= 0 else "#f87171"
+                    bg   = "rgba(74,222,128,.04)" if _mi["pct"] >= 0 else "rgba(248,113,113,.04)"
+                    bd   = "rgba(74,222,128,.12)" if _mi["pct"] >= 0 else "rgba(248,113,113,.12)"
+                    _mover_rows += (
+                        f'<div style="display:flex;align-items:center;justify-content:space-between;'
+                        f'padding:.28rem .45rem;background:{bg};border:1px solid {bd};'
+                        f'border-radius:5px;margin-bottom:.25rem;">'
+                        f'<div style="font-family:Space Mono,monospace;font-size:.56rem;color:var(--accent);">{sym}</div>'
+                        f'<div style="font-family:Space Mono,monospace;font-size:.56rem;color:{col};">{arr} {abs(_mi["pct"]):.2f}%</div>'
+                        f'</div>'
+                    )
+            st.markdown(_mover_rows + "</div>", unsafe_allow_html=True)
+
+    with _pf_main_col:
+        st.markdown(
+            f'<div class="portfolio-panel">'
+            f'<div class="portfolio-panel-hdr">'
+            f'<div class="pph-title">Portfolio</div>'
+            f'<div style="font-family:Space Mono,monospace;font-size:.52rem;color:#ff80c0;">'
+            f'{n_holdings} holding{"s" if n_holdings != 1 else ""} · Live prices · FinBERT RAG</div>'
+            f'</div></div>',
+            unsafe_allow_html=True,
+        )
+        render_portfolio_panel(GROQ_API_KEY)
+
     st.markdown("<hr style='border-color:rgba(139,58,139,.1);margin:.6rem 0 1rem;'>",
                 unsafe_allow_html=True)
 
