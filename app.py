@@ -38,11 +38,12 @@ for _k, _v in [
     ("chunk_count",     0),
     ("file_names",      []),
     ("show_upload",     False),
+    ("show_chat",       False),    # v6: floating chat panel toggle
     ("doc_full_text",   ""),
-    ("auto_metrics",    []),       # v5: populated right after ingest
-    ("auto_generated",  False),    # v5: banner flag
-    ("search_query",    ""),       # v5: global search bar state
-    ("search_results",  []),       # v5: search hits to display
+    ("auto_metrics",    []),
+    ("auto_generated",  False),
+    ("search_query",    ""),
+    ("search_results",  []),
 ]:
     if _k not in st.session_state:
         st.session_state[_k] = _v
@@ -285,6 +286,80 @@ hr{border-color:var(--border)!important}
   padding:.55rem .9rem;margin-bottom:.4rem}
 .sr-fname{font-family:'Space Mono',monospace;font-size:.56rem;color:var(--accent);margin-bottom:.18rem}
 .sr-snippet{font-size:.79rem;color:var(--text-dim);line-height:1.55}
+
+/* ════════════════════════════════════════════
+   v6  NEW STYLES
+   ════════════════════════════════════════════ */
+
+/* Top action bar — upload icon + chat icon pinned at very top */
+.top-action-bar{
+  position:sticky;top:0;z-index:1100;
+  display:flex;align-items:center;gap:.6rem;
+  padding:.55rem 0 .4rem;
+  background:linear-gradient(180deg,rgba(7,6,12,.98) 85%,transparent);
+  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  margin-bottom:.6rem;
+}
+.tab-icon-btn{
+  display:flex;align-items:center;gap:.45rem;
+  background:rgba(107,45,107,.12);border:1px solid rgba(139,58,139,.3);
+  border-radius:8px;padding:.38rem .75rem;cursor:pointer;
+  font-family:'Space Mono',monospace;font-size:.62rem;color:var(--text-dim);
+  transition:all .2s;white-space:nowrap;text-decoration:none;
+}
+.tab-icon-btn:hover,.tab-icon-btn.active{
+  background:rgba(107,45,107,.25);border-color:var(--velvet-gl);color:var(--accent);
+  box-shadow:0 0 12px rgba(107,45,107,.22);
+}
+.tab-icon-btn .tb-icon{font-size:1rem;line-height:1}
+.tab-icon-btn .tb-label{font-size:.58rem;letter-spacing:.08em;text-transform:uppercase}
+.tab-divider{flex:1;height:1px;background:linear-gradient(90deg,rgba(107,45,107,.25),transparent)}
+
+/* Upload panel drop-zone (replaces old drawer) */
+.upload-panel{
+  background:linear-gradient(135deg,rgba(107,45,107,.14) 0%,rgba(13,11,18,.97) 100%);
+  border:1px solid rgba(139,58,139,.4);border-radius:14px;
+  padding:1.1rem 1.3rem .9rem;margin-bottom:1rem;
+  animation:slideDown .22s ease;
+}
+@keyframes slideDown{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+.upload-panel-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:.7rem}
+.upload-panel-title{font-family:'Space Mono',monospace;font-size:.64rem;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--velvet-gl)}
+.upload-panel-formats{font-family:'Space Mono',monospace;font-size:.5rem;
+  color:var(--text-ghost);margin-top:.15rem}
+
+/* Inline analytics panel (shown after upload, below upload bar) */
+.analytics-inline-panel{
+  background:var(--card);border:1px solid var(--border);border-radius:14px;
+  padding:1.1rem 1.3rem 1rem;margin-bottom:1.1rem;
+  animation:fadeIn .3s ease;
+}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.aip-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem}
+.aip-title{font-family:'Cormorant Garamond',serif;font-size:1.15rem;font-weight:300;
+  color:var(--text);display:flex;align-items:center;gap:.5rem}
+.aip-title::before{content:'';display:inline-block;width:3px;height:1rem;
+  background:linear-gradient(180deg,#4ade80,#C084C8);border-radius:2px}
+.aip-badge{font-family:'Space Mono',monospace;font-size:.5rem;letter-spacing:.1em;
+  text-transform:uppercase;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.22);
+  color:#86efac;padding:.18rem .5rem;border-radius:4px}
+
+/* Floating chat panel */
+.chat-panel{
+  background:var(--card);border:1px solid var(--border-l);border-radius:14px;
+  margin-bottom:1.1rem;overflow:hidden;
+  animation:slideDown .22s ease;
+}
+.chat-panel-hdr{
+  padding:.65rem 1rem .55rem;
+  background:linear-gradient(90deg,rgba(107,45,107,.18),rgba(13,11,18,.9));
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
+}
+.chat-panel-title{font-family:'Space Mono',monospace;font-size:.58rem;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--velvet-gl)}
+.chat-panel-body{padding:.8rem 1rem}
 
 /* ③ Auto-analytics success banner */
 .analytics-banner{
@@ -1195,7 +1270,12 @@ def ingest_documents(files):
 
     @st.cache_resource
     def load_model():
-        return SentenceTransformer("all-MiniLM-L6-v2")
+        # Finance-specific model trained on SEC filings, earnings reports, financial news
+        # Falls back to general model if download fails (e.g. no internet)
+        try:
+            return SentenceTransformer("yiyanghkust/finbert-pretrain")
+        except Exception:
+            return SentenceTransformer("all-MiniLM-L6-v2")
 
     model  = load_model()
     client = EphemeralClient(settings=Settings(anonymized_telemetry=False))
@@ -1328,7 +1408,7 @@ with st.sidebar:
       </div>
       <div style="font-family:'Space Mono',monospace;font-size:.52rem;letter-spacing:.22em;
                   color:#4A3858;text-transform:uppercase;margin-top:.35rem;">
-        Financial Intelligence · v5
+        Financial Intelligence · v6
       </div>
     </div>
     """, unsafe_allow_html=True)
@@ -1403,60 +1483,63 @@ with st.sidebar:
             st.rerun()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# MAIN TABS
+# TOP ACTION BAR  — sticky icon strip at absolute top of page
+# Upload 📂 · Chat 💬 · Search 🔍  (always visible)
 # ─────────────────────────────────────────────────────────────────────────────
-_main_tabs = st.tabs(["📈 Markets & Chat", "📊 Analytics Dashboard"])
-with _main_tabs[0]:
-    pass  # content below is at module level
+_tab_col1, _tab_col2, _tab_col3, _tab_divider = st.columns([1.5, 1.5, 6, 0.1], gap="small")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# ①  GLOBAL SEARCH BAR  — sticky, positioned ABOVE all market indicators
-# ─────────────────────────────────────────────────────────────────────────────
-st.markdown('<div class="gsearch-wrap">', unsafe_allow_html=True)
+with _tab_col1:
+    _upload_active = "active" if st.session_state.show_upload else ""
+    if st.button("📂  Upload Report", key="top_upload_btn", use_container_width=True,
+                 help="Upload PDF · Excel · CSV · DOCX · TXT"):
+        st.session_state.show_upload = not st.session_state.show_upload
+        st.rerun()
 
-_gs_col, _gc_col = st.columns([15, 1], gap="small")
-with _gs_col:
+with _tab_col2:
+    _chat_active = "active" if st.session_state.show_chat else ""
+    if st.button("💬  Chat", key="top_chat_btn", use_container_width=True,
+                 help="Ask markets, crypto, currency, or document questions"):
+        st.session_state.show_chat = not st.session_state.show_chat
+        st.rerun()
+
+with _tab_col3:
+    # Inline global search
     _raw_q = st.text_input(
         "global_search",
         value=st.session_state.search_query,
-        placeholder="🔍  Search across your documents — try 'revenue 2023', 'risk factors', 'gross margin'…",
+        placeholder="🔍  Search documents — revenue 2023, risk factors, gross margin…",
         label_visibility="collapsed",
         key="g_search_input",
     )
-with _gc_col:
-    if st.button("✕", key="g_clear", help="Clear search"):
+    if _raw_q and _raw_q != st.session_state.search_query:
+        st.session_state.search_query = _raw_q
+        hits = []
+        if st.session_state.vectorstore:
+            try:
+                vs    = st.session_state.vectorstore
+                q_emb = vs["model"].encode([_raw_q], normalize_embeddings=True).tolist()
+                res   = vs["collection"].query(query_embeddings=q_emb, n_results=5,
+                                               include=["documents","metadatas","distances"])
+                for chunk, meta, dist in zip(res["documents"][0], res["metadatas"][0], res["distances"][0]):
+                    hits.append({"filename": meta["filename"],
+                                 "score":    round(1 - dist/2, 3),
+                                 "snippet":  chunk[:300]})
+            except: pass
+        st.session_state.search_results = hits
+
+    if not _raw_q and st.session_state.search_query:
         st.session_state.search_query = ""
         st.session_state.search_results = []
-        st.rerun()
 
-st.markdown("</div>", unsafe_allow_html=True)
-
-# Run search when query changes
-if _raw_q and _raw_q != st.session_state.search_query:
-    st.session_state.search_query = _raw_q
-    hits = []
-    if st.session_state.vectorstore:
-        try:
-            vs    = st.session_state.vectorstore
-            q_emb = vs["model"].encode([_raw_q], normalize_embeddings=True).tolist()
-            res   = vs["collection"].query(query_embeddings=q_emb, n_results=5,
-                                           include=["documents","metadatas","distances"])
-            for chunk, meta, dist in zip(res["documents"][0], res["metadatas"][0], res["distances"][0]):
-                hits.append({"filename":meta["filename"],
-                              "score":round(1 - dist/2, 3),
-                              "snippet":chunk[:300]})
-        except: pass
-    st.session_state.search_results = hits
-
-# Display search results inline
+# Search results inline below bar
 if st.session_state.search_query and st.session_state.search_results:
     st.markdown(f'<div class="sr-wrap"><div class="sr-title">'
                 f'◈ {len(st.session_state.search_results)} results for '
                 f'"{_ht.escape(st.session_state.search_query)}"</div>',
                 unsafe_allow_html=True)
     for hit in st.session_state.search_results:
-        rel = int(hit["score"] * 100)
-        bc2 = "#4ADE80" if rel >= 75 else ("#F0C040" if rel >= 50 else "#9A8AAA")
+        rel  = int(hit["score"] * 100)
+        bc2  = "#4ADE80" if rel >= 75 else ("#F0C040" if rel >= 50 else "#9A8AAA")
         st.markdown(f'<div class="sr-hit">'
                     f'<div class="sr-fname">📄 {_ht.escape(hit["filename"])} &nbsp;'
                     f'<span style="background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.22);'
@@ -1467,11 +1550,206 @@ if st.session_state.search_query and st.session_state.search_results:
     st.markdown("</div>", unsafe_allow_html=True)
 elif st.session_state.search_query and not st.session_state.search_results:
     st.markdown(f'<div style="font-family:Space Mono,monospace;font-size:.6rem;color:#4A3858;'
-                f'padding:.4rem .7rem;background:rgba(107,45,107,.05);border:1px solid var(--border);'
-                f'border-radius:8px;margin-bottom:.7rem;">'
-                f'No document results for "{_ht.escape(st.session_state.search_query)}" — '
-                f'upload documents to search them, or use the chat below for live market queries.'
+                f'padding:.35rem .7rem;background:rgba(107,45,107,.05);border:1px solid var(--border);'
+                f'border-radius:8px;margin-bottom:.6rem;">'
+                f'No results for "{_ht.escape(st.session_state.search_query)}" — '
+                f'upload a document first, or use Chat for live market queries.'
                 f'</div>', unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# UPLOAD PANEL  (slides open below action bar when 📂 clicked)
+# ─────────────────────────────────────────────────────────────────────────────
+if st.session_state.show_upload:
+    st.markdown('<div class="upload-panel">'
+                '<div class="upload-panel-hdr">'
+                '<div><div class="upload-panel-title">◈ Upload Financial Documents</div>'
+                '<div class="upload-panel-formats">Supported: PDF · XLSX · XLS · CSV · DOCX · TXT</div>'
+                '</div></div>',
+                unsafe_allow_html=True)
+    inline_files = st.file_uploader(
+        "Upload files", type=["pdf","txt","xlsx","xls","csv","docx"],
+        accept_multiple_files=True, label_visibility="collapsed", key="drawer_upload",
+    )
+    col_ing, col_cls = st.columns([3, 1])
+    with col_ing:
+        if inline_files and st.button("⬆  Ingest & Analyse", use_container_width=True, key="drawer_ingest"):
+            if not GROQ_API_KEY:
+                st.error("Enter your Groq API key in the sidebar first.")
+            else:
+                try:
+                    n = ingest_documents(inline_files)
+                    st.success(f"✓ {n} chunks indexed · Analytics ready below ↓")
+                    st.session_state.show_upload = False
+                    st.rerun()
+                except Exception as e:
+                    st.error(str(e))
+    with col_cls:
+        if st.button("✕ Close", use_container_width=True, key="drawer_close"):
+            st.session_state.show_upload = False; st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# INLINE ANALYTICS PANEL  (appears directly below upload, after ingest)
+# No separate tab — lives right here in the main page flow
+# ─────────────────────────────────────────────────────────────────────────────
+if st.session_state.auto_generated:
+    n_m = len(st.session_state.auto_metrics)
+    st.markdown(f'<div class="analytics-inline-panel">'
+                f'<div class="aip-header">'
+                f'<div class="aip-title">Document Analytics</div>'
+                f'<span class="aip-badge">✅ {n_m} metrics extracted · FinBERT embeddings</span>'
+                f'</div></div>', unsafe_allow_html=True)
+
+    _atabs = st.tabs(["📊 Metrics","📈 Doc vs Market","📋 Templates","🔍 Hybrid Search","🧪 Eval"])
+
+    with _atabs[0]:
+        if st.session_state.auto_metrics:
+            render_metrics_dashboard(st.session_state.auto_metrics)
+            st.markdown("<hr style='border-color:rgba(139,58,139,.15);margin:.8rem 0;'>",
+                        unsafe_allow_html=True)
+            render_trend_chart(st.session_state.auto_metrics)
+            with st.expander("📄 Raw extraction table"):
+                st.dataframe(pd.DataFrame([
+                    {"Metric":m["label"],"Value":fmt_val(m["value"],m["unit"]),
+                     "Unit":m["unit"],"Category":m["category"],"Raw Text":m["raw"]}
+                    for m in st.session_state.auto_metrics
+                ]), use_container_width=True, hide_index=True)
+        else:
+            st.info("No numeric metrics matched regex patterns. Try Templates tab for LLM extraction.")
+
+    with _atabs[1]:
+        render_comparison_tab(st.session_state.auto_metrics, GROQ_API_KEY)
+
+    with _atabs[2]:
+        cats = sorted({v["category"] for v in TEMPLATES.values()})
+        chosen_cat = st.selectbox("Filter", ["All"]+cats, label_visibility="collapsed", key="tpl_cat2")
+        visible = {k:v for k,v in TEMPLATES.items() if chosen_cat=="All" or v["category"]==chosen_cat}
+        items = list(visible.items())
+        for rs in range(0, len(items), 3):
+            cols = st.columns(3)
+            for ci, (tn, tm) in enumerate(items[rs:rs+3]):
+                with cols[ci]:
+                    color = CAT_COLORS.get(tm["category"], VELVET["dim"])
+                    st.markdown(f'<div style="background:{VELVET["card2"]};border:1px solid rgba(139,58,139,.22);'
+                                f'border-top:2px solid {color};border-radius:10px;padding:.8rem .9rem .6rem;">'
+                                f'<div style="font-size:1.2rem;">{tm["icon"]}</div>'
+                                f'<div style="font-family:Syne,sans-serif;font-size:.82rem;font-weight:600;'
+                                f'color:{VELVET["text"]};margin:.3rem 0 .2rem;">{tn}</div>'
+                                f'<div style="font-family:Space Mono,monospace;font-size:.52rem;color:{color};'
+                                f'text-transform:uppercase;">{tm["category"]}</div></div>', unsafe_allow_html=True)
+                    if st.button("Run →", key=f"tpl2_{tn[:18]}", use_container_width=True):
+                        st.session_state["_prefill"] = tm["prompt"]
+                        st.session_state.show_chat = True
+                        st.success(f"✓ '{tn}' → open Chat ↑")
+
+    with _atabs[3]:
+        hs_q = st.text_input("Hybrid search", placeholder="e.g. free cash flow 2023",
+                             label_visibility="collapsed", key="hs_q2")
+        c1, c2, c3 = st.columns(3)
+        with c1: bw2 = st.slider("BM25 weight", 0.0, 1.0, 0.35, 0.05, key="bw2")
+        with c2: tn2 = st.slider("Results", 3, 10, 5, key="tn2")
+        with c3: uce2 = st.checkbox("Re-rank", value=True, key="uce2")
+        if hs_q and st.session_state.vectorstore:
+            with st.spinner("Retrieving…"):
+                try:
+                    vs = st.session_state.vectorstore
+                    ar = vs["collection"].get(include=["documents","embeddings","metadatas"])
+                    cks, emb, mts = ar["documents"], ar["embeddings"], ar["metadatas"]
+                    qe2 = vs["model"].encode([hs_q], normalize_embeddings=True).tolist()[0]
+                    hits2 = HybridRetriever(cks, emb).retrieve(hs_q, qe2, n=tn2, bw=bw2, rerank=uce2)
+                    for rank, h in enumerate(hits2, 1):
+                        mt = mts[h["idx"]] if h["idx"] < len(mts) else {}
+                        tags_h = tag_chunk(h["chunk"])
+                        th = " ".join(f'<span style="background:rgba(139,58,139,.15);'
+                                      f'border:1px solid rgba(139,58,139,.3);font-family:Space Mono,monospace;'
+                                      f'font-size:.5rem;padding:.1rem .35rem;border-radius:3px;'
+                                      f'color:{CAT_COLORS.get(t,VELVET["dim"])};">{t}</span>' for t in tags_h)
+                        st.markdown(f'<div style="background:{VELVET["card"]};border:1px solid rgba(139,58,139,.22);'
+                                    f'border-left:3px solid #C084C8;border-radius:0 8px 8px 0;'
+                                    f'padding:.7rem .9rem;margin-bottom:.5rem;">'
+                                    f'<div style="font-family:Space Mono,monospace;font-size:.58rem;color:#C084C8;'
+                                    f'margin-bottom:.3rem;">#{rank} · 📄 {mt.get("filename","—")}'
+                                    f' · score:{h["score"]:.3f}</div>'
+                                    f'<div style="font-size:.8rem;color:#9A8AAA;line-height:1.55;">'
+                                    f'{h["chunk"][:320]}…</div>'
+                                    f'<div style="margin-top:.35rem;display:flex;gap:.3rem;flex-wrap:wrap;">{th}</div>'
+                                    f'</div>', unsafe_allow_html=True)
+                except Exception as e:
+                    st.error(f"Search error: {e}")
+        elif hs_q:
+            st.info("Ingest documents first.")
+
+    with _atabs[4]:
+        st.markdown('<div style="font-family:Space Mono,monospace;font-size:.54rem;letter-spacing:.18em;'
+                    'text-transform:uppercase;color:#C084C8;margin-bottom:.8rem;">'
+                    'FinanceBench-Style QA Accuracy Evaluation</div>', unsafe_allow_html=True)
+        if st.button("▶  Run Benchmark", key="bench2"):
+            if not st.session_state.vectorstore or not GROQ_API_KEY:
+                st.error("Need documents and API key.")
+            else:
+                er2 = []; prog2 = st.progress(0, text="Evaluating…")
+                for i, eq in enumerate(EVAL_QUESTIONS):
+                    try:
+                        from openai import OpenAI as _OAI
+                        _oai2 = _OAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
+                        vs2 = st.session_state.vectorstore
+                        qe3 = vs2["model"].encode([eq["question"]], normalize_embeddings=True).tolist()
+                        res3 = vs2["collection"].query(query_embeddings=qe3, n_results=4,
+                                                      include=["documents","metadatas","distances"])
+                        ctx3 = "\n---\n".join(res3["documents"][0])
+                        resp3 = _oai2.chat.completions.create(
+                            model="llama-3.3-70b-versatile",
+                            messages=[{"role":"system","content":"Answer concisely using only the context."},
+                                      {"role":"user","content":f"Context:\n{ctx3}\n\nQuestion: {eq['question']}"}],
+                            temperature=0.05, max_tokens=400)
+                        ans3 = resp3.choices[0].message.content
+                        sc3  = score_answer(ans3, eq["expected_keywords"])
+                        er2.append({"question":eq["question"],"category":eq["category"],"answer":ans3,"score":sc3})
+                    except Exception as exc:
+                        er2.append({"question":eq["question"],"category":eq["category"],
+                                    "answer":f"Error:{exc}","score":{"recall":0,"hits":0,"total":0,"score_pct":0}})
+                    prog2.progress((i+1)/len(EVAL_QUESTIONS))
+                prog2.empty(); render_eval_dashboard(er2)
+
+    st.markdown("<hr style='border-color:rgba(139,58,139,.1);margin:.6rem 0 1rem;'>",
+                unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CHAT PANEL  (slides open below analytics when 💬 clicked)
+# ─────────────────────────────────────────────────────────────────────────────
+if st.session_state.show_chat:
+    st.markdown('<div class="chat-panel">'
+                '<div class="chat-panel-hdr">'
+                '<span class="chat-panel-title">◈ Ask Anything — Markets · Crypto · Documents</span>'
+                '</div>'
+                '<div class="chat-panel-body">',
+                unsafe_allow_html=True)
+
+    if not st.session_state.messages:
+        st.markdown("""
+        <div style="text-align:center;padding:2rem 1rem;">
+          <div style="font-size:2rem;margin-bottom:.6rem;opacity:.5;">◈</div>
+          <div style="font-family:'Cormorant Garamond',serif;font-size:1.4rem;font-weight:300;
+                      font-style:italic;color:#4A3858;">Ready without uploads</div>
+          <div style="font-family:Syne,sans-serif;font-size:.76rem;color:#4A3858;
+                      margin-top:.4rem;max-width:340px;margin-left:auto;margin-right:auto;line-height:1.8;">
+            Ask about live stocks, gold, crypto, FX rates — no documents needed.<br>
+            Upload a report above to unlock document Q&amp;A.
+          </div>
+        </div>""", unsafe_allow_html=True)
+
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            if msg.get("sources"):
+                with st.expander(f"↳ {len(msg['sources'])} source(s)"):
+                    for src in msg["sources"]:
+                        st.markdown(f'<div class="src-card"><div class="src-name">📄 {src["filename"]}</div>'
+                                    f'<div class="src-score">relevance: {src["score"]}</div>'
+                                    f'<div class="src-preview">{src["preview"]}…</div></div>',
+                                    unsafe_allow_html=True)
+
+    st.markdown("</div></div>", unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HERO
@@ -1483,7 +1761,7 @@ st.markdown("""
   <p>Semantic search and AI-powered analysis across Annual Reports,
      10-Ks &amp; Earnings Transcripts. Live markets &amp; crypto always on.</p>
   <div class="badge-row">
-    <span class="badge v">Semantic Retrieval</span>
+    <span class="badge v">FinBERT Embeddings</span>
     <span class="badge v">Source-backed Answers</span>
     <span class="badge v">Llama 3.3 · 70B</span>
     <span class="badge">Groq</span>
@@ -1493,20 +1771,6 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# ③ AUTO-ANALYTICS BANNER (shown after ingest)
-if st.session_state.auto_generated:
-    n = len(st.session_state.auto_metrics)
-    st.markdown(
-        f'<div class="analytics-banner">'
-        f'<div class="ab-icon">✅</div>'
-        f'<div>'
-        f'<div class="ab-title">Analytics auto-generated — {n} metric{"s" if n!=1 else ""} extracted</div>'
-        f'<div class="ab-sub">Switch to 📊 Analytics Dashboard → Metrics Dashboard to view · '
-        f'Compare vs market in Doc vs Market tab</div>'
-        f'</div></div>',
-        unsafe_allow_html=True,
-    )
-
 # ─────────────────────────────────────────────────────────────────────────────
 # STAT STRIP
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1515,8 +1779,8 @@ docs   = st.session_state.uploaded_docs
 msgs   = len(st.session_state.messages) // 2
 st.markdown(f"""
 <div class="stat-strip">
-  <div class="stat-cell"><div class="stat-lbl">Model</div>
-    <div class="stat-val-mono">Llama 3.3 · 70B</div></div>
+  <div class="stat-cell"><div class="stat-lbl">Embeddings</div>
+    <div class="stat-val-mono">FinBERT · Finance</div></div>
   <div class="stat-cell"><div class="stat-lbl">Chunks Indexed</div>
     <div class="stat-val {'active' if chunks else ''}">{chunks if chunks else '—'}</div></div>
   <div class="stat-cell"><div class="stat-lbl">Documents</div>
@@ -1782,171 +2046,85 @@ else:
 st.markdown("<hr style='border-color:rgba(139,58,139,.15);margin:1.4rem 0;'>", unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CHAT SECTION
+# CHAT INPUT  (always rendered so st.chat_input works; messages show in panel above)
 # ─────────────────────────────────────────────────────────────────────────────
-st.markdown("""
-<div style="font-family:'Cormorant Garamond',serif;font-size:1.35rem;font-weight:300;
-  color:#EDE8F5;margin:.5rem 0 .8rem;">
-  Ask Anything — Markets, Currencies, Gold &amp; Documents
-</div>
-""", unsafe_allow_html=True)
-
-if not st.session_state.messages:
-    st.markdown("""
-    <div class="empty">
-      <div class="empty-orb">◈</div>
-      <div class="empty-title">Ready without uploads</div>
-      <div class="empty-sub">
-        Ask about <strong>live stocks</strong>, <strong>gold &amp; silver</strong>,
-        <strong>crypto</strong>, <strong>currency rates</strong> — no documents needed.<br><br>
-        Use <strong>＋</strong> to upload PDFs, Excel, CSV or DOCX for deep document analysis.
-      </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-        if msg.get("sources"):
-            with st.expander(f"↳ {len(msg['sources'])} source(s)"):
-                for src in msg["sources"]:
-                    st.markdown(f'<div class="src-card"><div class="src-name">📄 {src["filename"]}</div>'
-                                f'<div class="src-score">relevance: {src["score"]}</div>'
-                                f'<div class="src-preview">{src["preview"]}…</div></div>',
-                                unsafe_allow_html=True)
-
-# ② UPLOAD DRAWER  — now accepts PDF · XLSX · XLS · CSV · DOCX · TXT
-if st.session_state.show_upload:
-    st.markdown('<div class="upload-drawer">'
-                '<div class="upload-drawer-title">◈ Upload Financial Documents</div>'
-                '<div style="font-family:Space Mono,monospace;font-size:.52rem;color:#4A3858;margin-bottom:.6rem;">'
-                'Supported: PDF · XLSX · XLS · CSV · DOCX · TXT</div>',
-                unsafe_allow_html=True)
-    inline_files = st.file_uploader(
-        "Upload", type=["pdf","txt","xlsx","xls","csv","docx"],
-        accept_multiple_files=True, label_visibility="collapsed", key="drawer_upload",
-    )
-    col_ing, col_cls = st.columns([3, 1])
-    with col_ing:
-        if inline_files and st.button("⬆  Ingest Documents", use_container_width=True, key="drawer_ingest"):
-            if not GROQ_API_KEY:
-                st.error("Enter your Groq API key in the sidebar first.")
-            else:
-                try:
-                    n = ingest_documents(inline_files)
-                    st.success(f"✓ {n} chunks from {len(inline_files)} file(s) · "
-                               f"Analytics auto-generated — switch to 📊 Analytics tab")
-                    st.session_state.show_upload = False
-                    st.rerun()
-                except Exception as e:
-                    st.error(str(e))
-    with col_cls:
-        if st.button("✕ Close", use_container_width=True, key="drawer_close"):
-            st.session_state.show_upload = False; st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
-
-bar_col1, bar_col2 = st.columns([1, 16], gap="small")
-with bar_col1:
-    if st.button("＋", key="plus_btn", use_container_width=True,
-                 help="Upload PDF · Excel · CSV · DOCX · TXT"):
-        st.session_state.show_upload = not st.session_state.show_upload; st.rerun()
-with bar_col2:
-    prefill  = st.session_state.pop("_prefill", None)
-    question = st.chat_input("Ask about stocks, gold, crypto, currencies, or your documents…")
-
+prefill  = st.session_state.pop("_prefill", None)
+question = st.chat_input("Ask about stocks, gold, crypto, currencies, or your documents…")
 q = prefill or question
 
 if q:
+    # Auto-open chat panel when a question is submitted
+    if not st.session_state.show_chat:
+        st.session_state.show_chat = True
+
     if not GROQ_API_KEY:
         st.error("Please enter your Groq API key in the sidebar."); st.stop()
 
-    with st.chat_message("user"):
-        st.markdown(q)
     st.session_state.messages.append({"role":"user","content":q})
 
-    with st.chat_message("assistant"):
-        with st.spinner("Thinking…"):
-            try:
-                from openai import OpenAI
-                oai = OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
+    with st.spinner("Thinking…"):
+        try:
+            from openai import OpenAI
+            oai = OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
 
-                stock_lines = [f"  {sym}: ${info['price']:,.2f} ({'▲' if info['pct']>=0 else '▼'}{abs(info['pct']):.2f}%)"
-                               for sym in symbols if (info := fetch_quote(sym))]
-                comm_lines  = [f"  {name}: ${info['price']:,.{dec}f} {unit} ({'+' if info['pct']>=0 else ''}{info['pct']:.2f}%)"
-                               for sym, (name, unit, _, dec) in COMMODITY_SYMS.items() if (info := fetch_quote(sym))]
-                crypto_lines = [f"  {ticker}: ${info['price']:,.{dec}f} ({'+' if info['pct']>=0 else ''}{info['pct']:.2f}%)"
-                                for sym, (name, ticker, _, dec) in CRYPTO_SYMS.items() if (info := fetch_quote(sym))]
-                fx_lines = []
-                for _fxsym in st.session_state.get("fx_select_syms", ("USDINR=X","USDJPY=X","USDCNY=X")):
-                    _fxi = fetch_quote(_fxsym)
-                    if _fxi:
-                        _p  = _fxi["price"]; _rs = f"{_p:,.2f}" if _p >= 10 else f"{_p:.4f}"
-                        _sg = "+" if _fxi["pct"] >= 0 else ""
-                        fx_lines.append(f"  {ALL_FX.get(_fxsym,{}).get('label',_fxsym)}: {_rs} ({_sg}{_fxi['pct']:.3f}%)")
+            stock_lines = [f"  {sym}: ${info['price']:,.2f} ({'▲' if info['pct']>=0 else '▼'}{abs(info['pct']):.2f}%)"
+                           for sym in symbols if (info := fetch_quote(sym))]
+            comm_lines  = [f"  {name}: ${info['price']:,.{dec}f} {unit} ({'+' if info['pct']>=0 else ''}{info['pct']:.2f}%)"
+                           for sym, (name, unit, _, dec) in COMMODITY_SYMS.items() if (info := fetch_quote(sym))]
+            crypto_lines = [f"  {ticker}: ${info['price']:,.{dec}f} ({'+' if info['pct']>=0 else ''}{info['pct']:.2f}%)"
+                            for sym, (name, ticker, _, dec) in CRYPTO_SYMS.items() if (info := fetch_quote(sym))]
+            fx_lines = []
+            for _fxsym in st.session_state.get("fx_select_syms", ("USDINR=X","USDJPY=X","USDCNY=X")):
+                _fxi = fetch_quote(_fxsym)
+                if _fxi:
+                    _p  = _fxi["price"]; _rs = f"{_p:,.2f}" if _p >= 10 else f"{_p:.4f}"
+                    _sg = "+" if _fxi["pct"] >= 0 else ""
+                    fx_lines.append(f"  {ALL_FX.get(_fxsym,{}).get('label',_fxsym)}: {_rs} ({_sg}{_fxi['pct']:.3f}%)")
 
-                utc_now = _dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
-                live_context = (
-                    f"=== LIVE MARKET DATA ({utc_now}) ===\n"
-                    f"STOCKS:\n{chr(10).join(stock_lines) or '  (none)'}\n"
-                    f"COMMODITIES:\n{chr(10).join(comm_lines) or '  (unavailable)'}\n"
-                    f"CRYPTO:\n{chr(10).join(crypto_lines) or '  (unavailable)'}\n"
-                    f"CURRENCIES (vs USD):\n{chr(10).join(fx_lines) or '  (unavailable)'}\n"
-                    f"MARKET MOOD: Fear & Greed = {fng_val} ({fng_label})"
-                ).strip()
+            utc_now = _dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+            live_context = (
+                f"=== LIVE MARKET DATA ({utc_now}) ===\n"
+                f"STOCKS:\n{chr(10).join(stock_lines) or '  (none)'}\n"
+                f"COMMODITIES:\n{chr(10).join(comm_lines) or '  (unavailable)'}\n"
+                f"CRYPTO:\n{chr(10).join(crypto_lines) or '  (unavailable)'}\n"
+                f"CURRENCIES (vs USD):\n{chr(10).join(fx_lines) or '  (unavailable)'}\n"
+                f"MARKET MOOD: Fear & Greed = {fng_val} ({fng_label})"
+            ).strip()
 
-                doc_context = ""; sources_data = []
-                if st.session_state.vectorstore:
-                    vs    = st.session_state.vectorstore
-                    q_emb = vs["model"].encode([q], normalize_embeddings=True).tolist()
-                    res   = vs["collection"].query(query_embeddings=q_emb, n_results=5,
-                                                   include=["documents","metadatas","distances"])
-                    cks, mts, dts = res["documents"][0], res["metadatas"][0], res["distances"][0]
-                    doc_context  = "\n---\n".join(f"[{m['filename']}]\n{c}" for c, m in zip(cks, mts))
-                    sources_data = [{"filename":m["filename"],"score":round(1-d/2,3),"preview":c[:220]}
-                                    for c, m, d in zip(cks, mts, dts)]
+            doc_context = ""; sources_data = []
+            if st.session_state.vectorstore:
+                vs    = st.session_state.vectorstore
+                q_emb = vs["model"].encode([q], normalize_embeddings=True).tolist()
+                res   = vs["collection"].query(query_embeddings=q_emb, n_results=5,
+                                               include=["documents","metadatas","distances"])
+                cks, mts, dts = res["documents"][0], res["metadatas"][0], res["distances"][0]
+                doc_context  = "\n---\n".join(f"[{m['filename']}]\n{c}" for c, m in zip(cks, mts))
+                sources_data = [{"filename":m["filename"],"score":round(1-d/2,3),"preview":c[:220]}
+                                for c, m, d in zip(cks, mts, dts)]
 
-                user_msg = (f"{live_context}\n\n=== DOCUMENT CONTEXT ===\n{doc_context}\n\nQuestion: {q}"
-                            if doc_context else f"{live_context}\n\nQuestion: {q}")
+            user_msg = (f"{live_context}\n\n=== DOCUMENT CONTEXT ===\n{doc_context}\n\nQuestion: {q}"
+                        if doc_context else f"{live_context}\n\nQuestion: {q}")
 
-                resp = oai.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=[
-                        {"role":"system","content":(
-                            "You are an expert financial analyst with real-time data access. "
-                            "You have live prices for stocks, gold, silver, oil, crypto, and FX rates. "
-                            "Use live data for market questions. For document questions, cite specific numbers. "
-                            "Be concise, precise, never fabricate numbers.")},
-                        *[{"role":m["role"],"content":m["content"]} for m in st.session_state.messages[:-1]],
-                        {"role":"user","content":user_msg},
-                    ],
-                    temperature=0.15, max_tokens=1500,
-                )
-                answer = resp.choices[0].message.content
-                tokens = resp.usage.total_tokens
-                st.markdown(answer)
+            resp = oai.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {"role":"system","content":(
+                        "You are an expert financial analyst with real-time data access. "
+                        "You have live prices for stocks, gold, silver, oil, crypto, and FX rates. "
+                        "Use live data for market questions. For document questions, cite specific numbers. "
+                        "Be concise, precise, never fabricate numbers.")},
+                    *[{"role":m["role"],"content":m["content"]} for m in st.session_state.messages[:-1]],
+                    {"role":"user","content":user_msg},
+                ],
+                temperature=0.15, max_tokens=1500,
+            )
+            answer = resp.choices[0].message.content
+            tokens = resp.usage.total_tokens
+            st.session_state.messages.append({"role":"assistant","content":answer,"sources":sources_data})
+            st.rerun()  # re-render so new messages appear in the chat panel above
 
-                if sources_data:
-                    with st.expander(f"↳ {len(sources_data)} document source(s)"):
-                        for src in sources_data:
-                            st.markdown(f'<div class="src-card"><div class="src-name">📄 {src["filename"]}</div>'
-                                        f'<div class="src-score">relevance: {src["score"]}</div>'
-                                        f'<div class="src-preview">{src["preview"]}…</div></div>',
-                                        unsafe_allow_html=True)
-                st.caption(f"llama-3.3-70b-versatile · {tokens} tokens · live data injected")
-                st.session_state.messages.append({"role":"assistant","content":answer,"sources":sources_data})
-            except Exception as e:
-                st.error(f"Error: {e}")
-
-# ─────────────────────────────────────────────────────────────────────────────
-# ANALYTICS TAB
-# ─────────────────────────────────────────────────────────────────────────────
-with _main_tabs[1]:
-    render_analytics_tab(
-        vectorstore   = st.session_state.get("vectorstore"),
-        groq_api_key  = GROQ_API_KEY,
-        doc_full_text = st.session_state.get("doc_full_text",""),
-        auto_metrics  = st.session_state.get("auto_metrics", []),
-    )
+        except Exception as e:
+            st.error(f"Error: {e}")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # FOOTER
@@ -1954,8 +2132,8 @@ with _main_tabs[1]:
 st.markdown("""
 <div class="vfooter">
   <div class="vfooter-text">
-    Built by Yash Chaudhary &nbsp;·&nbsp; Financial RAG Assistant v5 &nbsp;·&nbsp;
-    Llama 3.3 × Groq × ChromaDB
+    Built by Yash Chaudhary &nbsp;·&nbsp; Financial RAG Assistant v6 &nbsp;·&nbsp;
+    Llama 3.3 × Groq × ChromaDB × FinBERT
   </div>
 </div>
 """, unsafe_allow_html=True)
