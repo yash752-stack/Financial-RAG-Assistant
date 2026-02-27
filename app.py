@@ -12,8 +12,10 @@ Run: streamlit run app.py
 import os, re, json, math, io, html as _ht
 import datetime as _dt
 import threading as _th, time as _tm
+import statistics as _stats
 import requests
 import pandas as pd
+import numpy as np
 import streamlit as st
 import streamlit.components.v1 as components
 from dotenv import load_dotenv
@@ -38,12 +40,16 @@ for _k, _v in [
     ("chunk_count",     0),
     ("file_names",      []),
     ("show_upload",     False),
-    ("show_chat",       False),    # v6: floating chat panel toggle
+    ("show_chat",       False),
+    ("show_portfolio",  False),    # v7: portfolio panel toggle
     ("doc_full_text",   ""),
     ("auto_metrics",    []),
     ("auto_generated",  False),
     ("search_query",    ""),
     ("search_results",  []),
+    # Portfolio state
+    ("portfolio",       {}),       # {sym: {"shares": float, "avg_cost": float, "added": str}}
+    ("portfolio_notes", {}),       # {sym: str}  analyst notes per holding
 ]:
     if _k not in st.session_state:
         st.session_state[_k] = _v
@@ -372,7 +378,84 @@ hr{border-color:var(--border)!important}
 .ab-title{font-family:'Syne',sans-serif;font-size:.84rem;font-weight:600;color:#86efac;margin-bottom:.1rem}
 .ab-sub{font-family:'Space Mono',monospace;font-size:.52rem;color:var(--text-ghost)}
 
-/* ④ Comparison table */
+/* ════════════════════════════════════════════
+   v7  PORTFOLIO STYLES
+   ════════════════════════════════════════════ */
+
+/* Portfolio panel wrapper */
+.portfolio-panel{
+  background:var(--card);border:1px solid var(--border-l);border-radius:14px;
+  margin-bottom:1.1rem;overflow:hidden;animation:slideDown .22s ease;
+}
+.portfolio-panel-hdr{
+  padding:.7rem 1.1rem .6rem;
+  background:linear-gradient(90deg,rgba(107,45,107,.22),rgba(13,11,18,.9));
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
+}
+.pph-title{font-family:'Cormorant Garamond',serif;font-size:1.1rem;font-weight:300;
+  color:var(--text);display:flex;align-items:center;gap:.5rem}
+.pph-title::before{content:'';display:inline-block;width:3px;height:1rem;
+  background:linear-gradient(180deg,#F0C040,#C084C8);border-radius:2px}
+.pph-stats{display:flex;gap:1.2rem;flex-wrap:wrap}
+.pph-stat{font-family:'Space Mono',monospace;font-size:.52rem;text-align:right}
+.pph-stat-lbl{color:var(--text-ghost);text-transform:uppercase;letter-spacing:.1em}
+.pph-stat-val{font-size:.72rem;margin-top:.1rem}
+.pph-stat-val.pos{color:#4ade80}
+.pph-stat-val.neg{color:#f87171}
+.pph-stat-val.neu{color:var(--text)}
+
+/* Holding card */
+.holding-card{
+  background:var(--card-2);border:1px solid var(--border);border-radius:10px;
+  padding:.8rem 1rem .7rem;position:relative;transition:border-color .2s;
+}
+.holding-card:hover{border-color:var(--border-l)}
+.holding-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  border-radius:2px 2px 0 0;background:linear-gradient(90deg,var(--velvet),var(--accent));
+  opacity:0;transition:opacity .2s}
+.holding-card:hover::before{opacity:1}
+.hc-sym{font-family:'Space Mono',monospace;font-size:.7rem;font-weight:700;
+  color:var(--accent);letter-spacing:.06em}
+.hc-name{font-family:'Syne',sans-serif;font-size:.64rem;color:var(--text-ghost);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:.4rem}
+.hc-price{font-family:'Cormorant Garamond',serif;font-size:1.55rem;font-weight:300;
+  color:var(--text);line-height:1}
+.hc-chg{font-family:'Space Mono',monospace;font-size:.56rem;margin-top:.1rem}
+.hc-chg.up{color:#4ade80}.hc-chg.down{color:#f87171}.hc-chg.flat{color:var(--text-ghost)}
+.hc-meta{display:flex;gap:.6rem;margin-top:.5rem;flex-wrap:wrap}
+.hc-chip{background:rgba(107,45,107,.12);border:1px solid var(--border);border-radius:4px;
+  font-family:'Space Mono',monospace;font-size:.46rem;color:var(--text-ghost);
+  padding:.1rem .4rem;white-space:nowrap}
+.hc-chip.gain{background:rgba(74,222,128,.08);border-color:rgba(74,222,128,.2);color:#86efac}
+.hc-chip.loss{background:rgba(248,113,113,.08);border-color:rgba(248,113,113,.2);color:#fca5a5}
+
+/* Allocation donut area */
+.alloc-row{display:flex;gap:.5rem;flex-wrap:wrap;margin:.5rem 0}
+.alloc-bar{height:8px;border-radius:4px;overflow:hidden;background:rgba(107,45,107,.12);
+  margin:.4rem 0 .8rem;display:flex;gap:1px}
+.alloc-seg{height:100%;transition:width .4s}
+
+/* AI analysis card */
+.ai-analysis-card{
+  background:linear-gradient(135deg,rgba(107,45,107,.08) 0%,rgba(13,11,18,.95) 100%);
+  border:1px solid rgba(192,132,200,.22);border-radius:10px;
+  padding:.9rem 1.1rem;margin-top:.6rem;
+}
+.aac-header{font-family:'Space Mono',monospace;font-size:.52rem;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--velvet-gl);margin-bottom:.5rem;
+  display:flex;align-items:center;gap:.4rem}
+.aac-header::before{content:'◈';color:var(--accent)}
+.aac-body{font-family:'Syne',sans-serif;font-size:.83rem;color:var(--text-dim);line-height:1.75}
+
+/* Signal badge */
+.signal{display:inline-flex;align-items:center;gap:.3rem;border-radius:5px;
+  font-family:'Space Mono',monospace;font-size:.55rem;padding:.2rem .55rem;
+  text-transform:uppercase;letter-spacing:.08em;font-weight:700}
+.signal.buy{background:rgba(74,222,128,.12);border:1px solid rgba(74,222,128,.3);color:#4ade80}
+.signal.hold{background:rgba(240,192,64,.10);border:1px solid rgba(240,192,64,.3);color:#F0C040}
+.signal.sell{background:rgba(248,113,113,.10);border:1px solid rgba(248,113,113,.3);color:#f87171}
+.signal.watch{background:rgba(192,132,200,.10);border:1px solid rgba(192,132,200,.3);color:#C084C8}
 .cmp-table{width:100%;border-collapse:collapse;font-size:.75rem}
 .cmp-table th{background:rgba(107,45,107,.18);border:1px solid var(--border);
   padding:.45rem .8rem;font-family:'Space Mono',monospace;font-size:.5rem;
@@ -1320,6 +1403,710 @@ def ingest_documents(files):
     return len(all_chunks)
 
 # ─────────────────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+#  PORTFOLIO ENGINE  v7
+#  - fetch_stock_fundamentals(): P/E, 52w hi/lo, volume, mkt cap from Yahoo
+#  - fetch_stock_history():      1Y daily OHLCV for RSI / momentum / vol
+#  - compute_technicals():       RSI-14, SMA20/50/200, MACD, Bollinger Bands
+#  - portfolio_summary():        total value, P&L, weights, beta, Sharpe
+#  - render_portfolio_panel():   full Streamlit UI
+# ══════════════════════════════════════════════════════════════════════════════
+
+POPULAR_STOCKS = [
+    "AAPL","MSFT","NVDA","GOOGL","AMZN","TSLA","META","NFLX","AMD","INTC",
+    "JPM","GS","BAC","MS","V","MA","AXP",
+    "JNJ","PFE","UNH","ABBV","MRK",
+    "XOM","CVX","COP","BP",
+    "RELIANCE.NS","TCS.NS","INFY.NS","HDFCBANK.NS","WIPRO.NS","ADANIENT.NS",
+    "TSM","SAP","ASML","NVO","BABA","SONY","005930.KS",
+    "BRK-B","WMT","COST","HD","NKE","DIS","SBUX",
+    "BTC-USD","ETH-USD","SOL-USD",
+]
+
+@st.cache_data(ttl=120)
+def fetch_stock_fundamentals(symbol: str) -> dict:
+    """Fetch summary quote data: price, change, 52w range, volume, mkt cap, P/E."""
+    url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+           f"?range=1d&interval=1d&includePrePost=false")
+    try:
+        r = _throttled_get(url, timeout=10); r.raise_for_status()
+        data = r.json()
+        res  = data["chart"]["result"][0]
+        meta = res.get("meta", {})
+        q    = res["indicators"]["quote"][0]
+        closes = [x for x in q.get("close",[]) if x]
+        price  = meta.get("regularMarketPrice") or (closes[-1] if closes else None)
+        prev   = meta.get("chartPreviousClose") or meta.get("previousClose")
+        pct    = ((price - prev) / prev * 100) if price and prev and prev != 0 else 0.0
+        return {
+            "price":       round(price, 4)           if price else None,
+            "prev_close":  round(prev, 4)             if prev  else None,
+            "pct":         round(pct, 3),
+            "open":        round(meta.get("regularMarketOpen", 0) or 0, 2),
+            "day_high":    round(meta.get("regularMarketDayHigh", 0) or 0, 2),
+            "day_low":     round(meta.get("regularMarketDayLow", 0) or 0, 2),
+            "52w_high":    round(meta.get("fiftyTwoWeekHigh", 0) or 0, 2),
+            "52w_low":     round(meta.get("fiftyTwoWeekLow", 0) or 0, 2),
+            "volume":      meta.get("regularMarketVolume"),
+            "avg_volume":  meta.get("averageDailyVolume10Day"),
+            "mkt_cap":     meta.get("marketCap"),
+            "currency":    meta.get("currency", "USD"),
+            "symbol":      meta.get("symbol", symbol),
+            "short_name":  meta.get("shortName") or meta.get("longName") or symbol,
+        }
+    except Exception:
+        return {}
+
+@st.cache_data(ttl=300)
+def fetch_stock_history_1y(symbol: str) -> pd.DataFrame:
+    """1 year daily OHLCV as DataFrame for technical analysis."""
+    url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+           f"?range=1y&interval=1d&includePrePost=false")
+    try:
+        r = _throttled_get(url, timeout=12); r.raise_for_status()
+        data = r.json(); res = data["chart"]["result"][0]
+        ts = res["timestamp"]; q = res["indicators"]["quote"][0]
+        df = pd.DataFrame({
+            "open":   q.get("open",  []),
+            "high":   q.get("high",  []),
+            "low":    q.get("low",   []),
+            "close":  q.get("close", []),
+            "volume": q.get("volume",[]),
+        }, index=pd.to_datetime(ts, unit="s", utc=True).tz_convert("US/Eastern"))
+        return df.dropna(subset=["close"])
+    except Exception:
+        return pd.DataFrame()
+
+def compute_technicals(df: pd.DataFrame) -> dict:
+    """Compute RSI-14, SMA-20/50/200, MACD(12,26,9), Bollinger Bands(20,2), ATR-14."""
+    if df.empty or len(df) < 20:
+        return {}
+    closes = df["close"].values.astype(float)
+    n = len(closes)
+
+    # ── SMA ──────────────────────────────────────────────────────────────────
+    def sma(arr, w): return float(np.mean(arr[-w:])) if len(arr) >= w else None
+    sma20  = sma(closes, 20)
+    sma50  = sma(closes, 50)
+    sma200 = sma(closes, 200)
+
+    # ── RSI-14 ────────────────────────────────────────────────────────────────
+    def rsi(arr, period=14):
+        deltas = np.diff(arr[-period-1:])
+        gains  = np.where(deltas > 0, deltas, 0)
+        losses = np.where(deltas < 0, -deltas, 0)
+        avg_g  = np.mean(gains)  if gains.size  else 0
+        avg_l  = np.mean(losses) if losses.size else 1e-9
+        rs     = avg_g / avg_l if avg_l else 0
+        return round(100 - 100 / (1 + rs), 1)
+    rsi14 = rsi(closes)
+
+    # ── MACD(12,26,9) ────────────────────────────────────────────────────────
+    def ema(arr, w):
+        k = 2 / (w + 1); e = arr[0]
+        for x in arr[1:]: e = x * k + e * (1 - k)
+        return float(e)
+    macd_line   = ema(closes, 12) - ema(closes, 26)
+    signal_line = ema(closes[-9:], 9) if n >= 9 else macd_line
+    macd_hist   = round(macd_line - signal_line, 4)
+
+    # ── Bollinger Bands(20,2) ────────────────────────────────────────────────
+    mid   = sma20 or closes[-1]
+    std20 = float(np.std(closes[-20:])) if n >= 20 else 0
+    bb_upper = round(mid + 2 * std20, 2)
+    bb_lower = round(mid - 2 * std20, 2)
+    price    = closes[-1]
+    bb_pos   = round((price - bb_lower) / (bb_upper - bb_lower) * 100, 1) if bb_upper != bb_lower else 50
+
+    # ── ATR-14 ───────────────────────────────────────────────────────────────
+    highs  = df["high"].values[-15:].astype(float)
+    lows   = df["low"].values[-15:].astype(float)
+    cls_   = df["close"].values[-15:].astype(float)
+    trs    = [max(highs[i]-lows[i], abs(highs[i]-cls_[i-1]), abs(lows[i]-cls_[i-1]))
+              for i in range(1, len(highs))]
+    atr14  = round(float(np.mean(trs)), 2) if trs else 0
+
+    # ── Momentum ─────────────────────────────────────────────────────────────
+    mom1m  = round((closes[-1]/closes[-21] - 1)*100, 2) if n >= 21 else None
+    mom3m  = round((closes[-1]/closes[-63] - 1)*100, 2) if n >= 63 else None
+    mom6m  = round((closes[-1]/closes[-126]- 1)*100, 2) if n >= 126 else None
+    mom1y  = round((closes[-1]/closes[0]   - 1)*100, 2) if n >= 252 else None
+
+    # ── Volatility (annualised) ───────────────────────────────────────────────
+    rets  = np.diff(np.log(closes[-63:])) if n >= 64 else np.array([0])
+    vol_a = round(float(np.std(rets) * np.sqrt(252) * 100), 1)
+
+    # ── Signal synthesis ────────────────────────────────────────────────────
+    score = 0
+    if sma20 and price > sma20: score += 1
+    if sma50 and price > sma50: score += 1
+    if sma200 and price > sma200: score += 1
+    if rsi14 < 30:  score += 2
+    elif rsi14 > 70: score -= 2
+    if macd_hist > 0: score += 1
+    signal = "BUY" if score >= 4 else ("SELL" if score <= 0 else ("HOLD" if score >= 2 else "WATCH"))
+
+    return {
+        "sma20": round(sma20, 2) if sma20 else None,
+        "sma50": round(sma50, 2) if sma50 else None,
+        "sma200":round(sma200,2) if sma200 else None,
+        "rsi14": rsi14,
+        "macd_line":  round(macd_line, 4),
+        "macd_signal":round(signal_line, 4),
+        "macd_hist":  macd_hist,
+        "bb_upper": bb_upper, "bb_lower": bb_lower, "bb_pos": bb_pos,
+        "atr14":  atr14,
+        "mom_1m": mom1m, "mom_3m": mom3m, "mom_6m": mom6m, "mom_1y": mom1y,
+        "vol_annual": vol_a,
+        "signal": signal,
+        "score":  score,
+    }
+
+def portfolio_summary(portfolio: dict) -> dict:
+    """Calculate total value, total P&L, weights for all holdings."""
+    if not portfolio:
+        return {"total_value":0,"total_cost":0,"total_pnl":0,"total_pnl_pct":0,"holdings":[]}
+
+    holdings = []
+    total_value = 0.0
+    total_cost  = 0.0
+
+    for sym, pos in portfolio.items():
+        info = fetch_stock_fundamentals(sym)
+        price = info.get("price") or 0
+        shares    = pos.get("shares", 0)
+        avg_cost  = pos.get("avg_cost", price)
+        mkt_val   = price * shares
+        cost_val  = avg_cost * shares
+        pnl       = mkt_val - cost_val
+        pnl_pct   = (pnl / cost_val * 100) if cost_val else 0
+        total_value += mkt_val
+        total_cost  += cost_val
+        holdings.append({
+            "sym": sym, "shares": shares, "avg_cost": avg_cost,
+            "price": price, "pct": info.get("pct", 0),
+            "mkt_val": mkt_val, "cost_val": cost_val,
+            "pnl": pnl, "pnl_pct": pnl_pct,
+            "short_name": info.get("short_name", sym),
+            "currency": info.get("currency","USD"),
+            "52w_high": info.get("52w_high"), "52w_low": info.get("52w_low"),
+        })
+
+    holdings.sort(key=lambda x: x["mkt_val"], reverse=True)
+    total_pnl     = total_value - total_cost
+    total_pnl_pct = (total_pnl / total_cost * 100) if total_cost else 0
+
+    # weights
+    for h in holdings:
+        h["weight"] = round(h["mkt_val"] / total_value * 100, 1) if total_value else 0
+
+    return {
+        "total_value":   round(total_value, 2),
+        "total_cost":    round(total_cost, 2),
+        "total_pnl":     round(total_pnl, 2),
+        "total_pnl_pct": round(total_pnl_pct, 2),
+        "holdings":      holdings,
+    }
+
+# Colour palette for allocation chart (cycles through)
+_ALLOC_COLORS = ["#C084C8","#60a5fa","#4ade80","#F0C040","#fb923c",
+                 "#f87171","#34d399","#a78bfa","#38bdf8","#fbbf24"]
+
+def render_portfolio_panel(groq_api_key: str) -> None:
+    """Full portfolio UI — called inside the portfolio panel."""
+
+    portfolio = st.session_state.portfolio
+
+    # ── Add / Remove Holdings ──────────────────────────────────────────────
+    with st.expander("➕  Manage Holdings", expanded=not bool(portfolio)):
+        c1, c2, c3, c4 = st.columns([3, 1.5, 1.5, 1])
+        with c1:
+            sym_raw = st.text_input("Ticker symbol", placeholder="e.g. AAPL  RELIANCE.NS  BTC-USD",
+                                    label_visibility="collapsed", key="pf_sym")
+        with c2:
+            shares_in = st.number_input("Shares / Units", min_value=0.0001, value=1.0,
+                                        step=0.1, format="%.4f", label_visibility="collapsed",
+                                        key="pf_shares")
+        with c3:
+            cost_in = st.number_input("Avg buy price", min_value=0.0, value=0.0,
+                                      step=0.01, format="%.2f",
+                                      help="Leave 0 to use current price",
+                                      label_visibility="collapsed", key="pf_cost")
+        with c4:
+            add_clicked = st.button("Add", use_container_width=True, key="pf_add")
+
+        if add_clicked and sym_raw.strip():
+            sym = sym_raw.strip().upper()
+            info = fetch_stock_fundamentals(sym)
+            if not info or not info.get("price"):
+                st.error(f"Could not fetch data for '{sym}'. Check the ticker symbol.")
+            else:
+                buy_price = cost_in if cost_in > 0 else info["price"]
+                st.session_state.portfolio[sym] = {
+                    "shares":   shares_in,
+                    "avg_cost": buy_price,
+                    "added":    _dt.datetime.utcnow().strftime("%Y-%m-%d"),
+                }
+                st.success(f"✓ Added {shares_in:,.4f} × {sym} @ ${buy_price:,.2f}")
+                st.rerun()
+
+        # Quick-add popular stocks
+        st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;'
+                    'letter-spacing:.15em;text-transform:uppercase;color:#4A3858;margin:.5rem 0 .3rem;">'
+                    'Quick Add Popular</div>', unsafe_allow_html=True)
+        qa_cols = st.columns(8)
+        popular_show = ["AAPL","MSFT","NVDA","TSLA","GOOGL","AMZN","RELIANCE.NS","TCS.NS"]
+        for i, ps in enumerate(popular_show):
+            with qa_cols[i % 8]:
+                if st.button(ps, key=f"qa_{ps}", use_container_width=True):
+                    info2 = fetch_stock_fundamentals(ps)
+                    if info2 and info2.get("price"):
+                        st.session_state.portfolio[ps] = {
+                            "shares": 1.0,
+                            "avg_cost": info2["price"],
+                            "added": _dt.datetime.utcnow().strftime("%Y-%m-%d"),
+                        }
+                        st.rerun()
+
+        # Remove a holding
+        if portfolio:
+            st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;'
+                        'letter-spacing:.15em;text-transform:uppercase;color:#4A3858;margin:.5rem 0 .25rem;">'
+                        'Remove Holding</div>', unsafe_allow_html=True)
+            rm_sym = st.selectbox("Remove", ["—"] + list(portfolio.keys()),
+                                  label_visibility="collapsed", key="pf_rm")
+            if rm_sym != "—" and st.button(f"🗑 Remove {rm_sym}", key="pf_rm_btn"):
+                del st.session_state.portfolio[rm_sym]
+                if rm_sym in st.session_state.portfolio_notes:
+                    del st.session_state.portfolio_notes[rm_sym]
+                st.rerun()
+
+    if not portfolio:
+        st.markdown('<div style="text-align:center;padding:2.5rem 1rem;">'
+                    '<div style="font-size:2rem;opacity:.3;margin-bottom:.6rem;">📊</div>'
+                    '<div style="font-family:\'Cormorant Garamond\',serif;font-size:1.3rem;'
+                    'font-weight:300;font-style:italic;color:#4A3858;">'
+                    'Add your first holding above</div></div>', unsafe_allow_html=True)
+        return
+
+    # ── Portfolio Summary ─────────────────────────────────────────────────
+    with st.spinner("Fetching live prices…"):
+        summary = portfolio_summary(portfolio)
+
+    sv     = summary["total_value"]
+    sc     = summary["total_cost"]
+    pnl    = summary["total_pnl"]
+    pnl_p  = summary["total_pnl_pct"]
+    pnl_cl = "pos" if pnl >= 0 else "neg"
+    pnl_sg = "+" if pnl >= 0 else ""
+
+    st.markdown(
+        f'<div style="display:flex;gap:1.5rem;flex-wrap:wrap;margin:.6rem 0 .8rem;padding:.8rem 1rem;'
+        f'background:var(--card-2);border:1px solid var(--border);border-radius:10px;">'
+        f'<div class="pph-stat"><div class="pph-stat-lbl">Portfolio Value</div>'
+        f'<div class="pph-stat-val neu">${sv:,.2f}</div></div>'
+        f'<div class="pph-stat"><div class="pph-stat-lbl">Total Cost</div>'
+        f'<div class="pph-stat-val neu">${sc:,.2f}</div></div>'
+        f'<div class="pph-stat"><div class="pph-stat-lbl">Unrealised P&L</div>'
+        f'<div class="pph-stat-val {pnl_cl}">{pnl_sg}${abs(pnl):,.2f} ({pnl_sg}{abs(pnl_p):.2f}%)</div></div>'
+        f'<div class="pph-stat"><div class="pph-stat-lbl">Holdings</div>'
+        f'<div class="pph-stat-val neu">{len(portfolio)}</div></div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ── Allocation bar ────────────────────────────────────────────────────
+    segs = ""
+    for i, h in enumerate(summary["holdings"]):
+        c = _ALLOC_COLORS[i % len(_ALLOC_COLORS)]
+        segs += f'<div class="alloc-seg" style="width:{h["weight"]}%;background:{c};"></div>'
+    st.markdown(f'<div style="font-family:Space Mono,monospace;font-size:.5rem;letter-spacing:.15em;'
+                f'text-transform:uppercase;color:#4A3858;margin-bottom:.25rem;">Allocation</div>'
+                f'<div class="alloc-bar">{segs}</div>', unsafe_allow_html=True)
+
+    # Legend
+    leg = ""
+    for i, h in enumerate(summary["holdings"][:10]):
+        c = _ALLOC_COLORS[i % len(_ALLOC_COLORS)]
+        leg += (f'<span style="font-family:Space Mono,monospace;font-size:.48rem;color:{c};'
+                f'background:rgba(0,0,0,.2);border-radius:3px;padding:.1rem .35rem;">'
+                f'● {h["sym"]} {h["weight"]}%</span> ')
+    st.markdown(f'<div style="display:flex;gap:.3rem;flex-wrap:wrap;margin-bottom:.8rem;">{leg}</div>',
+                unsafe_allow_html=True)
+
+    # ── Holdings Grid ─────────────────────────────────────────────────────
+    st.markdown('<div style="font-family:Space Mono,monospace;font-size:.52rem;letter-spacing:.18em;'
+                'text-transform:uppercase;color:var(--velvet-gl);margin:.3rem 0 .5rem;">Holdings</div>',
+                unsafe_allow_html=True)
+
+    n_cols = 3
+    holdings = summary["holdings"]
+    for row_start in range(0, len(holdings), n_cols):
+        row_h = holdings[row_start:row_start+n_cols]
+        cols  = st.columns(n_cols)
+        for ci, h in enumerate(row_h):
+            with cols[ci]:
+                arr  = "▲" if h["pct"] >= 0 else "▼"
+                cls  = "up" if h["pct"] >= 0 else ("down" if h["pct"] < 0 else "flat")
+                gain_cls = "gain" if h["pnl"] >= 0 else "loss"
+                pnl_sg2  = "+" if h["pnl"] >= 0 else ""
+                price_str = f"{h['currency']} {h['price']:,.4f}" if h["price"] < 1 else f"{h['currency']} {h['price']:,.2f}"
+
+                # 52w position bar
+                if h.get("52w_high") and h.get("52w_low") and h["52w_high"] != h["52w_low"]:
+                    pos52 = (h["price"] - h["52w_low"]) / (h["52w_high"] - h["52w_low"]) * 100
+                    pos52 = max(0, min(100, pos52))
+                else:
+                    pos52 = 50
+
+                st.markdown(
+                    f'<div class="holding-card">'
+                    f'<div class="hc-sym">{h["sym"]}</div>'
+                    f'<div class="hc-name">{h["short_name"][:30]}</div>'
+                    f'<div class="hc-price">{price_str}</div>'
+                    f'<div class="hc-chg {cls}">{arr} {abs(h["pct"]):.2f}% today</div>'
+                    f'<div class="hc-meta">'
+                    f'  <span class="hc-chip">{h["shares"]:,.4g} shares</span>'
+                    f'  <span class="hc-chip">{h["weight"]}% alloc</span>'
+                    f'  <span class="hc-chip {gain_cls}">P&L {pnl_sg2}${abs(h["pnl"]):,.2f} ({pnl_sg2}{abs(h["pnl_pct"]):.1f}%)</span>'
+                    f'</div>'
+                    f'<div style="margin-top:.55rem;">'
+                    f'  <div style="font-family:Space Mono,monospace;font-size:.44rem;color:#4A3858;margin-bottom:.2rem;">'
+                    f'    52W  LOW {h["52w_low"] or "—"}  ←  HERE  →  HIGH {h["52w_high"] or "—"}</div>'
+                    f'  <div style="height:4px;background:rgba(107,45,107,.15);border-radius:2px;overflow:hidden;">'
+                    f'    <div style="height:100%;width:{pos52:.1f}%;'
+                    f'background:linear-gradient(90deg,#F0C040,#C084C8);border-radius:2px;"></div>'
+                    f'  </div>'
+                    f'</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+    st.markdown("<hr style='border-color:rgba(139,58,139,.12);margin:1rem 0 .8rem;'>",
+                unsafe_allow_html=True)
+
+    # ── Deep Analysis: pick a stock ───────────────────────────────────────
+    st.markdown('<div style="font-family:Space Mono,monospace;font-size:.52rem;letter-spacing:.18em;'
+                'text-transform:uppercase;color:var(--velvet-gl);margin-bottom:.5rem;">'
+                'AI-Assisted Stock Deep Analysis</div>', unsafe_allow_html=True)
+
+    an_sym = st.selectbox("Analyse a holding", list(portfolio.keys()),
+                          key="pf_analyse_sym", label_visibility="collapsed")
+
+    if an_sym:
+        an_tabs = st.tabs(["📉 Technicals","🤖 AI Analysis","📊 Simulate Position"])
+
+        # ── Tab 0: Technicals ─────────────────────────────────────────────
+        with an_tabs[0]:
+            with st.spinner(f"Computing technicals for {an_sym}…"):
+                hist_df = fetch_stock_history_1y(an_sym)
+                tech    = compute_technicals(hist_df)
+                fund    = fetch_stock_fundamentals(an_sym)
+
+            if not tech:
+                st.warning("Not enough historical data for technical analysis.")
+            else:
+                price = fund.get("price", 0) or 0
+
+                # Signal badge
+                sig = tech["signal"]
+                sig_cls = sig.lower()
+                sig_emoji = {"BUY":"🟢","HOLD":"🟡","SELL":"🔴","WATCH":"🔵"}.get(sig,"⚪")
+                st.markdown(f'<div style="margin-bottom:.8rem;">'
+                            f'<span class="signal {sig_cls}">{sig_emoji} {sig}</span>'
+                            f'<span style="font-family:Space Mono,monospace;font-size:.5rem;'
+                            f'color:#4A3858;margin-left:.6rem;">Technical Score: {tech["score"]}/7</span>'
+                            f'</div>', unsafe_allow_html=True)
+
+                # Key metrics grid
+                t1, t2, t3, t4 = st.columns(4)
+                def _tech_card(col, label, value, note="", good=None):
+                    if value is None: return
+                    clr = ("#4ade80" if good is True else "#f87171" if good is False else "#C084C8")
+                    col.markdown(
+                        f'<div style="background:var(--card-2);border:1px solid var(--border);'
+                        f'border-top:2px solid {clr};border-radius:8px;padding:.65rem .8rem;">'
+                        f'<div style="font-family:Space Mono,monospace;font-size:.46rem;'
+                        f'letter-spacing:.15em;text-transform:uppercase;color:#4A3858;">{label}</div>'
+                        f'<div style="font-family:Cormorant Garamond,serif;font-size:1.4rem;'
+                        f'font-weight:300;color:#EDE8F5;line-height:1;">{value}</div>'
+                        f'{"<div style=font-family:Space Mono,monospace;font-size:.46rem;color:"+clr+">" + note + "</div>" if note else ""}'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                rsi = tech["rsi14"]
+                _tech_card(t1, "RSI-14", f"{rsi}", "Oversold" if rsi<30 else ("Overbought" if rsi>70 else "Neutral"),
+                           good=True if rsi<30 else (False if rsi>70 else None))
+                _tech_card(t2, "MACD Hist", f"{tech['macd_hist']:+.4f}",
+                           "Bullish" if tech["macd_hist"]>0 else "Bearish",
+                           good=tech["macd_hist"]>0)
+                _tech_card(t3, "BB Position", f"{tech['bb_pos']:.0f}%",
+                           "Near Upper" if tech["bb_pos"]>80 else ("Near Lower" if tech["bb_pos"]<20 else "Mid Range"),
+                           good=True if tech["bb_pos"]<20 else (False if tech["bb_pos"]>80 else None))
+                _tech_card(t4, "ATR-14", f"${tech['atr14']:.2f}", "Daily volatility range")
+
+                st.markdown("<div style='height:.5rem'></div>", unsafe_allow_html=True)
+                t5, t6, t7, t8 = st.columns(4)
+                _tech_card(t5, "SMA 20",  f"${tech['sma20']:,.2f}" if tech["sma20"] else "—",
+                           "Price above" if price > (tech["sma20"] or 0) else "Price below",
+                           good=price > (tech["sma20"] or float("inf")))
+                _tech_card(t6, "SMA 50",  f"${tech['sma50']:,.2f}" if tech["sma50"] else "—",
+                           "Price above" if price > (tech["sma50"] or 0) else "Price below",
+                           good=price > (tech["sma50"] or float("inf")))
+                _tech_card(t7, "SMA 200", f"${tech['sma200']:,.2f}" if tech["sma200"] else "—",
+                           "Price above" if price > (tech["sma200"] or 0) else "Price below",
+                           good=price > (tech["sma200"] or float("inf")))
+                _tech_card(t8, "Ann. Vol", f"{tech['vol_annual']:.1f}%",
+                           "High" if tech["vol_annual"]>40 else ("Low" if tech["vol_annual"]<15 else "Moderate"),
+                           good=tech["vol_annual"]<25)
+
+                # Momentum row
+                st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;'
+                            'letter-spacing:.15em;text-transform:uppercase;color:#4A3858;'
+                            'margin:.8rem 0 .4rem;">Price Momentum</div>', unsafe_allow_html=True)
+                m1, m2, m3, m4 = st.columns(4)
+                for col, lbl, val in [(m1,"1 Month",tech["mom_1m"]),(m2,"3 Month",tech["mom_3m"]),
+                                      (m3,"6 Month",tech["mom_6m"]),(m4,"1 Year",tech["mom_1y"])]:
+                    if val is not None:
+                        _tech_card(col, lbl, f"{val:+.1f}%", "", good=val>0)
+
+                # Price chart
+                if not hist_df.empty:
+                    st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;'
+                                'letter-spacing:.15em;text-transform:uppercase;color:#4A3858;'
+                                'margin:.8rem 0 .3rem;">1-Year Price Chart</div>', unsafe_allow_html=True)
+                    chart_df = hist_df[["close"]].copy()
+                    chart_df.columns = [an_sym]
+                    st.line_chart(chart_df, height=200, use_container_width=True)
+
+                # Bollinger band chart
+                if not hist_df.empty and len(hist_df) >= 20:
+                    st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;'
+                                'letter-spacing:.15em;text-transform:uppercase;color:#4A3858;'
+                                'margin:.6rem 0 .3rem;">Bollinger Bands (last 60 days)</div>',
+                                unsafe_allow_html=True)
+                    bb_df = hist_df["close"].iloc[-60:].to_frame()
+                    roll  = hist_df["close"].rolling(20)
+                    bb_df["SMA20"]    = roll.mean()
+                    bb_df["BB Upper"] = roll.mean() + 2 * roll.std()
+                    bb_df["BB Lower"] = roll.mean() - 2 * roll.std()
+                    bb_df = bb_df.rename(columns={"close": an_sym}).iloc[-60:]
+                    st.line_chart(bb_df.dropna(), height=180, use_container_width=True)
+
+        # ── Tab 1: AI Analysis ────────────────────────────────────────────
+        with an_tabs[1]:
+            with st.spinner("Loading data…"):
+                hist_df2 = fetch_stock_history_1y(an_sym) if "hist_df" not in dir() else hist_df
+                tech2    = compute_technicals(hist_df2) if not tech else tech
+                fund2    = fetch_stock_fundamentals(an_sym) if not fund else fund
+                pos      = portfolio.get(an_sym, {})
+
+            if not groq_api_key:
+                st.info("Add a Groq API key in the sidebar to enable AI analysis.")
+            else:
+                if st.button(f"🤖  Generate Full AI Analysis for {an_sym}", key=f"ai_{an_sym}",
+                             use_container_width=False):
+                    with st.spinner("Analysing with Llama 3.3-70B…"):
+                        try:
+                            from openai import OpenAI
+                            oai = OpenAI(api_key=groq_api_key, base_url="https://api.groq.com/openai/v1")
+
+                            tech_summary = (
+                                f"RSI-14={tech2.get('rsi14','—')}, "
+                                f"MACD hist={tech2.get('macd_hist','—')}, "
+                                f"SMA20={tech2.get('sma20','—')}, SMA50={tech2.get('sma50','—')}, "
+                                f"SMA200={tech2.get('sma200','—')}, "
+                                f"BB pos={tech2.get('bb_pos','—')}%, "
+                                f"Ann.Vol={tech2.get('vol_annual','—')}%, "
+                                f"Signal={tech2.get('signal','—')}"
+                            )
+                            mom_summary = (
+                                f"1M={tech2.get('mom_1m','—')}%, "
+                                f"3M={tech2.get('mom_3m','—')}%, "
+                                f"6M={tech2.get('mom_6m','—')}%, "
+                                f"1Y={tech2.get('mom_1y','—')}%"
+                            )
+                            pos_summary = (
+                                f"Holding {pos.get('shares','—')} shares, "
+                                f"avg cost ${pos.get('avg_cost',0):.2f}, "
+                                f"current ${fund2.get('price',0):.2f}, "
+                                f"unrealised P&L ${pos.get('shares',0)*(fund2.get('price',0)-pos.get('avg_cost',0)):.2f}"
+                            )
+                            fund_summary = (
+                                f"52W High={fund2.get('52w_high','—')}, "
+                                f"52W Low={fund2.get('52w_low','—')}, "
+                                f"Market Cap={fund2.get('mkt_cap','—')}, "
+                                f"Volume={fund2.get('volume','—')}"
+                            )
+
+                            # Current market context
+                            fng2 = fetch_fear_greed()
+                            sp_q = fetch_quote("^GSPC")
+                            mkt_ctx = (f"S&P 500 at {sp_q['price']:,.0f} ({sp_q['pct']:+.2f}%), "
+                                       f"Fear & Greed = {fng2['value']} ({fng2['label']})"
+                                       if sp_q else "Market data unavailable")
+
+                            prompt = f"""You are a senior equity analyst. Provide a comprehensive analysis of {an_sym} ({fund2.get("short_name","")}).
+
+TECHNICAL INDICATORS:
+{tech_summary}
+
+MOMENTUM:
+{mom_summary}
+
+FUNDAMENTAL SNAPSHOT:
+{fund_summary}
+
+INVESTOR POSITION:
+{pos_summary}
+
+CURRENT MARKET CONTEXT:
+{mkt_ctx}
+
+Write a structured analysis with these sections:
+1. **Technical Picture** — What the indicators say, confluence or divergence, key levels to watch
+2. **Momentum Assessment** — Trend strength, rotation signals, sector context
+3. **Risk Assessment** — Volatility, downside risk, stop-loss levels based on ATR and support
+4. **Catalyst Watch** — What could drive the next move up or down
+5. **Recommendation** — Clear BUY / HOLD / SELL / WATCH with price target rationale and suggested position sizing
+
+Be specific with numbers. Max 350 words. Use the investor's actual position data when relevant."""
+
+                            resp = oai.chat.completions.create(
+                                model="llama-3.3-70b-versatile",
+                                messages=[
+                                    {"role":"system","content":"You are a senior equity analyst. Be direct, data-driven, cite specific numbers."},
+                                    {"role":"user","content":prompt},
+                                ],
+                                temperature=0.15, max_tokens=700,
+                            )
+                            analysis = resp.choices[0].message.content
+                            st.session_state.portfolio_notes[an_sym] = analysis
+                        except Exception as e:
+                            st.error(f"AI analysis error: {e}")
+
+                if an_sym in st.session_state.portfolio_notes:
+                    st.markdown(
+                        f'<div class="ai-analysis-card">'
+                        f'<div class="aac-header">AI Analysis · {an_sym} · {_dt.datetime.utcnow().strftime("%Y-%m-%d")}</div>'
+                        f'<div class="aac-body">{st.session_state.portfolio_notes[an_sym].replace(chr(10),"<br>")}</div>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown('<div style="font-family:Syne,sans-serif;font-size:.8rem;color:#4A3858;'
+                                'padding:1.5rem;text-align:center;">Click the button above to generate AI-powered analysis</div>',
+                                unsafe_allow_html=True)
+
+        # ── Tab 2: Simulate Position ──────────────────────────────────────
+        with an_tabs[2]:
+            fund3 = fetch_stock_fundamentals(an_sym) if not fund else fund
+            curr_price = fund3.get("price") or 0
+            pos3 = portfolio.get(an_sym, {})
+            avg3 = pos3.get("avg_cost", curr_price)
+            shares3 = pos3.get("shares", 1)
+
+            st.markdown('<div style="font-family:Space Mono,monospace;font-size:.52rem;'
+                        'letter-spacing:.18em;text-transform:uppercase;color:var(--velvet-gl);'
+                        'margin-bottom:.7rem;">Position Simulator</div>', unsafe_allow_html=True)
+
+            sc1, sc2 = st.columns(2)
+            with sc1:
+                sim_target = st.number_input("Target price ($)", value=float(round(curr_price*1.15,2)),
+                                             step=0.5, key="sim_target")
+                sim_stop   = st.number_input("Stop-loss price ($)", value=float(round(curr_price*0.92,2)),
+                                             step=0.5, key="sim_stop")
+            with sc2:
+                sim_shares = st.number_input("Position size (shares)", value=float(shares3),
+                                             step=0.1, key="sim_shares")
+                sim_entry  = st.number_input("Entry price ($)", value=float(round(avg3,2)),
+                                             step=0.1, key="sim_entry")
+
+            if curr_price > 0:
+                gain_amt   = (sim_target - sim_entry) * sim_shares
+                loss_amt   = (sim_entry  - sim_stop)  * sim_shares
+                rr_ratio   = abs(gain_amt / loss_amt) if loss_amt else 0
+                gain_pct   = (sim_target - sim_entry) / sim_entry * 100
+                loss_pct   = (sim_entry  - sim_stop)  / sim_entry * 100
+                curr_pnl   = (curr_price - sim_entry) * sim_shares
+                position_val = sim_entry * sim_shares
+
+                r1, r2, r3, r4 = st.columns(4)
+                def _sim_card(col, label, val, color):
+                    col.markdown(f'<div style="background:var(--card-2);border:1px solid var(--border);'
+                                 f'border-top:2px solid {color};border-radius:8px;padding:.65rem .8rem;'
+                                 f'font-family:Space Mono,monospace;">'
+                                 f'<div style="font-size:.44rem;letter-spacing:.15em;text-transform:uppercase;'
+                                 f'color:#4A3858;">{label}</div>'
+                                 f'<div style="font-family:Cormorant Garamond,serif;font-size:1.45rem;'
+                                 f'font-weight:300;color:{color};line-height:1.1;">{val}</div>'
+                                 f'</div>', unsafe_allow_html=True)
+
+                _sim_card(r1, "Max Gain",    f"+${gain_amt:,.2f} (+{gain_pct:.1f}%)", "#4ade80")
+                _sim_card(r2, "Max Loss",    f"-${loss_amt:,.2f} (-{loss_pct:.1f}%)", "#f87171")
+                _sim_card(r3, "R:R Ratio",   f"{rr_ratio:.2f}:1",
+                          "#4ade80" if rr_ratio >= 2 else ("#F0C040" if rr_ratio >= 1 else "#f87171"))
+                _sim_card(r4, "Current P&L", f"{'+'if curr_pnl>=0 else ''}${curr_pnl:,.2f}",
+                          "#4ade80" if curr_pnl >= 0 else "#f87171")
+
+                st.markdown(f'<div style="margin-top:.7rem;padding:.6rem .9rem;'
+                            f'background:rgba(107,45,107,.08);border:1px solid var(--border);'
+                            f'border-radius:8px;font-family:Space Mono,monospace;font-size:.58rem;'
+                            f'color:var(--text-dim);">'
+                            f'Position Value: ${position_val:,.2f} &nbsp;·&nbsp; '
+                            f'Entry: ${sim_entry:,.2f} &nbsp;·&nbsp; '
+                            f'Current: ${curr_price:,.2f} &nbsp;·&nbsp; '
+                            f'Target: ${sim_target:,.2f} &nbsp;·&nbsp; '
+                            f'Stop: ${sim_stop:,.2f}'
+                            f'</div>', unsafe_allow_html=True)
+
+                # Scenario table
+                st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;'
+                            'letter-spacing:.15em;text-transform:uppercase;color:#4A3858;'
+                            'margin:.8rem 0 .4rem;">Scenario Analysis</div>', unsafe_allow_html=True)
+                scenarios = [
+                    ("Bear -20%", curr_price*0.80),
+                    ("Bear -10%", curr_price*0.90),
+                    ("Base  +0%", curr_price),
+                    ("Bull +10%", curr_price*1.10),
+                    ("Bull +20%", curr_price*1.20),
+                    ("Bull +30%", curr_price*1.30),
+                ]
+                sc_rows = "".join(
+                    f'<tr>'
+                    f'<td style="font-family:Space Mono,monospace;font-size:.6rem;color:var(--text-dim);">{sc_lbl}</td>'
+                    f'<td style="font-family:Space Mono,monospace;font-size:.6rem;color:#9A8AAA;">${sc_price:,.2f}</td>'
+                    f'<td style="font-family:Space Mono,monospace;font-size:.6rem;'
+                    f'color:{"#4ade80" if (sc_price-sim_entry)*sim_shares>=0 else "#f87171"};">'
+                    f'{"+"if (sc_price-sim_entry)*sim_shares>=0 else ""}${(sc_price-sim_entry)*sim_shares:,.2f}</td>'
+                    f'<td style="font-family:Space Mono,monospace;font-size:.6rem;'
+                    f'color:{"#4ade80" if sc_price>=sim_entry else "#f87171"};">'
+                    f'{"+"if sc_price>=sim_entry else ""}{(sc_price-sim_entry)/sim_entry*100:.1f}%</td>'
+                    f'</tr>'
+                    for sc_lbl, sc_price in scenarios
+                )
+                st.markdown(
+                    f'<table style="width:100%;border-collapse:collapse;">'
+                    f'<thead><tr>'
+                    f'<th style="background:rgba(107,45,107,.18);border:1px solid var(--border);'
+                    f'padding:.35rem .7rem;font-family:Space Mono,monospace;font-size:.46rem;'
+                    f'text-transform:uppercase;letter-spacing:.1em;color:var(--velvet-gl);text-align:left;">Scenario</th>'
+                    f'<th style="background:rgba(107,45,107,.18);border:1px solid var(--border);'
+                    f'padding:.35rem .7rem;font-family:Space Mono,monospace;font-size:.46rem;'
+                    f'text-transform:uppercase;letter-spacing:.1em;color:var(--velvet-gl);">Price</th>'
+                    f'<th style="background:rgba(107,45,107,.18);border:1px solid var(--border);'
+                    f'padding:.35rem .7rem;font-family:Space Mono,monospace;font-size:.46rem;'
+                    f'text-transform:uppercase;letter-spacing:.1em;color:var(--velvet-gl);">P&L</th>'
+                    f'<th style="background:rgba(107,45,107,.18);border:1px solid var(--border);'
+                    f'padding:.35rem .7rem;font-family:Space Mono,monospace;font-size:.46rem;'
+                    f'text-transform:uppercase;letter-spacing:.1em;color:var(--velvet-gl);">Return</th>'
+                    f'</tr></thead><tbody>{sc_rows}</tbody></table>',
+                    unsafe_allow_html=True,
+                )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # INDIA NEWS RSS
 # ─────────────────────────────────────────────────────────────────────────────
 NEWS_SOURCES = {
@@ -1486,23 +2273,28 @@ with st.sidebar:
 # TOP ACTION BAR  — sticky icon strip at absolute top of page
 # Upload 📂 · Chat 💬 · Search 🔍  (always visible)
 # ─────────────────────────────────────────────────────────────────────────────
-_tab_col1, _tab_col2, _tab_col3, _tab_divider = st.columns([1.5, 1.5, 6, 0.1], gap="small")
+_tab_col1, _tab_col2, _tab_col3, _tab_col4 = st.columns([1.6, 1.4, 1.8, 5.2], gap="small")
 
 with _tab_col1:
-    _upload_active = "active" if st.session_state.show_upload else ""
     if st.button("📂  Upload Report", key="top_upload_btn", use_container_width=True,
                  help="Upload PDF · Excel · CSV · DOCX · TXT"):
         st.session_state.show_upload = not st.session_state.show_upload
         st.rerun()
 
 with _tab_col2:
-    _chat_active = "active" if st.session_state.show_chat else ""
     if st.button("💬  Chat", key="top_chat_btn", use_container_width=True,
                  help="Ask markets, crypto, currency, or document questions"):
         st.session_state.show_chat = not st.session_state.show_chat
         st.rerun()
 
 with _tab_col3:
+    _pf_label = f"📊  Portfolio ({len(st.session_state.portfolio)})" if st.session_state.portfolio else "📊  Portfolio"
+    if st.button(_pf_label, key="top_portfolio_btn", use_container_width=True,
+                 help="Build & simulate your stock portfolio with AI analysis"):
+        st.session_state.show_portfolio = not st.session_state.show_portfolio
+        st.rerun()
+
+with _tab_col4:
     # Inline global search
     _raw_q = st.text_input(
         "global_search",
@@ -1711,6 +2503,24 @@ if st.session_state.auto_generated:
                     prog2.progress((i+1)/len(EVAL_QUESTIONS))
                 prog2.empty(); render_eval_dashboard(er2)
 
+    st.markdown("<hr style='border-color:rgba(139,58,139,.1);margin:.6rem 0 1rem;'>",
+                unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PORTFOLIO PANEL  (slides open when 📊 Portfolio clicked)
+# ─────────────────────────────────────────────────────────────────────────────
+if st.session_state.show_portfolio:
+    n_holdings = len(st.session_state.portfolio)
+    st.markdown(
+        f'<div class="portfolio-panel">'
+        f'<div class="portfolio-panel-hdr">'
+        f'<div class="pph-title">Portfolio</div>'
+        f'<div style="font-family:Space Mono,monospace;font-size:.52rem;color:#4A3858;">'
+        f'{n_holdings} holding{"s" if n_holdings != 1 else ""} · Live prices · FinBERT RAG</div>'
+        f'</div></div>',
+        unsafe_allow_html=True,
+    )
+    render_portfolio_panel(GROQ_API_KEY)
     st.markdown("<hr style='border-color:rgba(139,58,139,.1);margin:.6rem 0 1rem;'>",
                 unsafe_allow_html=True)
 
@@ -2132,8 +2942,8 @@ if q:
 st.markdown("""
 <div class="vfooter">
   <div class="vfooter-text">
-    Built by Yash Chaudhary &nbsp;·&nbsp; Financial RAG Assistant v6 &nbsp;·&nbsp;
-    Llama 3.3 × Groq × ChromaDB × FinBERT
+    Built by Yash Chaudhary &nbsp;·&nbsp; Financial RAG Assistant v7 &nbsp;·&nbsp;
+    Llama 3.3 × Groq × ChromaDB × FinBERT · Portfolio Engine
   </div>
 </div>
 """, unsafe_allow_html=True)
