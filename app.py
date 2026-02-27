@@ -1,22 +1,39 @@
 from __future__ import annotations
+"""
+app.py  —  Financial RAG Assistant  v9
+Changes from v8:
+  ① Aesthetic + upload button (animated SVG circle with rotate-on-hover)
+  ② Price chips get red diagonal sweep when down, green when up (CSS ::before overlay)
+  ③ Mood index chips same red/green top-bar + border treatment
+  ④ FX chips same treatment
+  ⑤ Global stock search — Yahoo Finance fuzzy search, any exchange world-wide
+  ⑥ 200+ pre-loaded tickers across 20 markets (US, India, UK, DE, FR, JP, HK, KR, AU, CA, BR, SG…)
+  ⑦ Exchange suffix guide in portfolio tab
+  ⑧ Manage Holdings: search-to-add from any world exchange
+Run: streamlit run app.py
+"""
 
 import os, re, json, math, io, html as _ht
 import datetime as _dt
 import threading as _th, time as _tm
-import statistics as _stats
 import requests
 import pandas as pd
-import numpy as np
-try:
-    import plotly.graph_objects as go
-    import plotly.express as px
-    _PLOTLY = True
-except ImportError:
-    _PLOTLY = False
 import streamlit as st
 import streamlit.components.v1 as components
 from dotenv import load_dotenv
 from typing import Optional
+
+# ── Portfolio / charting deps (graceful degradation if missing) ──────────────
+try:
+    import yfinance as yf
+    import numpy as np
+    import plotly.graph_objects as go
+    import plotly.express as px
+    from plotly.subplots import make_subplots
+    from scipy import stats as scipy_stats
+    _PORTFOLIO_READY = True
+except ImportError:
+    _PORTFOLIO_READY = False
 
 load_dotenv()
 
@@ -38,33 +55,20 @@ for _k, _v in [
     ("file_names",      []),
     ("show_upload",     False),
     ("show_chat",       False),
-    ("show_portfolio",  False),    # v7: portfolio panel toggle
     ("doc_full_text",   ""),
     ("auto_metrics",    []),
     ("auto_generated",  False),
     ("search_query",    ""),
     ("search_results",  []),
-    # Portfolio state
-    ("portfolio",       {}),       # {sym: {"shares": float, "avg_cost": float, "added": str}}
-    ("portfolio_notes", {}),       # {sym: str}  analyst notes per holding
-    # Chat mode
-    ("analyst_mode",    False),    # v8: structured analyst output vs free-form chat
-    # AI chart analysis cache
-    ("_chart_ai_text",  ""),
-    ("_chart_ai_done",  False),
-    ("_chart_ai_tf",    "1D"),      # which timeframe is showing
-    ("_fx_ai_text",     ""),
-    ("_fx_ai_done",     False),
-    ("_fx_ai_tf",       "1D"),
-    ("_comm_ai_text",   ""),
-    ("_comm_ai_done",   False),
-    ("_comm_ai_tf",     "1D"),
-    ("_crypto_ai_text", ""),
-    ("_crypto_ai_done", False),
-    ("_crypto_ai_tf",   "1D"),
-    # Portfolio: selected holding for instant AI analysis
-    ("_pf_selected_holding", ""),
-    ("_pf_holding_ai",       {}),   # {sym: {tf: text}}
+    ("show_analytics",      False),
+    # v7: portfolio
+    ("show_portfolio",      False),
+    ("portfolio_holdings",  {}),
+    ("portfolio_watchlist", []),
+    ("portfolio_prices_cache", {}),
+    ("portfolio_ai_report", ""),
+    # v8: analyst mode
+    ("analyst_mode",        False),
 ]:
     if _k not in st.session_state:
         st.session_state[_k] = _v
@@ -92,7 +96,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# DESIGN SYSTEM  (Royal Velvet & Black)
+# DESIGN SYSTEM
 # ─────────────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
@@ -154,6 +158,170 @@ hr{border-color:var(--border)!important}
 ::-webkit-scrollbar{width:3px}
 ::-webkit-scrollbar-thumb{background:rgba(107,45,107,.35);border-radius:2px}
 
+/* ── TOP UPLOAD BAR (sticky) ── */
+.top-upload-bar{
+  position:sticky;top:0;z-index:2000;
+  background:linear-gradient(180deg,rgba(7,6,12,.98) 85%,transparent);
+  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  padding:.5rem 0 .3rem;margin-bottom:.5rem;
+  border-bottom:1px solid rgba(139,58,139,.12);
+}
+
+/* ── AESTHETIC + UPLOAD BUTTON (legacy small circle, hidden) ── */
+.plus-upload-btn{display:none}
+
+/* ══════════════════════════════════════════════════════════════
+   TOP ACTION BUTTONS — v11: equal cubes + mood-reactive portfolio
+   ══════════════════════════════════════════════════════════════ */
+
+/* Shared cube base — both equal */
+.sq-btn-upload div[data-testid="stButton"] > button,
+.sq-btn-simulate div[data-testid="stButton"] > button {
+  width: 100% !important;
+  height: 4.8rem !important;
+  border-radius: 14px !important;
+  padding: .45rem .5rem !important;
+  font-family: 'Space Mono', monospace !important;
+  font-size: .54rem !important;
+  letter-spacing: .12em !important;
+  text-transform: uppercase !important;
+  line-height: 1.65 !important;
+  transition: transform .28s cubic-bezier(.34,1.56,.64,1),
+              box-shadow .28s ease,
+              background .22s ease,
+              border-color .22s ease !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  white-space: pre-line !important;
+  position: relative !important;
+  overflow: hidden !important;
+  gap: 0 !important;
+}
+
+/* ── Upload Cube — obsidian with velvet edge glow ── */
+@keyframes cube-velvet-pulse {
+  0%,100% { box-shadow: 0 0 0 0 rgba(192,132,200,.42), 0 3px 18px rgba(0,0,0,.75); }
+  55%      { box-shadow: 0 0 0 9px rgba(192,132,200,0), 0 3px 18px rgba(0,0,0,.75); }
+}
+.sq-btn-upload div[data-testid="stButton"] > button {
+  background: linear-gradient(155deg,#16121f,#0c0a12) !important;
+  border: 1.5px solid rgba(192,132,200,.36) !important;
+  color: #C084C8 !important;
+  animation: cube-velvet-pulse 2.8s ease-in-out infinite !important;
+}
+.sq-btn-upload div[data-testid="stButton"] > button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% -15%, rgba(192,132,200,.12) 0%, transparent 55%);
+  pointer-events: none;
+  border-radius: 14px;
+}
+/* Top edge shimmer */
+.sq-btn-upload div[data-testid="stButton"] > button::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 10%; right: 10%; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(192,132,200,.6), transparent);
+  border-radius: 1px;
+}
+.sq-btn-upload div[data-testid="stButton"] > button:hover {
+  background: linear-gradient(155deg,#231835,#160f22) !important;
+  border-color: rgba(192,132,200,.82) !important;
+  color: #EDE8F5 !important;
+  transform: translateY(-3px) scale(1.04) !important;
+  animation: none !important;
+  box-shadow: 0 0 30px rgba(192,132,200,.3), 0 10px 28px rgba(0,0,0,.75) !important;
+}
+
+/* ── Portfolio Cube — mood-reactive ── */
+/* Default: Neutral gold */
+@keyframes mood-neutral-glow {
+  0%,100% { box-shadow: 0 0 0 0 rgba(240,192,64,.38), 0 3px 18px rgba(0,0,0,.6); }
+  55%      { box-shadow: 0 0 0 8px rgba(240,192,64,0), 0 3px 18px rgba(0,0,0,.6); }
+}
+@keyframes mood-bull-glow {
+  0%,100% { box-shadow: 0 0 0 0 rgba(74,222,128,.42), 0 3px 18px rgba(0,0,0,.55); }
+  55%      { box-shadow: 0 0 0 9px rgba(74,222,128,0), 0 3px 18px rgba(0,0,0,.55); }
+}
+@keyframes mood-bear-glow {
+  0%,100% { box-shadow: 0 0 0 0 rgba(248,113,113,.42), 0 3px 18px rgba(0,0,0,.55); }
+  55%      { box-shadow: 0 0 0 9px rgba(248,113,113,0), 0 3px 18px rgba(0,0,0,.55); }
+}
+
+.sq-btn-simulate div[data-testid="stButton"] > button {
+  background: linear-gradient(155deg,rgba(48,35,10,.95),rgba(28,20,5,.98)) !important;
+  border: 1.5px solid rgba(240,192,64,.42) !important;
+  color: #F0C040 !important;
+  animation: mood-neutral-glow 3s ease-in-out infinite !important;
+}
+.sq-btn-simulate div[data-testid="stButton"] > button::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 50% -15%, rgba(240,192,64,.09) 0%, transparent 55%);
+  pointer-events: none; border-radius: 14px;
+}
+.sq-btn-simulate div[data-testid="stButton"] > button::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 10%; right: 10%; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(240,192,64,.5), transparent);
+  border-radius: 1px;
+}
+
+/* Bull market override */
+.sq-btn-simulate.mood-bull div[data-testid="stButton"] > button {
+  background: linear-gradient(155deg,rgba(12,42,24,.95),rgba(7,25,14,.98)) !important;
+  border-color: rgba(74,222,128,.46) !important;
+  color: #4ade80 !important;
+  animation: mood-bull-glow 2.5s ease-in-out infinite !important;
+}
+.sq-btn-simulate.mood-bull div[data-testid="stButton"] > button::before {
+  background: radial-gradient(ellipse at 50% -15%, rgba(74,222,128,.09) 0%, transparent 55%);
+}
+.sq-btn-simulate.mood-bull div[data-testid="stButton"] > button::after {
+  background: linear-gradient(90deg, transparent, rgba(74,222,128,.5), transparent);
+}
+
+/* Bear market override */
+.sq-btn-simulate.mood-bear div[data-testid="stButton"] > button {
+  background: linear-gradient(155deg,rgba(52,12,12,.95),rgba(30,7,7,.98)) !important;
+  border-color: rgba(248,113,113,.46) !important;
+  color: #f87171 !important;
+  animation: mood-bear-glow 2.5s ease-in-out infinite !important;
+}
+.sq-btn-simulate.mood-bear div[data-testid="stButton"] > button::before {
+  background: radial-gradient(ellipse at 50% -15%, rgba(248,113,113,.09) 0%, transparent 55%);
+}
+.sq-btn-simulate.mood-bear div[data-testid="stButton"] > button::after {
+  background: linear-gradient(90deg, transparent, rgba(248,113,113,.5), transparent);
+}
+
+/* Portfolio open state */
+.sq-btn-simulate.pf-open div[data-testid="stButton"] > button {
+  border-width: 2px !important;
+  box-shadow: 0 0 22px rgba(192,132,200,.2), inset 0 0 0 1px rgba(192,132,200,.1) !important;
+}
+
+/* Hover — all variants */
+.sq-btn-simulate div[data-testid="stButton"] > button:hover,
+.sq-btn-simulate.mood-bull div[data-testid="stButton"] > button:hover,
+.sq-btn-simulate.mood-bear div[data-testid="stButton"] > button:hover {
+  transform: translateY(-3px) scale(1.04) !important;
+  animation: none !important;
+  filter: brightness(1.22) saturate(1.12) !important;
+  box-shadow: 0 10px 30px rgba(0,0,0,.65) !important;
+}
+
+.ub-icon{font-size:1.4rem;flex-shrink:0}
+.ub-text{font-family:'Space Mono',monospace;font-size:.6rem;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--velvet-gl);}
+.ub-badge{font-family:'Space Mono',monospace;font-size:.5rem;color:var(--text-ghost);
+  background:rgba(107,45,107,.1);border:1px solid var(--border);
+  padding:.1rem .4rem;border-radius:3px;margin-left:.3rem;}
+
 /* ── HERO ── */
 .rag-header{position:relative;padding:2rem 2.2rem;
   background:linear-gradient(135deg,rgba(107,45,107,.22) 0%,rgba(13,11,18,.98) 55%,rgba(107,45,107,.12) 100%);
@@ -213,88 +381,85 @@ hr{border-color:var(--border)!important}
   font-size:.5rem;color:var(--text-ghost)}
 .mood-index{font-family:'Cormorant Garamond',serif;font-size:2rem;font-weight:300}
 .mood-indices{display:flex;gap:1rem;margin-top:.8rem;flex-wrap:wrap}
-.mood-idx-chip{display:flex;flex-direction:column;background:var(--card-2);
-  border:1px solid var(--border);border-radius:8px;padding:.4rem .8rem;
-  font-family:'Space Mono',monospace;min-width:90px;
-  position:relative;overflow:hidden;transition:border-color .2s;}
-.mood-idx-chip.chip-up{border-color:rgba(74,222,128,.25);box-shadow:inset 0 0 0 1px rgba(74,222,128,.08);}
-.mood-idx-chip.chip-up::before{content:'';position:absolute;top:0;right:0;width:100%;height:100%;
-  background:linear-gradient(135deg,transparent 55%,rgba(74,222,128,.07) 55%,rgba(74,222,128,.11) 68%,transparent 68%);
-  border-radius:8px;pointer-events:none;}
-.mood-idx-chip.chip-down{border-color:rgba(248,113,113,.25);box-shadow:inset 0 0 0 1px rgba(248,113,113,.08);}
-.mood-idx-chip.chip-down::before{content:'';position:absolute;top:0;right:0;width:100%;height:100%;
-  background:linear-gradient(135deg,transparent 55%,rgba(248,113,113,.07) 55%,rgba(248,113,113,.11) 68%,transparent 68%);
-  border-radius:8px;pointer-events:none;}
-.mood-idx-name{font-size:.52rem;color:var(--text-ghost);letter-spacing:.1em}
-.mood-idx-val{font-size:.72rem;color:var(--text);margin-top:.1rem}
-.mood-idx-chg.up{font-size:.56rem;color:#4ade80}
-.mood-idx-chg.down{font-size:.56rem;color:#f87171}
 
-/* ── PRICE CHIP ── */
+/* ── PRICE CHIP — with red/green diagonal flash line ── */
 .price-chip{
   display:flex;flex-direction:column;
   background:var(--card-2);
-  border:1px solid var(--border);
-  border-radius:10px;padding:.75rem 1rem;
-  min-width:120px;font-family:'Space Mono',monospace;
-  transition:border-color .2s, box-shadow .2s;
-  position:relative;overflow:hidden;
+  border-radius:10px;padding:.75rem 1rem;min-width:120px;
+  font-family:'Space Mono',monospace;transition:all .22s;
+  position:relative;overflow:hidden;cursor:default;
+  border:1px solid transparent;
 }
-.price-chip:hover{border-color:var(--border-l)}
-
-/* diagonal stripe — injected via ::before, colour set inline by JS-free class */
+/* Diagonal colour streak across the card */
 .price-chip::before{
-  content:'';position:absolute;top:0;right:0;
-  width:100%;height:100%;
-  pointer-events:none;border-radius:10px;
-  opacity:0;transition:opacity .25s;
+  content:'';position:absolute;
+  top:0;left:0;right:0;bottom:0;
+  pointer-events:none;
+  border-radius:10px;
+  opacity:.13;
 }
-.price-chip.chip-up{
-  border-color:rgba(74,222,128,.28);
-  box-shadow:inset 0 0 0 1px rgba(74,222,128,.12), 0 2px 12px rgba(74,222,128,.06);
-}
+.price-chip.chip-up{border-color:rgba(74,222,128,.3);}
 .price-chip.chip-up::before{
-  background:linear-gradient(135deg,
-    transparent 60%,
-    rgba(74,222,128,.08) 60%,
-    rgba(74,222,128,.13) 72%,
-    transparent 72%
-  );
-  opacity:1;
+  background:linear-gradient(135deg,rgba(74,222,128,.9) 0%,transparent 45%);
 }
-.price-chip.chip-down{
-  border-color:rgba(248,113,113,.28);
-  box-shadow:inset 0 0 0 1px rgba(248,113,113,.12), 0 2px 12px rgba(248,113,113,.06);
-}
+.price-chip.chip-down{border-color:rgba(248,113,113,.3);}
 .price-chip.chip-down::before{
-  background:linear-gradient(135deg,
-    transparent 60%,
-    rgba(248,113,113,.08) 60%,
-    rgba(248,113,113,.13) 72%,
-    transparent 72%
-  );
-  opacity:1;
+  background:linear-gradient(135deg,rgba(248,113,113,.9) 0%,transparent 45%);
 }
-
-/* Left edge accent bar */
-.price-chip.chip-up::after{
-  content:'';position:absolute;top:0;left:0;width:2px;height:100%;
-  background:linear-gradient(180deg,#4ade80,rgba(74,222,128,.3));border-radius:10px 0 0 10px;
+.price-chip.chip-flat{border-color:rgba(148,163,184,.2);}
+.price-chip.chip-flat::before{
+  background:linear-gradient(135deg,rgba(148,163,184,.4) 0%,transparent 45%);
 }
-.price-chip.chip-down::after{
-  content:'';position:absolute;top:0;left:0;width:2px;height:100%;
-  background:linear-gradient(180deg,#f87171,rgba(248,113,113,.3));border-radius:10px 0 0 10px;
+/* Thin accent line at very top of chip */
+.price-chip::after{
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  border-radius:10px 10px 0 0;
 }
-
-.price-chip:hover{border-color:var(--border-l)}
+.price-chip.chip-up::after{background:linear-gradient(90deg,#4ade80,transparent);}
+.price-chip.chip-down::after{background:linear-gradient(90deg,#f87171,transparent);}
+.price-chip.chip-flat::after{background:linear-gradient(90deg,#94a3b8,transparent);}
+.price-chip:hover{transform:translateY(-2px);box-shadow:0 6px 24px rgba(0,0,0,.35);}
 .pc-sym{font-size:.6rem;color:var(--accent);font-weight:700;letter-spacing:.08em;white-space:nowrap}
 .pc-name{font-size:.5rem;color:var(--text-ghost);margin-bottom:.2rem}
 .pc-val{font-family:'Cormorant Garamond',serif;font-size:1.5rem;font-weight:300;
   color:var(--text);line-height:1}
-.pc-chg.up{font-size:.58rem;color:#4ade80;margin-top:.1rem}
-.pc-chg.down{font-size:.58rem;color:#f87171;margin-top:.1rem}
-.pc-chg.flat{font-size:.58rem;color:var(--text-ghost);margin-top:.1rem}
+.pc-chg.up{font-size:.58rem;color:#4ade80;margin-top:.15rem;display:flex;align-items:center;gap:.2rem}
+.pc-chg.down{font-size:.58rem;color:#f87171;margin-top:.15rem;display:flex;align-items:center;gap:.2rem}
+.pc-chg.flat{font-size:.58rem;color:var(--text-ghost);margin-top:.15rem}
 .chips-row{display:flex;gap:.6rem;flex-wrap:wrap}
+
+/* Mood index chip — same treatment */
+.mood-idx-chip{
+  display:flex;flex-direction:column;
+  border-radius:8px;padding:.4rem .8rem;
+  font-family:'Space Mono',monospace;min-width:90px;
+  position:relative;overflow:hidden;
+  transition:border-color .2s;
+}
+.mood-idx-chip.chip-up{
+  background:rgba(74,222,128,.04);
+  border:1px solid rgba(74,222,128,.22);
+}
+.mood-idx-chip.chip-up::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,#4ade80,transparent);border-radius:8px 8px 0 0;
+}
+.mood-idx-chip.chip-down{
+  background:rgba(248,113,113,.04);
+  border:1px solid rgba(248,113,113,.22);
+}
+.mood-idx-chip.chip-down::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,#f87171,transparent);border-radius:8px 8px 0 0;
+}
+.mood-idx-chip.chip-flat{
+  background:var(--card-2);border:1px solid var(--border);
+}
+.mood-idx-name{font-size:.52rem;color:var(--text-ghost);letter-spacing:.1em}
+.mood-idx-val{font-size:.72rem;color:var(--text);margin-top:.1rem}
+.mood-idx-chg.up{font-size:.56rem;color:#4ade80}
+.mood-idx-chg.down{font-size:.56rem;color:#f87171}
 
 /* ── MARKET PANELS ── */
 .fx-panel,.comm-panel,.crypto-panel{background:var(--card);border:1px solid var(--border);
@@ -332,6 +497,8 @@ hr{border-color:var(--border)!important}
 .empty-title{font-family:'Cormorant Garamond',serif;font-size:1.7rem;font-weight:300;
   font-style:italic;color:var(--text-ghost);margin-bottom:.5rem}
 .empty-sub{font-size:.8rem;color:var(--text-ghost);max-width:300px;margin:0 auto;line-height:1.8;opacity:.7}
+
+/* ── INLINE UPLOAD DRAWER ── */
 .upload-drawer{background:linear-gradient(135deg,rgba(107,45,107,.18) 0%,rgba(13,11,18,.95) 100%);
   border:1px solid rgba(139,58,139,.45);border-radius:12px;padding:1rem 1.1rem .7rem;margin-bottom:.6rem}
 .upload-drawer-title{font-family:'Space Mono',monospace;font-size:.62rem;letter-spacing:.15em;
@@ -341,24 +508,40 @@ hr{border-color:var(--border)!important}
 .src-name{font-family:'Space Mono',monospace;font-size:.7rem;color:var(--accent);margin-bottom:.15rem}
 .src-score{font-family:'Space Mono',monospace;font-size:.62rem;color:var(--text-ghost)}
 .src-preview{color:var(--text-dim);line-height:1.55;margin-top:.2rem}
-.vfooter{text-align:center;padding:1.8rem 0 .5rem;position:relative;margin-top:2.5rem}
-.vfooter::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);
-  width:180px;height:1px;background:linear-gradient(90deg,transparent,rgba(107,45,107,.5),transparent)}
-.vfooter-text{font-family:'Space Mono',monospace;font-size:.56rem;
-  letter-spacing:.2em;text-transform:uppercase;color:var(--text-ghost)}
 
-/* ════════════════════════════════════════════
-   v5  NEW STYLES
-   ════════════════════════════════════════════ */
+/* ── CHAT PANEL ── */
+.chat-panel{background:var(--card);border:1px solid var(--border-l);
+  border-radius:16px;padding:1.2rem 1.4rem;margin-bottom:1.4rem}
+.chat-panel-title{font-family:'Cormorant Garamond',serif;font-size:1.15rem;font-weight:300;
+  color:var(--text);margin-bottom:1rem;display:flex;align-items:center;gap:.5rem}
+.chat-panel-title::before{content:'';display:inline-block;width:3px;height:1.1rem;
+  background:linear-gradient(180deg,#60a5fa,#C084C8);border-radius:2px}
 
-/* ① Global search bar */
+/* ── ANALYTICS PANEL (inline) ── */
+.analytics-panel{background:linear-gradient(135deg,rgba(74,222,128,.04) 0%,rgba(107,45,107,.08) 100%);
+  border:1px solid rgba(74,222,128,.18);border-radius:14px;
+  padding:1.2rem 1.4rem;margin-bottom:1.4rem}
+.analytics-panel-hdr{font-family:'Cormorant Garamond',serif;font-size:1.35rem;font-weight:300;
+  color:#EDE8F5;margin-bottom:.3rem;display:flex;align-items:center;gap:.6rem}
+.analytics-panel-hdr::before{content:'';display:inline-block;width:3px;height:1.2rem;
+  background:linear-gradient(180deg,#4ade80,#C084C8);border-radius:2px}
+.analytics-panel-sub{font-family:'Space Mono',monospace;font-size:.54rem;
+  letter-spacing:.15em;text-transform:uppercase;color:#4A3858;margin-bottom:1rem}
+
+/* ── ANALYTICS BANNER ── */
+.analytics-banner{
+  background:linear-gradient(135deg,rgba(74,222,128,.07) 0%,rgba(107,45,107,.10) 100%);
+  border:1px solid rgba(74,222,128,.22);border-radius:10px;
+  padding:.7rem 1.1rem;margin-bottom:1rem;
+  display:flex;align-items:flex-start;gap:.75rem}
+.ab-icon{font-size:1.4rem;flex-shrink:0;line-height:1.2}
+.ab-title{font-family:'Syne',sans-serif;font-size:.84rem;font-weight:600;color:#86efac;margin-bottom:.1rem}
+.ab-sub{font-family:'Space Mono',monospace;font-size:.52rem;color:var(--text-ghost)}
+
+/* ── SEARCH BAR ── */
 .gsearch-wrap{
-  position:sticky;top:0;z-index:1000;
-  background:linear-gradient(180deg,rgba(7,6,12,.97) 82%,transparent);
-  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
-  padding:.55rem 0 .3rem;margin-bottom:.9rem;
-}
-/* search result cards */
+  background:var(--card);border:1px solid var(--border);border-radius:10px;
+  padding:.6rem .9rem;margin-bottom:.9rem;}
 .sr-wrap{background:var(--card);border:1px solid var(--border);
   border-radius:10px;padding:.75rem 1rem;margin-bottom:.9rem}
 .sr-title{font-family:'Space Mono',monospace;font-size:.52rem;letter-spacing:.18em;
@@ -369,331 +552,7 @@ hr{border-color:var(--border)!important}
 .sr-fname{font-family:'Space Mono',monospace;font-size:.56rem;color:var(--accent);margin-bottom:.18rem}
 .sr-snippet{font-size:.79rem;color:var(--text-dim);line-height:1.55}
 
-/* ════════════════════════════════════════════
-   v6  NEW STYLES
-   ════════════════════════════════════════════ */
-
-/* Top action bar — upload icon + chat icon pinned at very top */
-.top-action-bar{
-  position:sticky;top:0;z-index:1100;
-  display:flex;align-items:center;gap:.6rem;
-  padding:.55rem 0 .4rem;
-  background:linear-gradient(180deg,rgba(7,6,12,.98) 85%,transparent);
-  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
-  margin-bottom:.6rem;
-}
-.tab-icon-btn{
-  display:flex;align-items:center;gap:.45rem;
-  background:rgba(107,45,107,.12);border:1px solid rgba(139,58,139,.3);
-  border-radius:8px;padding:.38rem .75rem;cursor:pointer;
-  font-family:'Space Mono',monospace;font-size:.62rem;color:var(--text-dim);
-  transition:all .2s;white-space:nowrap;text-decoration:none;
-}
-.tab-icon-btn:hover,.tab-icon-btn.active{
-  background:rgba(107,45,107,.25);border-color:var(--velvet-gl);color:var(--accent);
-  box-shadow:0 0 12px rgba(107,45,107,.22);
-}
-.tab-icon-btn .tb-icon{font-size:1rem;line-height:1}
-.tab-icon-btn .tb-label{font-size:.58rem;letter-spacing:.08em;text-transform:uppercase}
-.tab-divider{flex:1;height:1px;background:linear-gradient(90deg,rgba(107,45,107,.25),transparent)}
-
-/* ── TIMEFRAME NAVIGATOR ── */
-.tf-nav-wrap{display:flex;align-items:center;gap:.3rem;margin:.3rem 0 .5rem;}
-/* Active timeframe button gets a pink-purple glow — applied via st.markdown wrapper trick */
-div[data-testid="stButton"] button.tf-active{
-  background:linear-gradient(135deg,#8B3D8B,#C084C8)!important;
-  border-color:#C084C8!important;color:#fff!important;font-weight:700!important;
-}
-
-/* ═══════════════════════════════════════════════════════
-   TOP ACTION BUTTONS — two crisp square tiles
-   ═══════════════════════════════════════════════════════ */
-@keyframes pulse-ring{
-  0%  {box-shadow:0 0 0 0 rgba(240,31,146,.45), 0 4px 18px rgba(0,0,0,.6);}
-  65% {box-shadow:0 0 0 8px rgba(240,31,146,0), 0 4px 18px rgba(0,0,0,.6);}
-  100%{box-shadow:0 0 0 0 rgba(240,31,146,0), 0 4px 18px rgba(0,0,0,.6);}
-}
-/* Shared square tile */
-.sq-btn-upload div[data-testid="stButton"] > button,
-.sq-btn-simulate div[data-testid="stButton"] > button{
-  width:100%!important;
-  height:5.2rem!important;
-  border-radius:12px!important;
-  padding:.6rem .4rem!important;
-  font-family:'Space Mono',monospace!important;
-  font-size:.58rem!important;
-  letter-spacing:.1em!important;
-  text-transform:uppercase!important;
-  line-height:1.5!important;
-  transition:transform .22s cubic-bezier(.34,1.56,.64,1),
-             box-shadow .22s ease,
-             background .18s ease!important;
-  display:flex!important;flex-direction:column!important;
-  align-items:center!important;justify-content:center!important;
-  white-space:pre-line!important;
-}
-/* Upload — jet black with white + */
-.sq-btn-upload div[data-testid="stButton"] > button{
-  background:#0a0a0a!important;
-  border:1.5px solid rgba(255,255,255,.18)!important;
-  color:#fff!important;
-  animation:pulse-ring 2.8s ease-in-out infinite!important;
-}
-.sq-btn-upload div[data-testid="stButton"] > button:hover{
-  background:#111!important;
-  border-color:rgba(255,255,255,.42)!important;
-  transform:translateY(-3px) scale(1.04)!important;
-  animation:none!important;
-  box-shadow:0 0 28px rgba(255,255,255,.12),0 8px 24px rgba(0,0,0,.7)!important;
-}
-/* Simulate Portfolio — velvet purple */
-.sq-btn-simulate div[data-testid="stButton"] > button{
-  background:linear-gradient(145deg,rgba(80,30,100,.85),rgba(45,15,65,.95))!important;
-  border:1.5px solid rgba(192,132,200,.35)!important;
-  color:#C084C8!important;
-  box-shadow:0 4px 20px rgba(107,45,107,.3)!important;
-}
-.sq-btn-simulate div[data-testid="stButton"] > button:hover{
-  background:linear-gradient(145deg,rgba(120,50,140,.9),rgba(70,25,95,.98))!important;
-  border-color:rgba(192,132,200,.7)!important;
-  color:#EDE8F5!important;
-  transform:translateY(-3px) scale(1.04)!important;
-  box-shadow:0 0 28px rgba(192,132,200,.35),0 8px 24px rgba(0,0,0,.6)!important;
-}
-.sq-btn-simulate.pf-open div[data-testid="stButton"] > button{
-  border-color:rgba(192,132,200,.75)!important;
-  box-shadow:0 0 22px rgba(192,132,200,.3),inset 0 0 0 1px rgba(192,132,200,.15)!important;
-}
-.upload-panel{
-  background:linear-gradient(135deg,rgba(107,45,107,.14) 0%,rgba(13,11,18,.97) 100%);
-  border:1px solid rgba(139,58,139,.4);border-radius:14px;
-  padding:1.1rem 1.3rem .9rem;margin-bottom:1rem;
-  animation:slideDown .22s ease;
-}
-@keyframes slideDown{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
-.upload-panel-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:.7rem}
-.upload-panel-title{font-family:'Space Mono',monospace;font-size:.64rem;letter-spacing:.18em;
-  text-transform:uppercase;color:var(--velvet-gl)}
-.upload-panel-formats{font-family:'Space Mono',monospace;font-size:.5rem;
-  color:var(--text-ghost);margin-top:.15rem}
-
-/* Inline analytics panel (shown after upload, below upload bar) */
-.analytics-inline-panel{
-  background:var(--card);border:1px solid var(--border);border-radius:14px;
-  padding:1.1rem 1.3rem 1rem;margin-bottom:1.1rem;
-  animation:fadeIn .3s ease;
-}
-@keyframes fadeIn{from{opacity:0}to{opacity:1}}
-.aip-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem}
-.aip-title{font-family:'Cormorant Garamond',serif;font-size:1.15rem;font-weight:300;
-  color:var(--text);display:flex;align-items:center;gap:.5rem}
-.aip-title::before{content:'';display:inline-block;width:3px;height:1rem;
-  background:linear-gradient(180deg,#4ade80,#C084C8);border-radius:2px}
-.aip-badge{font-family:'Space Mono',monospace;font-size:.5rem;letter-spacing:.1em;
-  text-transform:uppercase;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.22);
-  color:#86efac;padding:.18rem .5rem;border-radius:4px}
-
-/* Floating chat panel */
-.chat-panel{
-  background:var(--card);border:1px solid var(--border-l);border-radius:14px;
-  margin-bottom:1.1rem;overflow:hidden;
-  animation:slideDown .22s ease;
-}
-.chat-panel-hdr{
-  padding:.65rem 1rem .55rem;
-  background:linear-gradient(90deg,rgba(107,45,107,.18),rgba(13,11,18,.9));
-  border-bottom:1px solid var(--border);
-  display:flex;align-items:center;justify-content:space-between;
-}
-.chat-panel-title{font-family:'Space Mono',monospace;font-size:.58rem;letter-spacing:.18em;
-  text-transform:uppercase;color:var(--velvet-gl)}
-.chat-panel-body{padding:.8rem 1rem}
-
-/* ③ Auto-analytics success banner */
-.analytics-banner{
-  background:linear-gradient(135deg,rgba(74,222,128,.07) 0%,rgba(107,45,107,.10) 100%);
-  border:1px solid rgba(74,222,128,.22);border-radius:10px;
-  padding:.7rem 1.1rem;margin-bottom:1rem;
-  display:flex;align-items:flex-start;gap:.75rem;
-}
-.ab-icon{font-size:1.4rem;flex-shrink:0;line-height:1.2}
-.ab-title{font-family:'Syne',sans-serif;font-size:.84rem;font-weight:600;color:#86efac;margin-bottom:.1rem}
-.ab-sub{font-family:'Space Mono',monospace;font-size:.52rem;color:var(--text-ghost)}
-
-/* ════════════════════════════════════════════
-   v7  PORTFOLIO STYLES
-   ════════════════════════════════════════════ */
-
-/* Portfolio panel wrapper */
-.portfolio-panel{
-  background:var(--card);border:1px solid var(--border-l);border-radius:14px;
-  margin-bottom:1.1rem;overflow:hidden;animation:slideDown .22s ease;
-}
-.portfolio-panel-hdr{
-  padding:.7rem 1.1rem .6rem;
-  background:linear-gradient(90deg,rgba(233,30,140,.18),rgba(107,45,107,.12),rgba(13,11,18,.9));
-  border-bottom:1px solid rgba(233,30,140,.2);
-  display:flex;align-items:center;justify-content:space-between;
-}
-.pph-title{font-family:'Cormorant Garamond',serif;font-size:1.1rem;font-weight:300;
-  color:var(--text);display:flex;align-items:center;gap:.5rem}
-.pph-title::before{content:'';display:inline-block;width:3px;height:1rem;
-  background:linear-gradient(180deg,#ff4db8,#e91e8c);border-radius:2px}
-
-/* Add Holdings expander cherry accent */
-.add-holdings-panel{
-  background:linear-gradient(135deg,rgba(233,30,140,.07) 0%,rgba(107,45,107,.10) 60%,rgba(13,11,18,.97) 100%);
-  border:1px solid rgba(233,30,140,.22);border-radius:12px;
-  padding:1rem 1.2rem .9rem;margin-bottom:.8rem;
-  animation:slideDown .22s ease;
-}
-.ah-title{font-family:'Space Mono',monospace;font-size:.58rem;letter-spacing:.18em;
-  text-transform:uppercase;color:#ff80c0;margin-bottom:.6rem;
-  display:flex;align-items:center;gap:.5rem;}
-.ah-title::before{content:'✦';color:#e91e8c;font-size:.7rem;}
-.pph-stats{display:flex;gap:1.2rem;flex-wrap:wrap}
-.pph-stat{font-family:'Space Mono',monospace;font-size:.52rem;text-align:right}
-.pph-stat-lbl{color:var(--text-ghost);text-transform:uppercase;letter-spacing:.1em}
-.pph-stat-val{font-size:.72rem;margin-top:.1rem}
-.pph-stat-val.pos{color:#4ade80}
-.pph-stat-val.neg{color:#f87171}
-.pph-stat-val.neu{color:var(--text)}
-
-/* Holding card */
-.holding-card{
-  background:var(--card-2);border:1px solid var(--border);border-radius:10px;
-  padding:.8rem 1rem .7rem;position:relative;transition:border-color .2s;
-  overflow:hidden;
-}
-.holding-card.hc-up{
-  border-color:rgba(74,222,128,.25);
-  box-shadow:inset 0 0 0 1px rgba(74,222,128,.06);
-}
-.holding-card.hc-up::after{
-  content:'';position:absolute;top:0;right:0;width:100%;height:100%;
-  background:linear-gradient(135deg,transparent 62%,rgba(74,222,128,.06) 62%,rgba(74,222,128,.10) 74%,transparent 74%);
-  pointer-events:none;
-}
-.holding-card.hc-down{
-  border-color:rgba(248,113,113,.25);
-  box-shadow:inset 0 0 0 1px rgba(248,113,113,.06);
-}
-.holding-card.hc-down::after{
-  content:'';position:absolute;top:0;right:0;width:100%;height:100%;
-  background:linear-gradient(135deg,transparent 62%,rgba(248,113,113,.06) 62%,rgba(248,113,113,.10) 74%,transparent 74%);
-  pointer-events:none;
-}
-.holding-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
-  border-radius:2px 2px 0 0;background:linear-gradient(90deg,var(--velvet),var(--accent));
-  opacity:0;transition:opacity .2s}
-.holding-card:hover::before{opacity:1}
-.hc-sym{font-family:'Space Mono',monospace;font-size:.82rem;font-weight:700;
-  color:var(--accent);letter-spacing:.06em}
-.hc-country{font-family:'Space Mono',monospace;font-size:.58rem;font-weight:600;
-  letter-spacing:.08em;text-transform:uppercase;margin-bottom:.1rem;}
-.hc-name{font-family:'Syne',sans-serif;font-size:.72rem;color:var(--text-ghost);
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:.4rem}
-.hc-price{font-family:'Cormorant Garamond',serif;font-size:1.55rem;font-weight:300;
-  color:var(--text);line-height:1}
-.hc-chg{font-family:'Space Mono',monospace;font-size:.56rem;margin-top:.1rem}
-.hc-chg.up{color:#4ade80}.hc-chg.down{color:#f87171}.hc-chg.flat{color:var(--text-ghost)}
-.hc-meta{display:flex;gap:.6rem;margin-top:.5rem;flex-wrap:wrap}
-.hc-chip{background:rgba(107,45,107,.12);border:1px solid var(--border);border-radius:4px;
-  font-family:'Space Mono',monospace;font-size:.46rem;color:var(--text-ghost);
-  padding:.1rem .4rem;white-space:nowrap}
-.hc-chip.gain{background:rgba(74,222,128,.08);border-color:rgba(74,222,128,.2);color:#86efac}
-.hc-chip.loss{background:rgba(248,113,113,.08);border-color:rgba(248,113,113,.2);color:#fca5a5}
-
-/* Allocation donut area */
-.alloc-row{display:flex;gap:.5rem;flex-wrap:wrap;margin:.5rem 0}
-.alloc-bar{height:8px;border-radius:4px;overflow:hidden;background:rgba(107,45,107,.12);
-  margin:.4rem 0 .8rem;display:flex;gap:1px}
-.alloc-seg{height:100%;transition:width .4s}
-
-/* AI analysis card */
-.ai-analysis-card{
-  background:linear-gradient(135deg,rgba(107,45,107,.08) 0%,rgba(13,11,18,.95) 100%);
-  border:1px solid rgba(192,132,200,.22);border-radius:10px;
-  padding:.9rem 1.1rem;margin-top:.6rem;
-}
-.aac-header{font-family:'Space Mono',monospace;font-size:.52rem;letter-spacing:.18em;
-  text-transform:uppercase;color:var(--velvet-gl);margin-bottom:.5rem;
-  display:flex;align-items:center;gap:.4rem}
-.aac-header::before{content:'◈';color:var(--accent)}
-.aac-body{font-family:'Syne',sans-serif;font-size:.83rem;color:var(--text-dim);line-height:1.75}
-
-/* Signal badge */
-.signal{display:inline-flex;align-items:center;gap:.3rem;border-radius:5px;
-  font-family:'Space Mono',monospace;font-size:.55rem;padding:.2rem .55rem;
-  text-transform:uppercase;letter-spacing:.08em;font-weight:700}
-.signal.buy{background:rgba(74,222,128,.12);border:1px solid rgba(74,222,128,.3);color:#4ade80}
-.signal.hold{background:rgba(240,192,64,.10);border:1px solid rgba(240,192,64,.3);color:#F0C040}
-.signal.sell{background:rgba(248,113,113,.10);border:1px solid rgba(248,113,113,.3);color:#f87171}
-.signal.watch{background:rgba(192,132,200,.10);border:1px solid rgba(192,132,200,.3);color:#C084C8}
-
-/* ════════════════════════════════════════════
-   v8  SOURCE PANEL + ANALYST MODE STYLES
-   ════════════════════════════════════════════ */
-
-/* Mode toggle bar */
-.mode-toggle-wrap{display:flex;align-items:center;gap:.5rem;padding:.4rem .7rem;margin-bottom:.5rem;
-  background:rgba(107,45,107,.08);border:1px solid var(--border);border-radius:8px;width:fit-content;}
-.mode-toggle-label{font-family:'Space Mono',monospace;font-size:.5rem;letter-spacing:.15em;text-transform:uppercase;color:#4A3858;}
-.mode-badge.chat-mode{background:rgba(192,132,200,.15);border:1px solid rgba(192,132,200,.35);color:#C084C8;
-  font-family:'Space Mono',monospace;font-size:.52rem;padding:.18rem .55rem;border-radius:4px;
-  letter-spacing:.06em;text-transform:uppercase;font-weight:700;}
-.mode-badge.analyst-mode{background:rgba(240,192,64,.12);border:1px solid rgba(240,192,64,.35);color:#F0C040;
-  font-family:'Space Mono',monospace;font-size:.52rem;padding:.18rem .55rem;border-radius:4px;
-  letter-spacing:.06em;text-transform:uppercase;font-weight:700;}
-
-/* Source evidence panel */
-.evidence-panel{border:1px solid var(--border);border-radius:10px;padding:.6rem .8rem .5rem;
-  margin-top:.5rem;background:linear-gradient(180deg,rgba(107,45,107,.04),rgba(13,11,18,.97));}
-.evidence-source-card{background:var(--card-2);border:1px solid var(--border);border-radius:8px;
-  margin-bottom:.6rem;overflow:hidden;}
-.esc-header{display:flex;align-items:center;justify-content:space-between;padding:.45rem .75rem;
-  background:rgba(107,45,107,.10);border-bottom:1px solid var(--border);flex-wrap:wrap;gap:.4rem;}
-.esc-source-num{font-family:'Space Mono',monospace;font-size:.48rem;letter-spacing:.15em;text-transform:uppercase;color:var(--velvet-gl);}
-.esc-filename{font-family:'Space Mono',monospace;font-size:.56rem;color:var(--accent);}
-.esc-meta{display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;}
-.esc-chip{background:rgba(107,45,107,.15);border:1px solid var(--border);border-radius:3px;
-  font-family:'Space Mono',monospace;font-size:.44rem;color:var(--text-ghost);padding:.08rem .35rem;white-space:nowrap;}
-.esc-chip.score-hi{background:rgba(74,222,128,.08);border-color:rgba(74,222,128,.22);color:#86efac;}
-.esc-chip.score-mid{background:rgba(240,192,64,.08);border-color:rgba(240,192,64,.22);color:#F0C040;}
-.esc-chip.score-lo{background:rgba(248,113,113,.07);border-color:rgba(248,113,113,.2);color:#fca5a5;}
-.esc-section{font-family:'Space Mono',monospace;font-size:.48rem;letter-spacing:.1em;text-transform:uppercase;
-  color:#C084C8;padding:.4rem .75rem .1rem;}
-.esc-body{font-family:'Syne',sans-serif;font-size:.8rem;color:var(--text-dim);line-height:1.7;
-  padding:.25rem .75rem .6rem;border-left:2px solid rgba(139,58,139,.25);margin:.1rem .5rem .1rem .75rem;}
-.esc-page{font-family:'Space Mono',monospace;font-size:.44rem;color:#4A3858;padding:.1rem .75rem .45rem;text-align:right;}
-
-/* Analyst Mode structured output */
-.analyst-output{font-family:'Syne',sans-serif;border-radius:12px;overflow:hidden;
-  border:1px solid rgba(240,192,64,.2);margin:.3rem 0;
-  background:linear-gradient(135deg,rgba(107,45,107,.06),rgba(13,11,18,.98));}
-.ao-header{padding:.55rem .9rem;display:flex;align-items:center;justify-content:space-between;
-  background:linear-gradient(90deg,rgba(107,45,107,.18),rgba(13,11,18,.95));
-  border-bottom:1px solid rgba(139,58,139,.2);}
-.ao-title{font-family:'Space Mono',monospace;font-size:.52rem;letter-spacing:.18em;text-transform:uppercase;
-  color:var(--velvet-gl);display:flex;align-items:center;gap:.4rem;}
-.ao-title::before{content:'◈';color:#F0C040;}
-.ao-mode-badge{background:rgba(240,192,64,.1);border:1px solid rgba(240,192,64,.3);color:#F0C040;
-  font-family:'Space Mono',monospace;font-size:.44rem;padding:.1rem .4rem;border-radius:3px;
-  letter-spacing:.08em;text-transform:uppercase;}
-.ao-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:.4rem;padding:.7rem .9rem;}
-.ao-metric{background:var(--card-2);border:1px solid var(--border);border-radius:8px;padding:.55rem .75rem;}
-.ao-metric-label{font-family:'Space Mono',monospace;font-size:.44rem;letter-spacing:.12em;
-  text-transform:uppercase;color:#4A3858;margin-bottom:.15rem;}
-.ao-metric-value{font-family:'Cormorant Garamond',serif;font-size:1.3rem;font-weight:300;color:#EDE8F5;line-height:1;}
-.ao-metric-value.pos{color:#4ade80;}.ao-metric-value.neg{color:#f87171;}.ao-metric-value.neu{color:#C084C8;}
-.ao-section{padding:.4rem .9rem .7rem;}
-.ao-section-title{font-family:'Space Mono',monospace;font-size:.46rem;letter-spacing:.15em;text-transform:uppercase;
-  color:#4A3858;margin-bottom:.3rem;border-bottom:1px solid var(--border);padding-bottom:.2rem;}
-.ao-section-body{font-family:'Syne',sans-serif;font-size:.82rem;color:var(--text-dim);line-height:1.7;}
-.ao-risk-item{display:flex;align-items:flex-start;gap:.4rem;font-family:'Syne',sans-serif;font-size:.8rem;
-  color:var(--text-dim);padding:.25rem 0;border-bottom:1px solid rgba(139,58,139,.08);}
-.ao-risk-item::before{content:'⚠';font-size:.7rem;color:#F0C040;flex-shrink:0;margin-top:.05rem;}
-
+/* ── COMPARISON TABLE ── */
 .cmp-table{width:100%;border-collapse:collapse;font-size:.75rem}
 .cmp-table th{background:rgba(107,45,107,.18);border:1px solid var(--border);
   padding:.45rem .8rem;font-family:'Space Mono',monospace;font-size:.5rem;
@@ -706,11 +565,180 @@ div[data-testid="stButton"] button.tf-active{
 .td-pos{color:#4ade80!important}
 .td-neg{color:#f87171!important}
 .td-neu{color:var(--text-ghost)!important}
+
+/* ════════════════════════════════════════════
+   v8  SOURCE PANEL + ANALYST MODE STYLES
+   ════════════════════════════════════════════ */
+
+/* Mode toggle bar */
+.mode-toggle-bar{
+  display:flex;align-items:center;gap:.5rem;
+  background:rgba(107,45,107,.08);border:1px solid rgba(139,58,139,.25);
+  border-radius:10px;padding:.35rem .5rem;margin-bottom:.7rem;
+}
+.mode-toggle-label{
+  font-family:'Space Mono',monospace;font-size:.52rem;letter-spacing:.15em;
+  text-transform:uppercase;color:var(--text-ghost);margin-right:.4rem;
+}
+.mode-pill{
+  font-family:'Space Mono',monospace;font-size:.58rem;letter-spacing:.06em;
+  padding:.28rem .7rem;border-radius:6px;cursor:pointer;transition:all .2s;
+  border:1px solid transparent;text-transform:uppercase;
+}
+.mode-pill.chat-pill{
+  background:rgba(107,45,107,.2);border-color:rgba(139,58,139,.4);color:var(--accent);
+}
+.mode-pill.analyst-pill{
+  background:rgba(240,192,64,.1);border-color:rgba(240,192,64,.35);color:var(--gold);
+}
+.mode-pill.inactive{
+  background:transparent!important;border-color:transparent!important;color:var(--text-ghost)!important;
+}
+
+/* Source evidence panel */
+.src-evidence-wrap{
+  margin-top:.6rem;
+  border:1px solid rgba(139,58,139,.22);border-radius:10px;overflow:hidden;
+}
+.src-evidence-hdr{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:.45rem .85rem;
+  background:linear-gradient(90deg,rgba(107,45,107,.18),rgba(13,11,18,.9));
+  border-bottom:1px solid rgba(139,58,139,.18);
+}
+.src-evidence-title{
+  font-family:'Space Mono',monospace;font-size:.52rem;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--velvet-gl);
+  display:flex;align-items:center;gap:.45rem;
+}
+.src-evidence-count{
+  font-family:'Space Mono',monospace;font-size:.48rem;
+  background:rgba(107,45,107,.2);border:1px solid rgba(139,58,139,.3);
+  color:var(--accent);padding:.1rem .38rem;border-radius:4px;
+}
+.src-chunk{
+  padding:.7rem .9rem;border-bottom:1px solid rgba(139,58,139,.1);
+  position:relative;transition:background .2s;
+}
+.src-chunk:last-child{border-bottom:none}
+.src-chunk:hover{background:rgba(107,45,107,.05)}
+.src-chunk-head{
+  display:flex;align-items:center;justify-content:space-between;
+  flex-wrap:wrap;gap:.3rem;margin-bottom:.4rem;
+}
+.src-chunk-file{
+  font-family:'Space Mono',monospace;font-size:.58rem;color:var(--accent);
+  display:flex;align-items:center;gap:.35rem;
+}
+.src-chunk-meta{
+  display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;
+}
+.src-badge{
+  font-family:'Space Mono',monospace;font-size:.46rem;letter-spacing:.08em;
+  text-transform:uppercase;padding:.1rem .38rem;border-radius:4px;
+}
+.src-badge.page{background:rgba(96,165,250,.1);border:1px solid rgba(96,165,250,.25);color:#60a5fa;}
+.src-badge.section{background:rgba(192,132,200,.1);border:1px solid rgba(192,132,200,.25);color:var(--accent);}
+.src-badge.score-hi{background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;}
+.src-badge.score-md{background:rgba(240,192,64,.1);border:1px solid rgba(240,192,64,.25);color:var(--gold);}
+.src-badge.score-lo{background:rgba(148,163,184,.1);border:1px solid rgba(148,163,184,.2);color:#94a3b8;}
+.src-chunk-text{
+  font-family:'Syne',sans-serif;font-size:.78rem;color:var(--text-dim);line-height:1.65;
+  border-left:2px solid rgba(139,58,139,.3);padding-left:.6rem;
+  display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;
+}
+.src-chunk-text.expanded{-webkit-line-clamp:unset;overflow:visible;}
+.src-expand-hint{
+  font-family:'Space Mono',monospace;font-size:.46rem;color:var(--text-ghost);
+  margin-top:.3rem;cursor:pointer;text-align:right;
+}
+
+/* Analyst mode output */
+.analyst-card{
+  background:linear-gradient(135deg,rgba(107,45,107,.12) 0%,rgba(13,11,18,.97) 100%);
+  border:1px solid rgba(192,132,200,.3);border-radius:14px;
+  padding:1.1rem 1.3rem;margin-top:.4rem;overflow:hidden;
+  position:relative;
+}
+.analyst-card::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,var(--gold),var(--accent),#60a5fa);
+}
+.analyst-card-hdr{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:.9rem;padding-bottom:.6rem;
+  border-bottom:1px solid rgba(139,58,139,.18);
+}
+.analyst-card-title{
+  font-family:'Cormorant Garamond',serif;font-size:1.1rem;font-weight:300;
+  color:var(--text);display:flex;align-items:center;gap:.5rem;
+}
+.analyst-card-title::before{
+  content:'';display:inline-block;width:3px;height:1rem;
+  background:linear-gradient(180deg,var(--gold),var(--accent));border-radius:2px;
+}
+.analyst-mode-badge{
+  font-family:'Space Mono',monospace;font-size:.48rem;letter-spacing:.1em;
+  text-transform:uppercase;background:rgba(240,192,64,.1);
+  border:1px solid rgba(240,192,64,.3);color:var(--gold);
+  padding:.15rem .45rem;border-radius:4px;
+}
+.analyst-row{
+  display:grid;grid-template-columns:repeat(2,1fr);gap:.5rem;margin-bottom:.5rem;
+}
+.analyst-metric{
+  background:rgba(13,11,18,.8);border:1px solid rgba(139,58,139,.2);
+  border-radius:8px;padding:.55rem .75rem;
+}
+.am-label{
+  font-family:'Space Mono',monospace;font-size:.46rem;letter-spacing:.15em;
+  text-transform:uppercase;color:var(--text-ghost);margin-bottom:.25rem;
+}
+.am-value{
+  font-family:'Cormorant Garamond',serif;font-size:1.3rem;font-weight:300;
+  color:var(--text);line-height:1;
+}
+.am-value.pos{color:#4ade80}
+.am-value.neg{color:#f87171}
+.am-value.neu{color:var(--accent)}
+.analyst-section{margin-top:.7rem;}
+.analyst-section-title{
+  font-family:'Space Mono',monospace;font-size:.5rem;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--gold);margin-bottom:.4rem;
+  display:flex;align-items:center;gap:.4rem;
+}
+.analyst-section-title::before{
+  content:'';display:inline-block;width:12px;height:1px;background:var(--gold);opacity:.5;
+}
+.analyst-risk-item{
+  display:flex;gap:.5rem;align-items:flex-start;
+  font-family:'Syne',sans-serif;font-size:.78rem;color:var(--text-dim);
+  padding:.25rem 0;border-bottom:1px solid rgba(139,58,139,.07);line-height:1.5;
+}
+.analyst-risk-item:last-child{border-bottom:none}
+.analyst-risk-bullet{
+  flex-shrink:0;width:6px;height:6px;border-radius:50%;
+  background:var(--gold);margin-top:.4rem;
+}
+.analyst-verdict{
+  display:flex;align-items:center;gap:.7rem;
+  background:rgba(107,45,107,.12);border:1px solid rgba(139,58,139,.25);
+  border-radius:8px;padding:.6rem .9rem;margin-top:.7rem;
+}
+.av-icon{font-size:1.3rem}
+.av-text{font-family:'Syne',sans-serif;font-size:.82rem;color:var(--text-dim);line-height:1.55}
+.av-text strong{color:var(--text)}
+
+.vfooter{text-align:center;padding:1.8rem 0 .5rem;position:relative;margin-top:2.5rem}
+.vfooter::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);
+  width:180px;height:1px;background:linear-gradient(90deg,transparent,rgba(107,45,107,.5),transparent)}
+.vfooter-text{font-family:'Space Mono',monospace;font-size:.56rem;
+  letter-spacing:.2em;text-transform:uppercase;color:var(--text-ghost)}
 </style>
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ANALYTICS ENGINE  (taxonomy, metrics, hybrid retriever, templates, eval)
+# ANALYTICS ENGINE
 # ─────────────────────────────────────────────────────────────────────────────
 TAXONOMY: dict[str, list[str]] = {
     "Income Statement":["revenue","net revenue","total revenue","net sales","gross profit",
@@ -938,10 +966,8 @@ def render_eval_dashboard(results: list[dict]) -> None:
                                 for r in results]), use_container_width=True, hide_index=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ④  DOC vs MARKET COMPARISON  (new Analytics sub-tab)
+# DOC vs MARKET COMPARISON
 # ─────────────────────────────────────────────────────────────────────────────
-
-# S&P 500 sector benchmark medians (2024 TTM, approximate)
 SECTOR_BENCHMARKS = {
     "Gross Margin":     {"Technology":55,"Financials":40,"Energy":30,"Healthcare":50,
                          "Industrials":33,"Consumer Discretionary":30,"Consumer Staples":28,"S&P 500 Avg":38},
@@ -961,14 +987,8 @@ SECTOR_ETFS = {
     "XLB":"Materials","XLRE":"Real Estate","XLU":"Utilities",
 }
 
-def render_comparison_tab(metrics: list[dict], groq_api_key: str) -> None:
+def render_comparison_section(metrics: list[dict], groq_api_key: str) -> None:
     if not metrics:
-        st.markdown('<div style="text-align:center;padding:3rem 2rem;">'
-                    '<div style="font-size:2.5rem;margin-bottom:1rem;opacity:.4;">📊</div>'
-                    '<div style="font-family:\'Cormorant Garamond\',serif;font-size:1.5rem;'
-                    'font-weight:300;font-style:italic;color:#4A3858;">'
-                    'Upload &amp; ingest documents first — analytics auto-generate on ingest</div>'
-                    '</div>', unsafe_allow_html=True)
         return
 
     def section_hdr(title: str, grad: str = "linear-gradient(180deg,#6B2D6B,#C084C8)") -> str:
@@ -978,14 +998,11 @@ def render_comparison_tab(metrics: list[dict], groq_api_key: str) -> None:
                 f'<span style="display:inline-block;width:3px;height:1rem;'
                 f'background:{grad};border-radius:2px;"></span>{title}</div>')
 
-    # ── Section A: Margin comparison vs sector ──────────────────────────────
     st.markdown(section_hdr("Document Margins vs Sector Benchmarks"), unsafe_allow_html=True)
-
     pct_m = {m["label"]: m["value"] for m in metrics if m["unit"] == "%"}
     sectors = ["S&P 500 Avg","Technology","Financials","Energy","Healthcare",
                "Industrials","Consumer Discretionary","Consumer Staples"]
-    sector_sel = st.selectbox("Compare against sector", sectors, index=0, key="cmp_sector")
-
+    sector_sel = st.selectbox("Compare against sector", sectors, index=0, key="cmp_sector_inline")
     rows_html = ""
     for metric, doc_val in pct_m.items():
         bench_row = SECTOR_BENCHMARKS.get(metric, {})
@@ -998,7 +1015,6 @@ def render_comparison_tab(metrics: list[dict], groq_api_key: str) -> None:
                       f'<td class="td-doc">{doc_val:.1f}%</td>'
                       f'<td class="td-mkt">{bench_val:.1f}%</td>'
                       f'<td class="{dcls}">{dstr}</td></tr>')
-
     if rows_html:
         st.markdown(
             f'<table class="cmp-table"><thead><tr>'
@@ -1007,146 +1023,19 @@ def render_comparison_tab(metrics: list[dict], groq_api_key: str) -> None:
             unsafe_allow_html=True,
         )
     else:
-        st.info("No comparable margin metrics found in this document (gross margin / net margin / operating margin / ROE / ROA).")
-
-    st.markdown("<hr style='border-color:rgba(139,58,139,.12);margin:1.1rem 0;'>",
-                unsafe_allow_html=True)
-
-    # ── Section B: Live index snapshot ─────────────────────────────────────
-    st.markdown(section_hdr("Live Market Context"), unsafe_allow_html=True)
-
-    IDX_COMP = {"^GSPC":"S&P 500","^IXIC":"NASDAQ","^NSEI":"NIFTY 50","^N225":"Nikkei 225"}
-    COMM_COMP = {"GC=F":("Gold","$/oz",2),"CL=F":("Crude Oil","$/bbl",2),"SI=F":("Silver","$/oz",3)}
-
-    idx_q  = fetch_multi_quotes(tuple(IDX_COMP.keys()))
-    comm_q = fetch_multi_quotes(tuple(COMM_COMP.keys()))
-
-    ca, cb = st.columns(2)
-    with ca:
-        st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;letter-spacing:.18em;'
-                    'text-transform:uppercase;color:#4A3858;margin-bottom:.45rem;">Global Indices</div>',
-                    unsafe_allow_html=True)
-        chips = ""
-        for sym, name in IDX_COMP.items():
-            info = idx_q.get(sym)
-            if info:
-                arr = "▲" if info["pct"] >= 0 else "▼"
-                cls = "up" if info["pct"] >= 0 else "down"
-                chips += (f'<div class="mood-idx-chip" style="min-width:110px;">'
-                          f'<div class="mood-idx-name">{name}</div>'
-                          f'<div class="mood-idx-val">{info["price"]:,.0f}</div>'
-                          f'<div class="mood-idx-chg {cls}">{arr} {abs(info["pct"]):.2f}%</div></div>')
-        if chips:
-            st.markdown(f'<div style="display:flex;gap:.6rem;flex-wrap:wrap;">{chips}</div>',
-                        unsafe_allow_html=True)
-    with cb:
-        st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;letter-spacing:.18em;'
-                    'text-transform:uppercase;color:#4A3858;margin-bottom:.45rem;">Commodities</div>',
-                    unsafe_allow_html=True)
-        chips_c = ""
-        for sym, (name, unit, dec) in COMM_COMP.items():
-            info = comm_q.get(sym)
-            if info:
-                arr = "▲" if info["pct"] >= 0 else "▼"
-                cls = "up" if info["pct"] >= 0 else "down"
-                chips_c += (f'<div class="mood-idx-chip" style="min-width:110px;">'
-                             f'<div class="mood-idx-name">{name}</div>'
-                             f'<div class="mood-idx-val">${info["price"]:,.{dec}f}</div>'
-                             f'<div class="mood-idx-chg {cls}">{arr} {abs(info["pct"]):.2f}%</div></div>')
-        if chips_c:
-            st.markdown(f'<div style="display:flex;gap:.6rem;flex-wrap:wrap;">{chips_c}</div>',
-                        unsafe_allow_html=True)
-
-    st.markdown("<hr style='border-color:rgba(139,58,139,.12);margin:1.1rem 0;'>",
-                unsafe_allow_html=True)
-
-    # ── Section C: Sector ETF performance ──────────────────────────────────
-    st.markdown(section_hdr("Sector Performance (SPDR ETFs)",
-                             "linear-gradient(180deg,#F0C040,#C084C8)"), unsafe_allow_html=True)
-    etf_q = fetch_multi_quotes(tuple(SECTOR_ETFS.keys()))
-    etf_rows = []
-    for sym, name in SECTOR_ETFS.items():
-        info = etf_q.get(sym)
-        if info:
-            etf_rows.append({"Sector":name,"ETF":sym,
-                              "Price":f'${info["price"]:.2f}',
-                              "1D Change":f'{info["pct"]:+.2f}%',
-                              "_pct":info["pct"]})
-    if etf_rows:
-        df_etf = pd.DataFrame(etf_rows).sort_values("_pct", ascending=False).drop(columns=["_pct"])
-        st.dataframe(df_etf, use_container_width=True, hide_index=True)
-
-    st.markdown("<hr style='border-color:rgba(139,58,139,.12);margin:1.1rem 0;'>",
-                unsafe_allow_html=True)
-
-    # ── Section D: AI positioning commentary ───────────────────────────────
-    st.markdown(section_hdr("AI Market Positioning Commentary",
-                             "linear-gradient(180deg,#fb923c,#C084C8)"), unsafe_allow_html=True)
-
-    if not groq_api_key:
-        st.info("Enter Groq API key in the sidebar to generate AI commentary.")
-    else:
-        msummary = "; ".join(f"{m['label']}: {fmt_val(m['value'],m['unit'])}" for m in metrics[:12])
-        isummary = "; ".join(f"{name}: {idx_q[s]['price']:,.0f} ({idx_q[s]['pct']:+.2f}%)"
-                             for s, name in IDX_COMP.items() if s in idx_q)
-        ssummary = "; ".join(f"{SECTOR_ETFS[s]}: {etf_q[s]['pct']:+.2f}%"
-                             for s in SECTOR_ETFS if s in etf_q)
-
-        if st.button("🤖  Generate Market Positioning Analysis", key="gen_cmp"):
-            with st.spinner("Analysing document metrics against live market conditions…"):
-                try:
-                    from openai import OpenAI
-                    oai = OpenAI(api_key=groq_api_key, base_url="https://api.groq.com/openai/v1")
-                    prompt = (
-                        f"You are a senior equity analyst. Analyse the following:\n\n"
-                        f"DOCUMENT METRICS: {msummary}\n\n"
-                        f"LIVE MARKET DATA:\n"
-                        f"- Global Indices: {isummary}\n"
-                        f"- Sector ETF Performance Today: {ssummary}\n\n"
-                        f"Write a 200-250 word analyst-style commentary covering:\n"
-                        f"1. How this company's margins/ratios compare to the current market environment\n"
-                        f"2. Whether valuation/performance is attractive given current macro backdrop\n"
-                        f"3. Key sector tailwinds or headwinds visible in today's market data\n"
-                        f"4. Positioning recommendation: Overweight / Neutral / Underweight — with brief rationale\n\n"
-                        f"Be specific, cite numbers, be direct and concise."
-                    )
-                    resp = oai.chat.completions.create(
-                        model="llama-3.3-70b-versatile",
-                        messages=[
-                            {"role":"system","content":"You are a senior equity analyst. Be concise, data-driven, and direct."},
-                            {"role":"user","content":prompt},
-                        ],
-                        temperature=0.2, max_tokens=600,
-                    )
-                    commentary = resp.choices[0].message.content
-                    st.markdown(
-                        f'<div style="background:{VELVET["card2"]};border:1px solid rgba(139,58,139,.25);'
-                        f'border-left:3px solid #C084C8;border-radius:0 10px 10px 0;'
-                        f'padding:1rem 1.2rem;font-size:.88rem;color:#9A8AAA;line-height:1.8;">'
-                        f'{commentary.replace(chr(10),"<br>")}</div>',
-                        unsafe_allow_html=True,
-                    )
-                except Exception as e:
-                    st.error(f"Error: {e}")
+        st.info("No comparable margin metrics found in this document.")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# FULL ANALYTICS TAB (all sub-tabs)
+# INLINE ANALYTICS DASHBOARD (rendered below chat)
 # ─────────────────────────────────────────────────────────────────────────────
-def render_analytics_tab(vectorstore, groq_api_key, doc_full_text="", auto_metrics=None):
-    if not vectorstore and not doc_full_text:
-        st.markdown('<div style="text-align:center;padding:3rem 2rem;">'
-                    '<div style="font-size:2.5rem;margin-bottom:1rem;opacity:.4;">📊</div>'
-                    '<div style="font-family:\'Cormorant Garamond\',serif;font-size:1.5rem;'
-                    'font-weight:300;font-style:italic;color:#4A3858;">'
-                    'Upload documents to unlock analytics</div>'
-                    '<div style="font-family:Syne,sans-serif;font-size:.8rem;color:#4A3858;'
-                    'margin-top:.6rem;">Auto-extract metrics · Compare vs market · Templates · Benchmark</div>'
-                    '</div>', unsafe_allow_html=True)
-        return
+def render_inline_analytics(vectorstore, groq_api_key, doc_full_text="", auto_metrics=None):
+    """Renders analytics as an inline section below the chat panel."""
+    st.markdown('<div class="analytics-panel">', unsafe_allow_html=True)
+    st.markdown('<div class="analytics-panel-hdr">📊 Document Analytics Dashboard</div>', unsafe_allow_html=True)
+    st.markdown('<div class="analytics-panel-sub">Finance-specific embeddings · Auto-extracted metrics · Market comparison</div>', unsafe_allow_html=True)
 
-    sub_tabs = st.tabs(["📊 Metrics Dashboard","📈 Doc vs Market","📋 Templates","🔍 Hybrid Search","🧪 Eval Benchmark"])
+    sub_tabs = st.tabs(["📊 Metrics","📈 vs Market","📋 Templates","🔍 Hybrid Search","🧪 Eval"])
 
-    # ── 0: Metrics ───────────────────────────────────────────────────────────
     with sub_tabs[0]:
         metrics = auto_metrics if auto_metrics else []
         if not metrics and doc_full_text:
@@ -1154,7 +1043,7 @@ def render_analytics_tab(vectorstore, groq_api_key, doc_full_text="", auto_metri
                 metrics = extract_metrics(doc_full_text)
         st.markdown('<div style="font-family:Space Mono,monospace;font-size:.54rem;letter-spacing:.18em;'
                     'text-transform:uppercase;color:#C084C8;margin-bottom:.8rem;">'
-                    'Auto-Extracted Financial Metrics</div>', unsafe_allow_html=True)
+                    'Auto-Extracted Financial Metrics — FinBERT-Enhanced</div>', unsafe_allow_html=True)
         if metrics:
             render_metrics_dashboard(metrics)
             st.markdown("<hr style='border-color:rgba(139,58,139,.15);margin:1rem 0;'>", unsafe_allow_html=True)
@@ -1166,14 +1055,12 @@ def render_analytics_tab(vectorstore, groq_api_key, doc_full_text="", auto_metri
         else:
             st.info("No metrics matched. Try Templates tab for LLM extraction.")
 
-    # ── 1: Doc vs Market (NEW) ───────────────────────────────────────────────
     with sub_tabs[1]:
-        render_comparison_tab(auto_metrics or [], groq_api_key)
+        render_comparison_section(auto_metrics or [], groq_api_key)
 
-    # ── 2: Templates ─────────────────────────────────────────────────────────
     with sub_tabs[2]:
         cats = sorted({v["category"] for v in TEMPLATES.values()})
-        chosen_cat = st.selectbox("Filter by category", ["All"]+cats, label_visibility="collapsed")
+        chosen_cat = st.selectbox("Filter by category", ["All"]+cats, label_visibility="collapsed", key="tpl_cat_inline")
         visible = {k:v for k,v in TEMPLATES.items() if chosen_cat=="All" or v["category"]==chosen_cat}
         items = list(visible.items())
         for rs in range(0, len(items), 3):
@@ -1188,22 +1075,20 @@ def render_analytics_tab(vectorstore, groq_api_key, doc_full_text="", auto_metri
                                 f'color:{VELVET["text"]};margin:.3rem 0 .2rem;">{tn}</div>'
                                 f'<div style="font-family:Space Mono,monospace;font-size:.52rem;color:{color};'
                                 f'text-transform:uppercase;">{tm["category"]}</div></div>', unsafe_allow_html=True)
-                    if st.button("Run Analysis →", key=f"tpl_{tn[:20]}", use_container_width=True):
+                    if st.button("Run Analysis →", key=f"tpl_inl_{tn[:20]}", use_container_width=True):
                         st.session_state["_prefill"] = tm["prompt"]
-                        st.success(f"✓ '{tn}' sent to chat ↓")
+                        st.success(f"✓ '{tn}' sent to chat ↑")
 
-    # ── 3: Hybrid Search ─────────────────────────────────────────────────────
     with sub_tabs[3]:
         st.markdown('<div style="font-family:Space Mono,monospace;font-size:.54rem;letter-spacing:.18em;'
                     'text-transform:uppercase;color:#C084C8;margin-bottom:.8rem;">'
-                    'Hybrid BM25 + Dense Retrieval with Cross-Encoder Re-ranking</div>', unsafe_allow_html=True)
+                    'Hybrid BM25 + Dense Retrieval (FinBERT embeddings)</div>', unsafe_allow_html=True)
         hs_q = st.text_input("Search", placeholder="e.g. free cash flow capital expenditure 2023",
-                             label_visibility="collapsed")
-        c1, c2, c3 = st.columns(3)
-        with c1: bw = st.slider("BM25 weight", 0.0, 1.0, 0.35, 0.05)
-        with c2: tn = st.slider("Results", 3, 10, 5)
-        with c3: uce = st.checkbox("Cross-encoder re-rank", value=True)
-        tf = st.multiselect("Taxonomy filter", list(TAXONOMY.keys()), default=[], label_visibility="collapsed")
+                             label_visibility="collapsed", key="hs_inline")
+        c1, c2 = st.columns(2)
+        with c1: bw = st.slider("BM25 weight", 0.0, 1.0, 0.35, 0.05, key="bw_inline")
+        with c2: tn = st.slider("Results", 3, 10, 5, key="tn_inline")
+        tf = st.multiselect("Taxonomy filter", list(TAXONOMY.keys()), default=[], label_visibility="collapsed", key="tf_inline")
         if hs_q and vectorstore:
             with st.spinner("Retrieving…"):
                 try:
@@ -1217,7 +1102,7 @@ def render_analytics_tab(vectorstore, groq_api_key, doc_full_text="", auto_metri
                         st.warning("No chunks match filter.")
                     else:
                         qe = vs["model"].encode([hs_q], normalize_embeddings=True).tolist()[0]
-                        hits = HybridRetriever(cks, emb).retrieve(hs_q, qe, n=tn, bw=bw, rerank=uce)
+                        hits = HybridRetriever(cks, emb).retrieve(hs_q, qe, n=tn, bw=bw, rerank=False)
                         for rank, h in enumerate(hits, 1):
                             mt = mts[h["idx"]] if h["idx"] < len(mts) else {}
                             tags = tag_chunk(h["chunk"])
@@ -1241,12 +1126,11 @@ def render_analytics_tab(vectorstore, groq_api_key, doc_full_text="", auto_metri
         elif hs_q:
             st.info("Upload and ingest documents first.")
 
-    # ── 4: Eval Benchmark ────────────────────────────────────────────────────
     with sub_tabs[4]:
         st.markdown('<div style="font-family:Space Mono,monospace;font-size:.54rem;letter-spacing:.18em;'
                     'text-transform:uppercase;color:#C084C8;margin-bottom:.8rem;">'
                     'FinanceBench-Style QA Accuracy Evaluation</div>', unsafe_allow_html=True)
-        if st.button("▶  Run Benchmark"):
+        if st.button("▶  Run Benchmark", key="run_bench_inline"):
             if not vectorstore or not groq_api_key:
                 st.error("Need documents and API key.")
             else:
@@ -1272,16 +1156,216 @@ def render_analytics_tab(vectorstore, groq_api_key, doc_full_text="", auto_metri
                                    "answer":f"Error:{exc}","score":{"recall":0,"hits":0,"total":0,"score_pct":0}})
                     prog.progress((i+1)/len(EVAL_QUESTIONS), text=f"Q{i+1}/{len(EVAL_QUESTIONS)}")
                 prog.empty(); render_eval_dashboard(er)
-                with st.expander("📋 Full answers"):
-                    for r in er:
-                        st.markdown(f'<div style="background:{VELVET["card2"]};border:1px solid rgba(139,58,139,.2);'
-                                    f'border-radius:8px;padding:.7rem .9rem;margin-bottom:.5rem;">'
-                                    f'<div style="font-family:Space Mono,monospace;font-size:.58rem;'
-                                    f'color:#C084C8;margin-bottom:.3rem;">{r["question"]}</div>'
-                                    f'<div style="font-size:.8rem;color:#9A8AAA;">{r["answer"][:500]}</div>'
-                                    f'<div style="font-family:Space Mono,monospace;font-size:.52rem;'
-                                    f'color:#4A3858;margin-top:.3rem;">score:{r["score"]["score_pct"]}%</div>'
-                                    f'</div>', unsafe_allow_html=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v8: SOURCE EVIDENCE PANEL + ANALYST MODE HELPERS
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Infer section title from chunk text ──────────────────────────────────────
+_SECTION_PATTERNS = [
+    (r"management.{0,10}discussion",        "Management Discussion & Analysis"),
+    (r"risk factor",                        "Risk Factors"),
+    (r"financial statement",                "Financial Statements"),
+    (r"consolidated.{0,10}(balance sheet|statement)", "Consolidated Financial Statements"),
+    (r"income statement|profit.{0,5}loss",  "Income Statement"),
+    (r"cash flow",                          "Cash Flow Statement"),
+    (r"balance sheet",                      "Balance Sheet"),
+    (r"notes to.{0,10}financial",           "Notes to Financial Statements"),
+    (r"earnings per share|eps",             "EPS & Per-Share Data"),
+    (r"revenue recognition",                "Revenue Recognition Policy"),
+    (r"segment.{0,8}(information|result)",  "Segment Information"),
+    (r"forward.looking|outlook|guidance",   "Outlook & Guidance"),
+    (r"dividend",                           "Dividends & Capital Return"),
+    (r"executive compensation",             "Executive Compensation"),
+    (r"audit.{0,10}report|independent auditor","Auditor's Report"),
+    (r"liquidity|capital resource",         "Liquidity & Capital Resources"),
+    (r"critical accounting",                "Critical Accounting Policies"),
+    (r"goodwill|intangible asset",          "Goodwill & Intangibles"),
+    (r"debt|borrowing|credit facilit",      "Debt & Financing"),
+    (r"tax|income tax",                     "Tax & Deferred Items"),
+]
+
+def _infer_section(chunk_text: str) -> str:
+    tl = chunk_text[:400].lower()
+    for pat, name in _SECTION_PATTERNS:
+        if re.search(pat, tl):
+            return name
+    return "Document Content"
+
+def _infer_page(chunk_meta: dict, chunk_idx: int) -> str | None:
+    """Estimate page from metadata if available, else from chunk index."""
+    if chunk_meta.get("page"):
+        return str(chunk_meta["page"])
+    if chunk_meta.get("chunk") is not None:
+        approx = (chunk_meta["chunk"] // 2) + 1
+        return f"~{approx}"
+    return None
+
+def render_source_panel(sources_data: list[dict]) -> None:
+    """
+    Render the expandable evidence panel below an assistant answer.
+    sources_data: list of {filename, score, preview, meta (optional), chunk_idx (optional)}
+    """
+    if not sources_data:
+        return
+
+    n = len(sources_data)
+    # Build compact header HTML (not inside expander — we use st.expander for toggle)
+    with st.expander(f"📂  View Sources  ({n} chunk{'s' if n!=1 else ''} retrieved)", expanded=False):
+        st.markdown('<div class="src-evidence-wrap">', unsafe_allow_html=True)
+        for idx, src in enumerate(sources_data, 1):
+            score      = src.get("score", 0)
+            filename   = src.get("filename", "—")
+            preview    = src.get("preview", "")
+            meta       = src.get("meta", {})
+            chunk_idx  = src.get("chunk_idx")
+
+            section    = _infer_section(preview)
+            page_str   = _infer_page(meta, chunk_idx or idx)
+            rel_pct    = int(score * 100)
+
+            # Score badge class
+            if rel_pct >= 75:   score_cls, score_icon = "score-hi", "●"
+            elif rel_pct >= 50: score_cls, score_icon = "score-md", "●"
+            else:               score_cls, score_icon = "score-lo", "●"
+
+            page_badge    = f'<span class="src-badge page">pg {page_str}</span>' if page_str else ""
+            section_badge = f'<span class="src-badge section">{section}</span>'
+            score_badge   = f'<span class="src-badge {score_cls}">{score_icon} {rel_pct}% match</span>'
+
+            # Truncated preview (full shown via CSS line-clamp, JS expand on click not needed with st)
+            clean_preview = preview.replace("<","&lt;").replace(">","&gt;")
+
+            st.markdown(f"""
+<div class="src-chunk">
+  <div class="src-chunk-head">
+    <div class="src-chunk-file">
+      <span style="opacity:.6;">#{idx}</span>
+      📄 {_ht.escape(filename)}
+    </div>
+    <div class="src-chunk-meta">
+      {page_badge}{section_badge}{score_badge}
+    </div>
+  </div>
+  <div class="src-chunk-text">{clean_preview}…</div>
+</div>""", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+
+# ── ANALYST MODE — structured financial extraction ──────────────────────────
+
+# Regex patterns for structured extraction from LLM output
+_ANA_EXTRACT = [
+    # label, regex, unit
+    ("Revenue",           r"(?:total\s+)?(?:net\s+)?revenue[^\n]{0,80}?([\$₹€£]?\s*[\d,\.]+\s*(?:billion|million|B|M|Cr|T)?)", "figure"),
+    ("Net Income",        r"net\s+income[^\n]{0,80}?([\$₹€£]?\s*[\d,\.]+\s*(?:billion|million|B|M|Cr|T)?)",                    "figure"),
+    ("Gross Profit",      r"gross\s+profit[^\n]{0,80}?([\$₹€£]?\s*[\d,\.]+\s*(?:billion|million|B|M|Cr|T)?)",                  "figure"),
+    ("EBITDA",            r"ebitda[^\n]{0,80}?([\$₹€£]?\s*[\d,\.]+\s*(?:billion|million|B|M|Cr|T)?)",                         "figure"),
+    ("Free Cash Flow",    r"free\s+cash\s+flow[^\n]{0,80}?([\$₹€£]?\s*[\d,\.]+\s*(?:billion|million|B|M|Cr|T)?)",             "figure"),
+    ("EPS (Diluted)",     r"diluted\s+(?:eps|earnings)[^\n]{0,80}?([\$₹€£]?\s*[\d,\.]+)",                                       "figure"),
+    ("Revenue Growth",    r"revenue\s+(?:growth|increased?|grew)[^\n]{0,80}?([\d\.]+\s*%)",                                      "pct"),
+    ("Gross Margin",      r"gross\s+margin[^\n]{0,80}?([\d\.]+\s*%)",                                                            "pct"),
+    ("Operating Margin",  r"operating\s+margin[^\n]{0,80}?([\d\.]+\s*%)",                                                        "pct"),
+    ("Net Margin",        r"net\s+(?:profit\s+)?margin[^\n]{0,80}?([\d\.]+\s*%)",                                                "pct"),
+    ("ROE",               r"return\s+on\s+equity[^\n]{0,80}?([\d\.]+\s*%)",                                                      "pct"),
+    ("Debt/Equity",       r"debt[- ]to[- ]equity[^\n]{0,80}?([\d\.]+)",                                                          "ratio"),
+    ("Guidance",          r"(?:guidance|outlook|forecast)[^\n]{0,200}",                                                           "text"),
+]
+
+def _extract_analyst_data(text: str) -> dict:
+    """Pull structured fields from the LLM's analyst response."""
+    tl = text.lower(); out = {}
+    for label, pattern, kind in _ANA_EXTRACT:
+        m = re.search(pattern, tl, re.IGNORECASE)
+        if m:
+            val = m.group(1).strip() if m.lastindex and m.lastindex >= 1 else m.group(0).strip()
+            out[label] = {"value": val.replace(",","").strip(), "kind": kind}
+    # Extract risk lines — look for bullet-style risk mentions
+    risks = re.findall(r"(?:risk|risk factor)[^\n\.]{0,220}", text, re.IGNORECASE)
+    out["_risks"] = [r.strip() for r in risks[:4]]
+    # Verdict/recommendation line
+    verdict_m = re.search(
+        r"(?:overall|recommendation|verdict|conclusion|summary)[^\n\.]{0,300}", text, re.IGNORECASE)
+    out["_verdict"] = verdict_m.group(0).strip() if verdict_m else ""
+    return out
+
+def _val_class(val_str: str) -> str:
+    """Return CSS class based on whether value looks positive/negative."""
+    s = val_str.lower()
+    if any(k in s for k in ["increased","grew","up","positive","strong","above"]):   return "pos"
+    if any(k in s for k in ["decreased","fell","down","negative","weak","below"]):   return "neg"
+    if "%" in s:
+        nums = re.findall(r"-?\d+\.?\d*", s)
+        if nums:
+            v = float(nums[0])
+            return "pos" if v > 0 else ("neg" if v < 0 else "neu")
+    return "neu"
+
+def render_analyst_output(raw_answer: str, question: str) -> None:
+    """Render answer in structured analyst card format."""
+    data = _extract_analyst_data(raw_answer)
+
+    # Separate figure/pct metrics from text/special
+    figure_metrics = {k:v for k,v in data.items()
+                      if not k.startswith("_") and v["kind"] in ("figure","pct","ratio")}
+    risks          = data.get("_risks", [])
+    verdict        = data.get("_verdict", "")
+
+    st.markdown(f"""
+<div class="analyst-card">
+  <div class="analyst-card-hdr">
+    <div class="analyst-card-title">Analyst Report</div>
+    <span class="analyst-mode-badge">⚡ Analyst Mode</span>
+  </div>""", unsafe_allow_html=True)
+
+    # ── Metric grid ─────────────────────────────────────────────────────────
+    if figure_metrics:
+        items = list(figure_metrics.items())
+        for i in range(0, len(items), 2):
+            pair = items[i:i+2]
+            row_html = '<div class="analyst-row">'
+            for label, meta in pair:
+                v    = meta["value"]
+                vcls = _val_class(v)
+                row_html += (f'<div class="analyst-metric">'
+                             f'<div class="am-label">{label}</div>'
+                             f'<div class="am-value {vcls}">{v if v else "—"}</div>'
+                             f'</div>')
+            if len(pair) == 1:  # pad odd row
+                row_html += '<div class="analyst-metric" style="opacity:.3"><div class="am-label">—</div><div class="am-value">—</div></div>'
+            row_html += "</div>"
+            st.markdown(row_html, unsafe_allow_html=True)
+
+    # ── Raw answer as prose (collapsible) ───────────────────────────────────
+    with st.expander("📝 Full Analyst Narrative", expanded=not bool(figure_metrics)):
+        st.markdown(f'<div style="font-size:.83rem;color:#9A8AAA;line-height:1.8;">{raw_answer}</div>',
+                    unsafe_allow_html=True)
+
+    # ── Key Risks ────────────────────────────────────────────────────────────
+    if risks:
+        st.markdown('<div class="analyst-section">'
+                    '<div class="analyst-section-title">Key Risk Highlights</div>',
+                    unsafe_allow_html=True)
+        for r in risks:
+            r_clean = re.sub(r"^(risk factor[s]?[\s:–-]*)", "", r, flags=re.IGNORECASE).strip()
+            if r_clean:
+                st.markdown(f'<div class="analyst-risk-item">'
+                            f'<div class="analyst-risk-bullet"></div>'
+                            f'<span>{_ht.escape(r_clean[:220])}</span></div>',
+                            unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── Verdict ─────────────────────────────────────────────────────────────
+    if verdict:
+        st.markdown(f'<div class="analyst-verdict">'
+                    f'<div class="av-icon">📌</div>'
+                    f'<div class="av-text"><strong>Summary:</strong> {_ht.escape(verdict[:380])}</div>'
+                    f'</div>', unsafe_allow_html=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)  # close analyst-card
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DATA FETCH HELPERS
@@ -1387,12 +1471,11 @@ def fetch_gnews_with_images(query, source_label, accent, max_items=6):
         source_label, accent, max_items)
 
 def make_chip_html(sym, name, price, pct, prefix="$", suffix="", decimals=2, icon=""):
-    arrow    = "▲" if pct > 0.005 else ("▼" if pct < -0.005 else "●")
-    cls      = "up" if pct > 0.005 else ("down" if pct < -0.005 else "flat")
-    chip_cls = "chip-up" if pct > 0.005 else ("chip-down" if pct < -0.005 else "")
-    ih       = f'<span style="font-size:1rem;margin-right:.2rem;">{icon}</span>' if icon else ""
-    return (f'<div class="price-chip {chip_cls}">'
-            f'<div class="pc-sym">{ih}{sym}</div>'
+    arrow  = "▲" if pct > 0.005 else ("▼" if pct < -0.005 else "●")
+    cls    = "up" if pct > 0.005 else ("down" if pct < -0.005 else "flat")
+    chip_c = "chip-up" if pct > 0.005 else ("chip-down" if pct < -0.005 else "chip-flat")
+    ih     = f'<span style="font-size:1rem;margin-right:.2rem;">{icon}</span>' if icon else ""
+    return (f'<div class="price-chip {chip_c}"><div class="pc-sym">{ih}{sym}</div>'
             f'<div class="pc-name">{name}</div>'
             f'<div class="pc-val">{prefix}{price:,.{decimals}f}{suffix}</div>'
             f'<div class="pc-chg {cls}">{arrow} {abs(pct):.2f}%</div></div>')
@@ -1527,10 +1610,9 @@ ce.textContent='1/'+N;startPB();restart();
 </script></body></html>"""
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ② UNIVERSAL FILE TEXT EXTRACTOR  — PDF / XLSX / XLS / CSV / DOCX / TXT
+# ② UNIVERSAL FILE TEXT EXTRACTOR
 # ─────────────────────────────────────────────────────────────────────────────
 def extract_text_from_file(f) -> str:
-    """Extract plain text from any supported file type."""
     name = f.name.lower()
     raw  = f.read()
 
@@ -1573,7 +1655,6 @@ def extract_text_from_file(f) -> str:
         except Exception as e:
             return f"[DOCX parse error: {e}]"
 
-    # TXT / plain fallback
     for enc in ("utf-8", "latin-1", "cp1252"):
         try:
             return raw.decode(enc)
@@ -1581,26 +1662,38 @@ def extract_text_from_file(f) -> str:
     return raw.decode("utf-8", errors="ignore")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ③ INGEST — multi-format + auto analytics on completion
+# ④ FINANCE-SPECIFIC EMBEDDING MODEL (FinBERT)
+# ─────────────────────────────────────────────────────────────────────────────
+@st.cache_resource
+def load_embedding_model():
+    """
+    Load finance-specific embedding model.
+    Uses yiyanghkust/finbert-pretrain — trained on financial corpora
+    (SEC filings, earnings reports, financial news).
+    Falls back to all-MiniLM-L6-v2 if FinBERT unavailable.
+    """
+    from sentence_transformers import SentenceTransformer
+    try:
+        # FinBERT — finance-aware embeddings
+        model = SentenceTransformer("yiyanghkust/finbert-pretrain")
+        st.session_state["_embed_model_name"] = "FinBERT (yiyanghkust/finbert-pretrain)"
+        return model
+    except Exception:
+        # Fallback to general model
+        model = SentenceTransformer("all-MiniLM-L6-v2")
+        st.session_state["_embed_model_name"] = "all-MiniLM-L6-v2 (fallback)"
+        return model
+
+# ─────────────────────────────────────────────────────────────────────────────
+# INGEST — multi-format + finance embeddings + auto analytics
 # ─────────────────────────────────────────────────────────────────────────────
 def ingest_documents(files):
     from chromadb import EphemeralClient
     from chromadb.config import Settings
-    from sentence_transformers import SentenceTransformer
     from langchain_text_splitters import RecursiveCharacterTextSplitter
 
     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-
-    @st.cache_resource
-    def load_model():
-        # Finance-specific model trained on SEC filings, earnings reports, financial news
-        # Falls back to general model if download fails (e.g. no internet)
-        try:
-            return SentenceTransformer("yiyanghkust/finbert-pretrain")
-        except Exception:
-            return SentenceTransformer("all-MiniLM-L6-v2")
-
-    model  = load_model()
+    model  = load_embedding_model()  # ← Finance-specific FinBERT model
     client = EphemeralClient(settings=Settings(anonymized_telemetry=False))
     try:   client.delete_collection("financials")
     except: pass
@@ -1610,7 +1703,7 @@ def ingest_documents(files):
     prog = st.progress(0, text="Reading files…")
 
     for i, f in enumerate(files):
-        text   = extract_text_from_file(f)   # ← universal extractor
+        text   = extract_text_from_file(f)
         chunks = splitter.split_text(text)
         fnames.append(f.name)
         full_texts.append(text)
@@ -1622,13 +1715,12 @@ def ingest_documents(files):
     prog.empty()
 
     if all_chunks:
-        with st.spinner(f"Embedding {len(all_chunks)} chunks…"):
+        with st.spinner(f"Embedding {len(all_chunks)} chunks with FinBERT (finance-specific)…"):
             embs = model.encode(all_chunks, normalize_embeddings=True).tolist()
             col.add(documents=all_chunks, embeddings=embs, ids=all_ids, metadatas=all_meta)
 
     combined_text = " ".join(full_texts)
 
-    # ③  AUTO-GENERATE ANALYTICS immediately after embedding
     with st.spinner("Auto-generating analytics…"):
         auto_metrics = extract_metrics(combined_text)
 
@@ -1639,1326 +1731,9 @@ def ingest_documents(files):
     st.session_state.doc_full_text  = combined_text
     st.session_state.auto_metrics   = auto_metrics
     st.session_state.auto_generated = True
+    st.session_state.show_analytics = True  # ← auto-show analytics panel
 
     return len(all_chunks)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# ══════════════════════════════════════════════════════════════════════════════
-#  PORTFOLIO ENGINE  v7
-#  - fetch_stock_fundamentals(): P/E, 52w hi/lo, volume, mkt cap from Yahoo
-#  - fetch_stock_history():      1Y daily OHLCV for RSI / momentum / vol
-#  - compute_technicals():       RSI-14, SMA20/50/200, MACD, Bollinger Bands
-#  - portfolio_summary():        total value, P&L, weights, beta, Sharpe
-#  - render_portfolio_panel():   full Streamlit UI
-# ══════════════════════════════════════════════════════════════════════════════
-
-POPULAR_STOCKS = [
-    "AAPL","MSFT","NVDA","GOOGL","AMZN","TSLA","META","NFLX","AMD","INTC",
-    "JPM","GS","BAC","MS","V","MA","AXP",
-    "JNJ","PFE","UNH","ABBV","MRK",
-    "XOM","CVX","COP","BP",
-    "RELIANCE.NS","TCS.NS","INFY.NS","HDFCBANK.NS","WIPRO.NS","ADANIENT.NS",
-    "TSM","SAP","ASML","NVO","BABA","SONY","005930.KS",
-    "BRK-B","WMT","COST","HD","NKE","DIS","SBUX",
-    "BTC-USD","ETH-USD","SOL-USD",
-]
-
-# ── Global ticker catalog — covers US, India, Europe, Asia, LatAm, Crypto ──
-# Format: (display_name, yahoo_symbol, exchange, sector)
-GLOBAL_TICKERS: list[tuple[str,str,str,str]] = [
-    # ── US Large Cap ──────────────────────────────────────────────────────────
-    ("Apple",                    "AAPL",        "NASDAQ","Technology"),
-    ("Microsoft",                "MSFT",        "NASDAQ","Technology"),
-    ("NVIDIA",                   "NVDA",        "NASDAQ","Technology"),
-    ("Alphabet (Google)",        "GOOGL",       "NASDAQ","Technology"),
-    ("Amazon",                   "AMZN",        "NASDAQ","Consumer"),
-    ("Meta Platforms",           "META",        "NASDAQ","Technology"),
-    ("Tesla",                    "TSLA",        "NASDAQ","EV/Auto"),
-    ("Berkshire Hathaway",       "BRK-B",       "NYSE",  "Financials"),
-    ("Netflix",                  "NFLX",        "NASDAQ","Media"),
-    ("AMD",                      "AMD",         "NASDAQ","Technology"),
-    ("Intel",                    "INTC",        "NASDAQ","Technology"),
-    ("Salesforce",               "CRM",         "NYSE",  "Technology"),
-    ("Oracle",                   "ORCL",        "NYSE",  "Technology"),
-    ("IBM",                      "IBM",         "NYSE",  "Technology"),
-    ("Qualcomm",                 "QCOM",        "NASDAQ","Technology"),
-    ("Broadcom",                 "AVGO",        "NASDAQ","Technology"),
-    ("Texas Instruments",        "TXN",         "NASDAQ","Technology"),
-    ("Palantir",                 "PLTR",        "NYSE",  "Technology"),
-    # ── US Financials ─────────────────────────────────────────────────────────
-    ("JPMorgan Chase",           "JPM",         "NYSE",  "Financials"),
-    ("Goldman Sachs",            "GS",          "NYSE",  "Financials"),
-    ("Bank of America",          "BAC",         "NYSE",  "Financials"),
-    ("Morgan Stanley",           "MS",          "NYSE",  "Financials"),
-    ("Visa",                     "V",           "NYSE",  "Financials"),
-    ("Mastercard",               "MA",          "NYSE",  "Financials"),
-    ("American Express",         "AXP",         "NYSE",  "Financials"),
-    ("Wells Fargo",              "WFC",         "NYSE",  "Financials"),
-    ("Citigroup",                "C",           "NYSE",  "Financials"),
-    ("BlackRock",                "BLK",         "NYSE",  "Financials"),
-    # ── US Healthcare ─────────────────────────────────────────────────────────
-    ("Johnson & Johnson",        "JNJ",         "NYSE",  "Healthcare"),
-    ("Pfizer",                   "PFE",         "NYSE",  "Healthcare"),
-    ("UnitedHealth",             "UNH",         "NYSE",  "Healthcare"),
-    ("AbbVie",                   "ABBV",        "NYSE",  "Healthcare"),
-    ("Merck",                    "MRK",         "NYSE",  "Healthcare"),
-    ("Eli Lilly",                "LLY",         "NYSE",  "Healthcare"),
-    ("Bristol-Myers Squibb",     "BMY",         "NYSE",  "Healthcare"),
-    ("Moderna",                  "MRNA",        "NASDAQ","Healthcare"),
-    # ── US Energy ─────────────────────────────────────────────────────────────
-    ("ExxonMobil",               "XOM",         "NYSE",  "Energy"),
-    ("Chevron",                  "CVX",         "NYSE",  "Energy"),
-    ("ConocoPhillips",           "COP",         "NYSE",  "Energy"),
-    # ── US Consumer ───────────────────────────────────────────────────────────
-    ("Walmart",                  "WMT",         "NYSE",  "Consumer"),
-    ("Costco",                   "COST",        "NASDAQ","Consumer"),
-    ("Home Depot",               "HD",          "NYSE",  "Consumer"),
-    ("Nike",                     "NKE",         "NYSE",  "Consumer"),
-    ("Disney",                   "DIS",         "NYSE",  "Media"),
-    ("Starbucks",                "SBUX",        "NASDAQ","Consumer"),
-    ("McDonald's",               "MCD",         "NYSE",  "Consumer"),
-    ("Coca-Cola",                "KO",          "NYSE",  "Consumer"),
-    ("PepsiCo",                  "PEP",         "NASDAQ","Consumer"),
-    # ── India NSE ─────────────────────────────────────────────────────────────
-    ("Reliance Industries",      "RELIANCE.NS", "NSE",   "Energy/Congl"),
-    ("TCS",                      "TCS.NS",      "NSE",   "Technology"),
-    ("Infosys",                  "INFY.NS",     "NSE",   "Technology"),
-    ("HDFC Bank",                "HDFCBANK.NS", "NSE",   "Financials"),
-    ("ICICI Bank",               "ICICIBANK.NS","NSE",   "Financials"),
-    ("Wipro",                    "WIPRO.NS",    "NSE",   "Technology"),
-    ("HCL Technologies",         "HCLTECH.NS",  "NSE",   "Technology"),
-    ("Bajaj Finance",            "BAJFINANCE.NS","NSE",  "Financials"),
-    ("Kotak Mahindra Bank",      "KOTAKBANK.NS","NSE",   "Financials"),
-    ("State Bank of India",      "SBIN.NS",     "NSE",   "Financials"),
-    ("Adani Enterprises",        "ADANIENT.NS", "NSE",   "Conglomerate"),
-    ("Adani Ports",              "ADANIPORTS.NS","NSE",  "Infrastructure"),
-    ("Tata Motors",              "TATAMOTORS.NS","NSE",  "Auto"),
-    ("Tata Steel",               "TATASTEEL.NS","NSE",   "Metals"),
-    ("Hindalco",                 "HINDALCO.NS", "NSE",   "Metals"),
-    ("Asian Paints",             "ASIANPAINT.NS","NSE",  "Consumer"),
-    ("Maruti Suzuki",            "MARUTI.NS",   "NSE",   "Auto"),
-    ("Sun Pharma",               "SUNPHARMA.NS","NSE",   "Healthcare"),
-    ("Dr Reddy's",               "DRREDDY.NS",  "NSE",   "Healthcare"),
-    ("ONGC",                     "ONGC.NS",     "NSE",   "Energy"),
-    ("NTPC",                     "NTPC.NS",     "NSE",   "Utilities"),
-    ("Power Grid",               "POWERGRID.NS","NSE",   "Utilities"),
-    ("Bajaj Auto",               "BAJAJ-AUTO.NS","NSE",  "Auto"),
-    ("Hero MotoCorp",            "HEROMOTOCO.NS","NSE",  "Auto"),
-    ("Larsen & Toubro",          "LT.NS",       "NSE",   "Industrials"),
-    ("UltraTech Cement",         "ULTRACEMCO.NS","NSE",  "Materials"),
-    ("Wipro",                    "WIPRO.BO",    "BSE",   "Technology"),
-    # ── UK / Europe ───────────────────────────────────────────────────────────
-    ("BP",                       "BP",          "NYSE",  "Energy"),
-    ("Shell",                    "SHEL",        "NYSE",  "Energy"),
-    ("ASML",                     "ASML",        "NASDAQ","Technology"),
-    ("SAP",                      "SAP",         "NYSE",  "Technology"),
-    ("Novo Nordisk",             "NVO",         "NYSE",  "Healthcare"),
-    ("LVMH",                     "LVMUY",       "OTC",   "Luxury"),
-    ("Nestlé",                   "NSRGY",       "OTC",   "Consumer"),
-    ("AstraZeneca",              "AZN",         "NASDAQ","Healthcare"),
-    ("Unilever",                 "UL",          "NYSE",  "Consumer"),
-    ("Siemens",                  "SIEGY",       "OTC",   "Industrials"),
-    ("Volkswagen",               "VWAGY",       "OTC",   "Auto"),
-    ("BMW",                      "BMWYY",       "OTC",   "Auto"),
-    ("TotalEnergies",            "TTE",         "NYSE",  "Energy"),
-    ("HSBC",                     "HSBC",        "NYSE",  "Financials"),
-    ("Barclays",                 "BCS",         "NYSE",  "Financials"),
-    ("Roche",                    "RHHBY",       "OTC",   "Healthcare"),
-    # ── Japan ────────────────────────────────────────────────────────────────
-    ("Sony",                     "SONY",        "NYSE",  "Technology"),
-    ("Toyota",                   "TM",          "NYSE",  "Auto"),
-    ("Honda",                    "HMC",         "NYSE",  "Auto"),
-    ("SoftBank",                 "SFTBY",       "OTC",   "Technology"),
-    ("Nintendo",                 "NTDOY",       "OTC",   "Technology"),
-    ("Keyence",                  "KYCCF",       "OTC",   "Technology"),
-    # ── South Korea ──────────────────────────────────────────────────────────
-    ("Samsung Electronics",      "005930.KS",   "KRX",   "Technology"),
-    ("SK Hynix",                 "000660.KS",   "KRX",   "Technology"),
-    ("LG Electronics",           "066570.KS",   "KRX",   "Technology"),
-    ("Hyundai Motor",            "005380.KS",   "KRX",   "Auto"),
-    ("POSCO",                    "PKX",         "NYSE",  "Metals"),
-    # ── China / Hong Kong ────────────────────────────────────────────────────
-    ("Alibaba",                  "BABA",        "NYSE",  "Technology"),
-    ("Tencent",                  "TCEHY",       "OTC",   "Technology"),
-    ("JD.com",                   "JD",          "NASDAQ","Consumer"),
-    ("Baidu",                    "BIDU",        "NASDAQ","Technology"),
-    ("NIO",                      "NIO",         "NYSE",  "EV/Auto"),
-    ("BYD",                      "BYDDY",       "OTC",   "EV/Auto"),
-    ("Meituan",                  "3690.HK",     "HKEX",  "Technology"),
-    ("CNOOC",                    "CEO",         "NYSE",  "Energy"),
-    # ── Taiwan ───────────────────────────────────────────────────────────────
-    ("TSMC",                     "TSM",         "NYSE",  "Technology"),
-    ("MediaTek",                 "2454.TW",     "TWSE",  "Technology"),
-    ("Hon Hai (Foxconn)",        "2317.TW",     "TWSE",  "Technology"),
-    # ── LatAm / Other ────────────────────────────────────────────────────────
-    ("Petrobras",                "PBR",         "NYSE",  "Energy"),
-    ("Vale",                     "VALE",        "NYSE",  "Metals"),
-    ("Itaú Unibanco",            "ITUB",        "NYSE",  "Financials"),
-    ("MercadoLibre",             "MELI",        "NASDAQ","Technology"),
-    ("Copa Holdings",            "CPA",         "NYSE",  "Airlines"),
-    # ── Australia ────────────────────────────────────────────────────────────
-    ("BHP Group",                "BHP",         "NYSE",  "Metals"),
-    ("Rio Tinto",                "RIO",         "NYSE",  "Metals"),
-    ("Commonwealth Bank",        "CBA.AX",      "ASX",   "Financials"),
-    ("Westpac",                  "WBC.AX",      "ASX",   "Financials"),
-    # ── ETFs & Indices ───────────────────────────────────────────────────────
-    ("S&P 500 ETF (SPY)",        "SPY",         "NYSE",  "ETF"),
-    ("QQQ (NASDAQ 100 ETF)",     "QQQ",         "NASDAQ","ETF"),
-    ("Gold ETF (GLD)",           "GLD",         "NYSE",  "ETF"),
-    ("Oil ETF (USO)",            "USO",         "NYSE",  "ETF"),
-    ("VIX",                      "^VIX",        "CBOE",  "Index"),
-    # ── Crypto ───────────────────────────────────────────────────────────────
-    ("Bitcoin",                  "BTC-USD",     "Crypto","Crypto"),
-    ("Ethereum",                 "ETH-USD",     "Crypto","Crypto"),
-    ("Solana",                   "SOL-USD",     "Crypto","Crypto"),
-    ("BNB",                      "BNB-USD",     "Crypto","Crypto"),
-    ("XRP",                      "XRP-USD",     "Crypto","Crypto"),
-    ("Cardano",                  "ADA-USD",     "Crypto","Crypto"),
-    ("Dogecoin",                 "DOGE-USD",    "Crypto","Crypto"),
-    ("Avalanche",                "AVAX-USD",    "Crypto","Crypto"),
-    ("Chainlink",                "LINK-USD",    "Crypto","Crypto"),
-    ("Polkadot",                 "DOT-USD",     "Crypto","Crypto"),
-]
-
-# Build a fast lookup dict: lowercase name/symbol → row
-_TICKER_SEARCH_INDEX: dict[str, list] = {}
-for _row in GLOBAL_TICKERS:
-    for _key in [_row[0].lower(), _row[1].lower()]:
-        _TICKER_SEARCH_INDEX.setdefault(_key, []).append(_row)
-
-def search_tickers(query: str, max_results: int = 12) -> list[tuple]:
-    """Fast fuzzy search over GLOBAL_TICKERS by name or symbol prefix."""
-    if not query:
-        return []
-    q = query.lower().strip()
-    exact   = [r for r in GLOBAL_TICKERS if r[1].lower() == q]
-    prefix  = [r for r in GLOBAL_TICKERS if r[1].lower().startswith(q) and r not in exact]
-    name_m  = [r for r in GLOBAL_TICKERS
-                if q in r[0].lower() and r not in exact and r not in prefix]
-    combined = exact + prefix + name_m
-    # Deduplicate preserving order
-    seen = set(); out = []
-    for r in combined:
-        if r[1] not in seen:
-            seen.add(r[1]); out.append(r)
-    return out[:max_results]
-
-@st.cache_data(ttl=120)
-def fetch_stock_fundamentals(symbol: str) -> dict:
-    """Fetch summary quote data: price, change, 52w range, volume, mkt cap, P/E."""
-    url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-           f"?range=1d&interval=1d&includePrePost=false")
-    try:
-        r = _throttled_get(url, timeout=10); r.raise_for_status()
-        data = r.json()
-        res  = data["chart"]["result"][0]
-        meta = res.get("meta", {})
-        q    = res["indicators"]["quote"][0]
-        closes = [x for x in q.get("close",[]) if x]
-        price  = meta.get("regularMarketPrice") or (closes[-1] if closes else None)
-        prev   = meta.get("chartPreviousClose") or meta.get("previousClose")
-        pct    = ((price - prev) / prev * 100) if price and prev and prev != 0 else 0.0
-        return {
-            "price":       round(price, 4)           if price else None,
-            "prev_close":  round(prev, 4)             if prev  else None,
-            "pct":         round(pct, 3),
-            "open":        round(meta.get("regularMarketOpen", 0) or 0, 2),
-            "day_high":    round(meta.get("regularMarketDayHigh", 0) or 0, 2),
-            "day_low":     round(meta.get("regularMarketDayLow", 0) or 0, 2),
-            "52w_high":    round(meta.get("fiftyTwoWeekHigh", 0) or 0, 2),
-            "52w_low":     round(meta.get("fiftyTwoWeekLow", 0) or 0, 2),
-            "volume":      meta.get("regularMarketVolume"),
-            "avg_volume":  meta.get("averageDailyVolume10Day"),
-            "mkt_cap":     meta.get("marketCap"),
-            "currency":    meta.get("currency", "USD"),
-            "symbol":      meta.get("symbol", symbol),
-            "short_name":  meta.get("shortName") or meta.get("longName") or symbol,
-        }
-    except Exception:
-        return {}
-
-@st.cache_data(ttl=300)
-@st.cache_data(ttl=300)
-def fetch_stock_history_1y(symbol: str) -> pd.DataFrame:
-    """1 year daily OHLCV as DataFrame — cached 5 min."""
-    url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-           f"?range=1y&interval=1d&includePrePost=false&events=div,splits")
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "application/json",
-        "Accept-Language": "en-US,en;q=0.9",
-    }
-    try:
-        r = requests.get(url, headers=headers, timeout=15)
-        r.raise_for_status()
-        data = r.json()
-        res  = data["chart"]["result"][0]
-        ts   = res["timestamp"]
-        q    = res["indicators"]["quote"][0]
-        df   = pd.DataFrame({
-            "open":   q.get("open",  []),
-            "high":   q.get("high",  []),
-            "low":    q.get("low",   []),
-            "close":  q.get("close", []),
-            "volume": q.get("volume",[]),
-        }, index=pd.to_datetime(ts, unit="s", utc=True).tz_convert("America/New_York"))
-        return df.dropna(subset=["close"])
-    except Exception:
-        return pd.DataFrame()
-
-def compute_technicals(df: pd.DataFrame) -> dict:
-    """Compute RSI-14, SMA-20/50/200, MACD(12,26,9), Bollinger Bands(20,2), ATR-14."""
-    if df.empty or len(df) < 20:
-        return {}
-    closes = df["close"].values.astype(float)
-    n = len(closes)
-
-    # ── SMA ──────────────────────────────────────────────────────────────────
-    def sma(arr, w): return float(np.mean(arr[-w:])) if len(arr) >= w else None
-    sma20  = sma(closes, 20)
-    sma50  = sma(closes, 50)
-    sma200 = sma(closes, 200)
-
-    # ── RSI-14 ────────────────────────────────────────────────────────────────
-    def rsi(arr, period=14):
-        deltas = np.diff(arr[-period-1:])
-        gains  = np.where(deltas > 0, deltas, 0)
-        losses = np.where(deltas < 0, -deltas, 0)
-        avg_g  = np.mean(gains)  if gains.size  else 0
-        avg_l  = np.mean(losses) if losses.size else 1e-9
-        rs     = avg_g / avg_l if avg_l else 0
-        return round(100 - 100 / (1 + rs), 1)
-    rsi14 = rsi(closes)
-
-    # ── MACD(12,26,9) ────────────────────────────────────────────────────────
-    def ema(arr, w):
-        k = 2 / (w + 1); e = arr[0]
-        for x in arr[1:]: e = x * k + e * (1 - k)
-        return float(e)
-    macd_line   = ema(closes, 12) - ema(closes, 26)
-    signal_line = ema(closes[-9:], 9) if n >= 9 else macd_line
-    macd_hist   = round(macd_line - signal_line, 4)
-
-    # ── Bollinger Bands(20,2) ────────────────────────────────────────────────
-    mid   = sma20 or closes[-1]
-    std20 = float(np.std(closes[-20:])) if n >= 20 else 0
-    bb_upper = round(mid + 2 * std20, 2)
-    bb_lower = round(mid - 2 * std20, 2)
-    price    = closes[-1]
-    bb_pos   = round((price - bb_lower) / (bb_upper - bb_lower) * 100, 1) if bb_upper != bb_lower else 50
-
-    # ── ATR-14 ───────────────────────────────────────────────────────────────
-    highs  = df["high"].values[-15:].astype(float)
-    lows   = df["low"].values[-15:].astype(float)
-    cls_   = df["close"].values[-15:].astype(float)
-    trs    = [max(highs[i]-lows[i], abs(highs[i]-cls_[i-1]), abs(lows[i]-cls_[i-1]))
-              for i in range(1, len(highs))]
-    atr14  = round(float(np.mean(trs)), 2) if trs else 0
-
-    # ── Momentum ─────────────────────────────────────────────────────────────
-    mom1m  = round((closes[-1]/closes[-21] - 1)*100, 2) if n >= 21 else None
-    mom3m  = round((closes[-1]/closes[-63] - 1)*100, 2) if n >= 63 else None
-    mom6m  = round((closes[-1]/closes[-126]- 1)*100, 2) if n >= 126 else None
-    mom1y  = round((closes[-1]/closes[0]   - 1)*100, 2) if n >= 252 else None
-
-    # ── Volatility (annualised) ───────────────────────────────────────────────
-    rets  = np.diff(np.log(closes[-63:])) if n >= 64 else np.array([0])
-    vol_a = round(float(np.std(rets) * np.sqrt(252) * 100), 1)
-
-    # ── Signal synthesis ────────────────────────────────────────────────────
-    score = 0
-    if sma20 and price > sma20: score += 1
-    if sma50 and price > sma50: score += 1
-    if sma200 and price > sma200: score += 1
-    if rsi14 < 30:  score += 2
-    elif rsi14 > 70: score -= 2
-    if macd_hist > 0: score += 1
-    signal = "BUY" if score >= 4 else ("SELL" if score <= 0 else ("HOLD" if score >= 2 else "WATCH"))
-
-    return {
-        "sma20": round(sma20, 2) if sma20 else None,
-        "sma50": round(sma50, 2) if sma50 else None,
-        "sma200":round(sma200,2) if sma200 else None,
-        "rsi14": rsi14,
-        "macd_line":  round(macd_line, 4),
-        "macd_signal":round(signal_line, 4),
-        "macd_hist":  macd_hist,
-        "bb_upper": bb_upper, "bb_lower": bb_lower, "bb_pos": bb_pos,
-        "atr14":  atr14,
-        "mom_1m": mom1m, "mom_3m": mom3m, "mom_6m": mom6m, "mom_1y": mom1y,
-        "vol_annual": vol_a,
-        "signal": signal,
-        "score":  score,
-    }
-
-def portfolio_summary(portfolio: dict) -> dict:
-    """Calculate total value, total P&L, weights for all holdings."""
-    if not portfolio:
-        return {"total_value":0,"total_cost":0,"total_pnl":0,"total_pnl_pct":0,"holdings":[]}
-
-    holdings = []
-    total_value = 0.0
-    total_cost  = 0.0
-
-    for sym, pos in portfolio.items():
-        info = fetch_stock_fundamentals(sym)
-        price = info.get("price") or 0
-        shares    = pos.get("shares", 0)
-        avg_cost  = pos.get("avg_cost", price)
-        mkt_val   = price * shares
-        cost_val  = avg_cost * shares
-        pnl       = mkt_val - cost_val
-        pnl_pct   = (pnl / cost_val * 100) if cost_val else 0
-        total_value += mkt_val
-        total_cost  += cost_val
-        holdings.append({
-            "sym": sym, "shares": shares, "avg_cost": avg_cost,
-            "price": price, "pct": info.get("pct", 0),
-            "mkt_val": mkt_val, "cost_val": cost_val,
-            "pnl": pnl, "pnl_pct": pnl_pct,
-            "short_name": info.get("short_name", sym),
-            "currency": info.get("currency","USD"),
-            "52w_high": info.get("52w_high"), "52w_low": info.get("52w_low"),
-        })
-
-    holdings.sort(key=lambda x: x["mkt_val"], reverse=True)
-    total_pnl     = total_value - total_cost
-    total_pnl_pct = (total_pnl / total_cost * 100) if total_cost else 0
-
-    # weights
-    for h in holdings:
-        h["weight"] = round(h["mkt_val"] / total_value * 100, 1) if total_value else 0
-
-    return {
-        "total_value":   round(total_value, 2),
-        "total_cost":    round(total_cost, 2),
-        "total_pnl":     round(total_pnl, 2),
-        "total_pnl_pct": round(total_pnl_pct, 2),
-        "holdings":      holdings,
-    }
-
-# Colour palette for allocation chart (cycles through)
-_ALLOC_COLORS = ["#C084C8","#60a5fa","#4ade80","#F0C040","#fb923c",
-                 "#f87171","#34d399","#a78bfa","#38bdf8","#fbbf24"]
-
-def render_portfolio_panel(groq_api_key: str) -> None:
-    """Full portfolio UI — called inside the portfolio panel."""
-
-    portfolio = st.session_state.portfolio
-
-    # ── Add / Remove Holdings ──────────────────────────────────────────────
-    with st.expander("➕  Add Holdings", expanded=not bool(portfolio)):
-
-        # ── Global Search ────────────────────────────────────────────────
-        st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;letter-spacing:.15em;'
-                    'text-transform:uppercase;color:#4A3858;margin-bottom:.35rem;">'
-                    'Search any stock · ETF · crypto across all global markets</div>',
-                    unsafe_allow_html=True)
-
-        srch_col, add_col = st.columns([5, 1])
-        with srch_col:
-            ticker_q = st.text_input(
-                "Search",
-                placeholder="Type name or ticker — e.g. Tesla, TSLA, Reliance, HDFCBANK.NS, BTC...",
-                label_visibility="collapsed", key="pf_search_q",
-            )
-        with add_col:
-            add_custom = st.button("Add ticker →", key="pf_add_custom", use_container_width=True)
-
-        # Live search results
-        search_results = search_tickers(ticker_q) if ticker_q and len(ticker_q) >= 1 else []
-
-        if search_results:
-            st.markdown('<div style="font-family:Space Mono,monospace;font-size:.48rem;letter-spacing:.12em;'
-                        'text-transform:uppercase;color:#4A3858;margin:.4rem 0 .3rem;">'
-                        f'{len(search_results)} matches · click to select</div>', unsafe_allow_html=True)
-            # Show as clickable chips — up to 4 per row
-            for row_s in range(0, min(len(search_results), 12), 4):
-                r_cols = st.columns(4)
-                for ci, (name, sym, exch, sector) in enumerate(search_results[row_s:row_s+4]):
-                    with r_cols[ci]:
-                        exch_color = {
-                            "NASDAQ":"#60a5fa","NYSE":"#4ade80","NSE":"#fb923c",
-                            "BSE":"#fb923c","KRX":"#a78bfa","HKEX":"#f87171",
-                            "Crypto":"#F0C040","ETF":"#34d399","OTC":"#9CA3AF",
-                        }.get(exch, "#9CA3AF")
-                        st.markdown(
-                            f'<div style="background:var(--card-2);border:1px solid var(--border);'
-                            f'border-radius:8px;padding:.5rem .7rem;margin-bottom:.3rem;">'
-                            f'<div style="font-family:Space Mono,monospace;font-size:.62rem;'
-                            f'color:var(--accent);font-weight:700;">{sym}</div>'
-                            f'<div style="font-family:Syne,sans-serif;font-size:.7rem;color:var(--text-dim);'
-                            f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{name}</div>'
-                            f'<div style="display:flex;gap:.3rem;margin-top:.2rem;">'
-                            f'<span style="font-family:Space Mono,monospace;font-size:.44rem;'
-                            f'color:{exch_color};background:rgba(0,0,0,.3);border-radius:3px;'
-                            f'padding:.05rem .3rem;">{exch}</span>'
-                            f'<span style="font-family:Space Mono,monospace;font-size:.44rem;'
-                            f'color:#4A3858;background:rgba(107,45,107,.1);border-radius:3px;'
-                            f'padding:.05rem .3rem;">{sector}</span>'
-                            f'</div></div>',
-                            unsafe_allow_html=True,
-                        )
-                        if st.button(f"+ {sym}", key=f"sr_{sym}", use_container_width=True):
-                            st.session_state["_pf_selected_sym"] = sym
-                            st.rerun()
-
-        # If a ticker was selected from search results, pre-fill entry form
-        selected_sym = st.session_state.pop("_pf_selected_sym", "") or ""
-        resolved_sym = selected_sym or (ticker_q.strip().upper() if add_custom and ticker_q.strip() else "")
-
-        # ── Entry form ───────────────────────────────────────────────────
-        st.markdown("<hr style='border-color:rgba(139,58,139,.12);margin:.5rem 0 .4rem;'>",
-                    unsafe_allow_html=True)
-        st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;letter-spacing:.15em;'
-                    'text-transform:uppercase;color:#4A3858;margin-bottom:.3rem;">'
-                    'Set position size</div>', unsafe_allow_html=True)
-
-        ef1, ef2, ef3, ef4 = st.columns([2.5, 1.5, 1.5, 1])
-        with ef1:
-            sym_entry = st.text_input("Ticker", value=resolved_sym,
-                                      placeholder="Symbol e.g. AAPL",
-                                      label_visibility="collapsed", key="pf_sym")
-        with ef2:
-            shares_in = st.number_input("Shares", min_value=0.0001, value=1.0,
-                                        step=0.1, format="%.4f",
-                                        label_visibility="collapsed", key="pf_shares")
-        with ef3:
-            cost_in = st.number_input("Buy price ($)", min_value=0.0, value=0.0,
-                                      step=0.01, format="%.2f",
-                                      help="Leave 0 to use today's price",
-                                      label_visibility="collapsed", key="pf_cost")
-        with ef4:
-            add_clicked = st.button("Add ✓", use_container_width=True, key="pf_add")
-
-        if add_clicked and sym_entry.strip():
-            sym = sym_entry.strip().upper()
-            info = fetch_stock_fundamentals(sym)
-            if not info or not info.get("price"):
-                st.error(f"Could not fetch '{sym}'. Try the Yahoo Finance symbol (e.g. RELIANCE.NS, BTC-USD).")
-            else:
-                buy_price = cost_in if cost_in > 0 else info["price"]
-                st.session_state.portfolio[sym] = {
-                    "shares":   shares_in,
-                    "avg_cost": buy_price,
-                    "added":    _dt.datetime.utcnow().strftime("%Y-%m-%d"),
-                }
-                st.success(f"✓ {shares_in:,.4g} × {sym} ({info.get('short_name','')}) @ ${buy_price:,.2f}")
-                st.rerun()
-
-        # ── Quick-add by sector ──────────────────────────────────────────
-        st.markdown("<hr style='border-color:rgba(139,58,139,.1);margin:.5rem 0 .4rem;'>",
-                    unsafe_allow_html=True)
-        st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;letter-spacing:.15em;'
-                    'text-transform:uppercase;color:#4A3858;margin-bottom:.35rem;">'
-                    'Quick-add by region / sector</div>', unsafe_allow_html=True)
-
-        sector_groups = {
-            "🇺🇸 US Tech":     ["AAPL","MSFT","NVDA","GOOGL","META"],
-            "🇺🇸 US Finance":  ["JPM","GS","V","MA","BRK-B"],
-            "🇮🇳 India":       ["RELIANCE.NS","TCS.NS","HDFCBANK.NS","INFY.NS","ICICIBANK.NS"],
-            "🌏 Asia":         ["TSM","SONY","005930.KS","BABA","TM"],
-            "🌍 Europe":       ["ASML","SAP","NVO","AZN","SHEL"],
-            "₿ Crypto":       ["BTC-USD","ETH-USD","SOL-USD","BNB-USD","XRP-USD"],
-        }
-        sg_cols = st.columns(len(sector_groups))
-        for gi, (grp_label, grp_syms) in enumerate(sector_groups.items()):
-            with sg_cols[gi]:
-                st.markdown(f'<div style="font-family:Space Mono,monospace;font-size:.44rem;'
-                            f'letter-spacing:.1em;text-transform:uppercase;color:#4A3858;'
-                            f'margin-bottom:.25rem;">{grp_label}</div>', unsafe_allow_html=True)
-                for ps in grp_syms:
-                    if st.button(ps, key=f"qa_{ps}", use_container_width=True):
-                        info2 = fetch_stock_fundamentals(ps)
-                        if info2 and info2.get("price"):
-                            st.session_state.portfolio[ps] = {
-                                "shares":   1.0,
-                                "avg_cost": info2["price"],
-                                "added":    _dt.datetime.utcnow().strftime("%Y-%m-%d"),
-                            }
-                            st.rerun()
-
-        # ── Remove ───────────────────────────────────────────────────────
-        if portfolio:
-            st.markdown("<hr style='border-color:rgba(139,58,139,.1);margin:.5rem 0 .4rem;'>",
-                        unsafe_allow_html=True)
-            rm_col1, rm_col2 = st.columns([4, 1])
-            with rm_col1:
-                rm_sym = st.selectbox("Remove holding", ["—"] + list(portfolio.keys()),
-                                      label_visibility="collapsed", key="pf_rm")
-            with rm_col2:
-                if rm_sym != "—" and st.button("🗑 Remove", key="pf_rm_btn", use_container_width=True):
-                    del st.session_state.portfolio[rm_sym]
-                    if rm_sym in st.session_state.portfolio_notes:
-                        del st.session_state.portfolio_notes[rm_sym]
-                    st.rerun()
-
-    if not portfolio:
-        st.markdown('<div style="text-align:center;padding:2.5rem 1rem;">'
-                    '<div style="font-size:2rem;opacity:.3;margin-bottom:.6rem;">📊</div>'
-                    '<div style="font-family:\'Cormorant Garamond\',serif;font-size:1.3rem;'
-                    'font-weight:300;font-style:italic;color:#4A3858;">'
-                    'Add your first holding above</div></div>', unsafe_allow_html=True)
-        return
-
-    # ── Portfolio Summary ─────────────────────────────────────────────────
-    with st.spinner("Fetching live prices…"):
-        summary = portfolio_summary(portfolio)
-
-    sv     = summary["total_value"]
-    sc     = summary["total_cost"]
-    pnl    = summary["total_pnl"]
-    pnl_p  = summary["total_pnl_pct"]
-    pnl_cl = "pos" if pnl >= 0 else "neg"
-    pnl_sg = "+" if pnl >= 0 else ""
-
-    st.markdown(
-        f'<div style="display:flex;gap:1.5rem;flex-wrap:wrap;margin:.6rem 0 .8rem;padding:.8rem 1rem;'
-        f'background:var(--card-2);border:1px solid var(--border);border-radius:10px;">'
-        f'<div class="pph-stat"><div class="pph-stat-lbl">Portfolio Value</div>'
-        f'<div class="pph-stat-val neu">${sv:,.2f}</div></div>'
-        f'<div class="pph-stat"><div class="pph-stat-lbl">Total Cost</div>'
-        f'<div class="pph-stat-val neu">${sc:,.2f}</div></div>'
-        f'<div class="pph-stat"><div class="pph-stat-lbl">Unrealised P&L</div>'
-        f'<div class="pph-stat-val {pnl_cl}">{pnl_sg}${abs(pnl):,.2f} ({pnl_sg}{abs(pnl_p):.2f}%)</div></div>'
-        f'<div class="pph-stat"><div class="pph-stat-lbl">Holdings</div>'
-        f'<div class="pph-stat-val neu">{len(portfolio)}</div></div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
-    # ── Allocation bar ────────────────────────────────────────────────────
-    segs = ""
-    for i, h in enumerate(summary["holdings"]):
-        c = _ALLOC_COLORS[i % len(_ALLOC_COLORS)]
-        segs += f'<div class="alloc-seg" style="width:{h["weight"]}%;background:{c};"></div>'
-    st.markdown(f'<div style="font-family:Space Mono,monospace;font-size:.5rem;letter-spacing:.15em;'
-                f'text-transform:uppercase;color:#4A3858;margin-bottom:.25rem;">Allocation</div>'
-                f'<div class="alloc-bar">{segs}</div>', unsafe_allow_html=True)
-
-    # Legend
-    leg = ""
-    for i, h in enumerate(summary["holdings"][:10]):
-        c = _ALLOC_COLORS[i % len(_ALLOC_COLORS)]
-        leg += (f'<span style="font-family:Space Mono,monospace;font-size:.48rem;color:{c};'
-                f'background:rgba(0,0,0,.2);border-radius:3px;padding:.1rem .35rem;">'
-                f'● {h["sym"]} {h["weight"]}%</span> ')
-    st.markdown(f'<div style="display:flex;gap:.3rem;flex-wrap:wrap;margin-bottom:.8rem;">{leg}</div>',
-                unsafe_allow_html=True)
-
-    # ── Holdings Grid ─────────────────────────────────────────────────────
-    st.markdown('<div style="font-family:Space Mono,monospace;font-size:.52rem;letter-spacing:.18em;'
-                'text-transform:uppercase;color:var(--velvet-gl);margin:.3rem 0 .5rem;">Holdings</div>',
-                unsafe_allow_html=True)
-
-    n_cols = 3
-    holdings = summary["holdings"]
-
-    # ── Track which card is selected ─────────────────────────────────────
-    _sel = st.session_state.get("_pf_selected_holding", "")
-
-    for row_start in range(0, len(holdings), n_cols):
-        row_h = holdings[row_start:row_start+n_cols]
-        cols  = st.columns(n_cols)
-        for ci, h in enumerate(row_h):
-            with cols[ci]:
-                arr  = "▲" if h["pct"] >= 0 else "▼"
-                cls  = "up" if h["pct"] >= 0 else ("down" if h["pct"] < 0 else "flat")
-                gain_cls = "gain" if h["pnl"] >= 0 else "loss"
-                pnl_sg2  = "+" if h["pnl"] >= 0 else ""
-                price_str = f"{h['currency']} {h['price']:,.4f}" if h["price"] < 1 else f"{h['currency']} {h['price']:,.2f}"
-                hc_dir_cls = "hc-up" if h["pct"] >= 0 else "hc-down"
-                is_selected = (h["sym"] == _sel)
-
-                # Infer exchange label
-                sym_up = h["sym"].upper()
-                if sym_up.endswith(".NS") or sym_up.endswith(".BO"):
-                    exch_label = "🇮🇳 NSE · India"; exch_color = "#fb923c"
-                elif sym_up.endswith("-USD") or sym_up.endswith("-BTC"):
-                    exch_label = "₿ Crypto"; exch_color = "#F0C040"
-                elif sym_up.endswith(".KS"):
-                    exch_label = "🇰🇷 KRX · S. Korea"; exch_color = "#a78bfa"
-                elif sym_up.endswith(".HK"):
-                    exch_label = "🇭🇰 HKEX · HK"; exch_color = "#f87171"
-                elif sym_up.endswith(".TW"):
-                    exch_label = "🇹🇼 TWSE · Taiwan"; exch_color = "#34d399"
-                elif sym_up.endswith(".AX"):
-                    exch_label = "🇦🇺 ASX · Australia"; exch_color = "#60a5fa"
-                elif sym_up.endswith(".L"):
-                    exch_label = "🇬🇧 LSE · London"; exch_color = "#e2e8f0"
-                else:
-                    exch_label = "🇺🇸 NYSE / NASDAQ"; exch_color = "#4ade80"
-
-                # 52w bar
-                if h.get("52w_high") and h.get("52w_low") and h["52w_high"] != h["52w_low"]:
-                    pos52 = max(0, min(100, (h["price"] - h["52w_low"]) / (h["52w_high"] - h["52w_low"]) * 100))
-                else:
-                    pos52 = 50
-
-                # Selected card gets a highlight ring
-                sel_style = ("border-color:rgba(192,132,200,.65)!important;"
-                             "box-shadow:0 0 0 2px rgba(192,132,200,.25),0 0 18px rgba(192,132,200,.18);"
-                             if is_selected else "")
-
-                st.markdown(
-                    f'<div class="holding-card {hc_dir_cls}" style="{sel_style}">'
-                    f'<div style="display:flex;align-items:flex-start;justify-content:space-between;">'
-                    f'  <div><div class="hc-sym">{h["sym"]}</div>'
-                    f'  <div class="hc-country" style="color:{exch_color};">{exch_label}</div></div>'
-                    f'  <div style="text-align:right;font-family:Space Mono,monospace;font-size:.48rem;color:#4A3858;">{h["currency"]}</div>'
-                    f'</div>'
-                    f'<div class="hc-name">{h["short_name"][:32]}</div>'
-                    f'<div class="hc-price">{price_str}</div>'
-                    f'<div class="hc-chg {cls}">{arr} {abs(h["pct"]):.2f}% today</div>'
-                    f'<div class="hc-meta">'
-                    f'  <span class="hc-chip">{h["shares"]:,.4g} shares</span>'
-                    f'  <span class="hc-chip">{h["weight"]}% alloc</span>'
-                    f'  <span class="hc-chip {gain_cls}">P&L {pnl_sg2}${abs(h["pnl"]):,.2f} ({pnl_sg2}{abs(h["pnl_pct"]):.1f}%)</span>'
-                    f'</div>'
-                    f'<div style="margin-top:.5rem;">'
-                    f'  <div style="font-family:Space Mono,monospace;font-size:.42rem;color:#4A3858;margin-bottom:.18rem;">'
-                    f'    52W LOW {h["52w_low"] or "—"}  ←  HERE →  HIGH {h["52w_high"] or "—"}</div>'
-                    f'  <div style="height:4px;background:rgba(107,45,107,.15);border-radius:2px;overflow:hidden;">'
-                    f'    <div style="height:100%;width:{pos52:.1f}%;background:linear-gradient(90deg,#F0C040,#C084C8);border-radius:2px;"></div>'
-                    f'  </div></div>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
-                # Tap button — full-width under card, minimal
-                btn_label = "▼ Hide Analysis" if is_selected else "🤖 Analyse"
-                if st.button(btn_label, key=f"hc_sel_{h['sym']}", use_container_width=True,
-                             help=f"AI performance analysis for {h['sym']}"):
-                    if is_selected:
-                        st.session_state["_pf_selected_holding"] = ""
-                    else:
-                        st.session_state["_pf_selected_holding"] = h["sym"]
-                    st.rerun()
-
-    # ── Instant AI Holding Analysis Panel ────────────────────────────────
-    if _sel and _sel in {h["sym"] for h in holdings}:
-        _h_data = next((h for h in holdings if h["sym"] == _sel), None)
-        if _h_data:
-            _ai_cache = st.session_state.get("_pf_holding_ai", {})
-            if _sel not in _ai_cache:
-                _ai_cache[_sel] = {}
-
-            st.markdown(
-                f'<div style="background:linear-gradient(135deg,rgba(107,45,107,.14),rgba(13,11,18,.98));'
-                f'border:1.5px solid rgba(192,132,200,.3);border-radius:14px;'
-                f'padding:1rem 1.2rem;margin:.6rem 0 .8rem;animation:slideDown .2s ease;">'
-                f'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.7rem;">'
-                f'<div style="font-family:\'Cormorant Garamond\',serif;font-size:1.15rem;font-weight:300;color:#EDE8F5;">'
-                f'  <span style="color:#C084C8;">{_sel}</span>'
-                f'  <span style="font-size:.7rem;font-family:Space Mono,monospace;color:#4A3858;margin-left:.5rem;">'
-                f'  {_h_data["short_name"][:28]}</span></div>'
-                f'<div style="font-family:Space Mono,monospace;font-size:.5rem;color:#ff80c0;">🤖 AI Performance Analysis</div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-
-            # Timeframe tabs: Week · Month · Year
-            _tf_labels  = ["1W · Week", "1M · Month", "1Y · Year"]
-            _tf_keys    = ["1W", "1M", "1Y"]
-            _tf_periods = {"1W": ("5d","30m"), "1M": ("1mo","1d"), "1Y": ("1y","1d")}
-            _tf_descs   = {
-                "1W": "past week's swing structure, support/resistance, and momentum",
-                "1M": "monthly trend, SMA positioning, and mean-reversion signals",
-                "1Y": "annual performance, macro cycle positioning, and relative sector strength",
-            }
-
-            # Arrow nav row
-            _holding_tf_key = f"_pf_htf_{_sel}"
-            if _holding_tf_key not in st.session_state:
-                st.session_state[_holding_tf_key] = "1W"
-            _htf = st.session_state[_holding_tf_key]
-            _htf_i = _tf_keys.index(_htf)
-
-            _anav = st.columns([0.5, 1, 1, 1, 0.5])
-            with _anav[0]:
-                if st.button("◀", key=f"hprev_{_sel}"):
-                    st.session_state[_holding_tf_key] = _tf_keys[max(0, _htf_i - 1)]
-                    _ai_cache[_sel].pop(st.session_state[_holding_tf_key], None)
-                    st.rerun()
-            for _ti, (_tlbl, _tk) in enumerate(zip(_tf_labels, _tf_keys)):
-                with _anav[_ti + 1]:
-                    _is_htf_active = (_tk == _htf)
-                    _htf_style = ("background:rgba(192,132,200,.22)!important;"
-                                  "border-color:#C084C8!important;color:#EDE8F5!important;"
-                                  if _is_htf_active else "")
-                    if st.button(_tlbl, key=f"htf_{_sel}_{_tk}", use_container_width=True):
-                        st.session_state[_holding_tf_key] = _tk
-                        st.rerun()
-            with _anav[4]:
-                if st.button("▶", key=f"hnext_{_sel}"):
-                    st.session_state[_holding_tf_key] = _tf_keys[min(len(_tf_keys)-1, _htf_i + 1)]
-                    st.rerun()
-
-            # Fetch & display AI analysis for selected timeframe
-            _period, _interval = _tf_periods[_htf]
-            if _htf not in _ai_cache.get(_sel, {}):
-                with st.spinner(f"Analysing {_sel} over {_htf}…"):
-                    _stats = _compute_tf_stats(_sel, _period, _interval)
-                    _ctx   = (f"{_sel} ({_h_data['short_name']}) — {_tf_descs[_htf]} — "
-                              f"Position: {_h_data['shares']:,.4g} shares @ ${_h_data['avg_cost']:,.2f} avg cost, "
-                              f"P&L: ${_h_data['pnl']:+,.2f} ({_h_data['pnl_pct']:+.1f}%)")
-                    _ai_txt = ai_market_analysis([_stats], groq_api_key, context=_ctx)
-                    _ai_cache.setdefault(_sel, {})[_htf] = _ai_txt
-                    st.session_state["_pf_holding_ai"] = _ai_cache
-
-            _txt = _ai_cache.get(_sel, {}).get(_htf, "")
-            if _txt:
-                _pct1 = abs(_h_data["pct"])
-                _arr1 = "▲" if _h_data["pct"] >= 0 else "▼"
-                _cc1  = "#4ade80" if _h_data["pct"] >= 0 else "#f87171"
-                st.markdown(
-                    f'<div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.55rem;">'
-                    f'<span style="font-family:Space Mono,monospace;font-size:.52rem;'
-                    f'background:rgba(107,45,107,.15);border:1px solid rgba(139,58,139,.3);'
-                    f'border-radius:4px;padding:.18rem .5rem;color:#C084C8;">'
-                    f'Today: <span style="color:{_cc1};">{_arr1} {_pct1:.2f}%</span></span>'
-                    f'<span style="font-family:Space Mono,monospace;font-size:.52rem;'
-                    f'background:rgba(107,45,107,.15);border:1px solid rgba(139,58,139,.3);'
-                    f'border-radius:4px;padding:.18rem .5rem;color:#C084C8;">'
-                    f'Horizon: {_htf}</span>'
-                    f'</div>'
-                    f'<div style="font-family:Syne,sans-serif;font-size:.83rem;color:#C8B8D8;'
-                    f'line-height:1.78;border-left:2px solid rgba(192,132,200,.3);'
-                    f'padding-left:.75rem;">{_txt}</div>',
-                    unsafe_allow_html=True,
-                )
-            st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("<hr style='border-color:rgba(139,58,139,.12);margin:1rem 0 .8rem;'>",
-                unsafe_allow_html=True)
-
-    # ── Deep Analysis: pick a stock ───────────────────────────────────────
-    st.markdown('<div style="font-family:Space Mono,monospace;font-size:.52rem;letter-spacing:.18em;'
-                'text-transform:uppercase;color:var(--velvet-gl);margin-bottom:.5rem;">'
-                'AI-Assisted Stock Deep Analysis</div>', unsafe_allow_html=True)
-
-    an_sym = st.selectbox("Analyse a holding", list(portfolio.keys()),
-                          key="pf_analyse_sym", label_visibility="collapsed")
-
-    if an_sym:
-        an_tabs = st.tabs(["📉 Technicals","🤖 AI Analysis","📊 Simulate Position"])
-
-        # ── Tab 0: Technicals ─────────────────────────────────────────────
-        with an_tabs[0]:
-            with st.spinner(f"Computing technicals for {an_sym}…"):
-                hist_df = fetch_stock_history_1y(an_sym)
-                tech    = compute_technicals(hist_df)
-                fund    = fetch_stock_fundamentals(an_sym)
-
-            if not tech:
-                st.warning("Not enough historical data for technical analysis.")
-            else:
-                price = fund.get("price", 0) or 0
-
-                # Signal badge
-                sig = tech["signal"]
-                sig_cls = sig.lower()
-                sig_emoji = {"BUY":"🟢","HOLD":"🟡","SELL":"🔴","WATCH":"🔵"}.get(sig,"⚪")
-                st.markdown(f'<div style="margin-bottom:.8rem;">'
-                            f'<span class="signal {sig_cls}">{sig_emoji} {sig}</span>'
-                            f'<span style="font-family:Space Mono,monospace;font-size:.5rem;'
-                            f'color:#4A3858;margin-left:.6rem;">Technical Score: {tech["score"]}/7</span>'
-                            f'</div>', unsafe_allow_html=True)
-
-                # Key metrics grid
-                t1, t2, t3, t4 = st.columns(4)
-                def _tech_card(col, label, value, note="", good=None):
-                    if value is None: return
-                    clr = ("#4ade80" if good is True else "#f87171" if good is False else "#C084C8")
-                    col.markdown(
-                        f'<div style="background:var(--card-2);border:1px solid var(--border);'
-                        f'border-top:2px solid {clr};border-radius:8px;padding:.65rem .8rem;">'
-                        f'<div style="font-family:Space Mono,monospace;font-size:.46rem;'
-                        f'letter-spacing:.15em;text-transform:uppercase;color:#4A3858;">{label}</div>'
-                        f'<div style="font-family:Cormorant Garamond,serif;font-size:1.4rem;'
-                        f'font-weight:300;color:#EDE8F5;line-height:1;">{value}</div>'
-                        f'{"<div style=font-family:Space Mono,monospace;font-size:.46rem;color:"+clr+">" + note + "</div>" if note else ""}'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
-
-                rsi = tech["rsi14"]
-                _tech_card(t1, "RSI-14", f"{rsi}", "Oversold" if rsi<30 else ("Overbought" if rsi>70 else "Neutral"),
-                           good=True if rsi<30 else (False if rsi>70 else None))
-                _tech_card(t2, "MACD Hist", f"{tech['macd_hist']:+.4f}",
-                           "Bullish" if tech["macd_hist"]>0 else "Bearish",
-                           good=tech["macd_hist"]>0)
-                _tech_card(t3, "BB Position", f"{tech['bb_pos']:.0f}%",
-                           "Near Upper" if tech["bb_pos"]>80 else ("Near Lower" if tech["bb_pos"]<20 else "Mid Range"),
-                           good=True if tech["bb_pos"]<20 else (False if tech["bb_pos"]>80 else None))
-                _tech_card(t4, "ATR-14", f"${tech['atr14']:.2f}", "Daily volatility range")
-
-                st.markdown("<div style='height:.5rem'></div>", unsafe_allow_html=True)
-                t5, t6, t7, t8 = st.columns(4)
-                _tech_card(t5, "SMA 20",  f"${tech['sma20']:,.2f}" if tech["sma20"] else "—",
-                           "Price above" if price > (tech["sma20"] or 0) else "Price below",
-                           good=price > (tech["sma20"] or float("inf")))
-                _tech_card(t6, "SMA 50",  f"${tech['sma50']:,.2f}" if tech["sma50"] else "—",
-                           "Price above" if price > (tech["sma50"] or 0) else "Price below",
-                           good=price > (tech["sma50"] or float("inf")))
-                _tech_card(t7, "SMA 200", f"${tech['sma200']:,.2f}" if tech["sma200"] else "—",
-                           "Price above" if price > (tech["sma200"] or 0) else "Price below",
-                           good=price > (tech["sma200"] or float("inf")))
-                _tech_card(t8, "Ann. Vol", f"{tech['vol_annual']:.1f}%",
-                           "High" if tech["vol_annual"]>40 else ("Low" if tech["vol_annual"]<15 else "Moderate"),
-                           good=tech["vol_annual"]<25)
-
-                # Momentum row
-                st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;'
-                            'letter-spacing:.15em;text-transform:uppercase;color:#4A3858;'
-                            'margin:.8rem 0 .4rem;">Price Momentum</div>', unsafe_allow_html=True)
-                m1, m2, m3, m4 = st.columns(4)
-                for col, lbl, val in [(m1,"1 Month",tech["mom_1m"]),(m2,"3 Month",tech["mom_3m"]),
-                                      (m3,"6 Month",tech["mom_6m"]),(m4,"1 Year",tech["mom_1y"])]:
-                    if val is not None:
-                        _tech_card(col, lbl, f"{val:+.1f}%", "", good=val>0)
-
-                # Price chart
-                if not hist_df.empty:
-                    st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;'
-                                'letter-spacing:.15em;text-transform:uppercase;color:#4A3858;'
-                                'margin:.8rem 0 .3rem;">1-Year Price Chart</div>', unsafe_allow_html=True)
-                    chart_df = hist_df[["close"]].copy()
-                    chart_df.columns = [an_sym]
-                    st.line_chart(chart_df, height=200, use_container_width=True)
-
-                # Bollinger band chart
-                if not hist_df.empty and len(hist_df) >= 20:
-                    st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;'
-                                'letter-spacing:.15em;text-transform:uppercase;color:#4A3858;'
-                                'margin:.6rem 0 .3rem;">Bollinger Bands (last 60 days)</div>',
-                                unsafe_allow_html=True)
-                    bb_df = hist_df["close"].iloc[-60:].to_frame()
-                    roll  = hist_df["close"].rolling(20)
-                    bb_df["SMA20"]    = roll.mean()
-                    bb_df["BB Upper"] = roll.mean() + 2 * roll.std()
-                    bb_df["BB Lower"] = roll.mean() - 2 * roll.std()
-                    bb_df = bb_df.rename(columns={"close": an_sym}).iloc[-60:]
-                    st.line_chart(bb_df.dropna(), height=180, use_container_width=True)
-
-        # ── Tab 1: AI Analysis ────────────────────────────────────────────
-        with an_tabs[1]:
-            with st.spinner("Loading data…"):
-                hist_df2 = fetch_stock_history_1y(an_sym) if "hist_df" not in dir() else hist_df
-                tech2    = compute_technicals(hist_df2) if not tech else tech
-                fund2    = fetch_stock_fundamentals(an_sym) if not fund else fund
-                pos      = portfolio.get(an_sym, {})
-
-            if not groq_api_key:
-                st.info("Add a Groq API key in the sidebar to enable AI analysis.")
-            else:
-                if st.button(f"🤖  Generate Full AI Analysis for {an_sym}", key=f"ai_{an_sym}",
-                             use_container_width=False):
-                    with st.spinner("Analysing with Llama 3.3-70B…"):
-                        try:
-                            from openai import OpenAI
-                            oai = OpenAI(api_key=groq_api_key, base_url="https://api.groq.com/openai/v1")
-
-                            tech_summary = (
-                                f"RSI-14={tech2.get('rsi14','—')}, "
-                                f"MACD hist={tech2.get('macd_hist','—')}, "
-                                f"SMA20={tech2.get('sma20','—')}, SMA50={tech2.get('sma50','—')}, "
-                                f"SMA200={tech2.get('sma200','—')}, "
-                                f"BB pos={tech2.get('bb_pos','—')}%, "
-                                f"Ann.Vol={tech2.get('vol_annual','—')}%, "
-                                f"Signal={tech2.get('signal','—')}"
-                            )
-                            mom_summary = (
-                                f"1M={tech2.get('mom_1m','—')}%, "
-                                f"3M={tech2.get('mom_3m','—')}%, "
-                                f"6M={tech2.get('mom_6m','—')}%, "
-                                f"1Y={tech2.get('mom_1y','—')}%"
-                            )
-                            pos_summary = (
-                                f"Holding {pos.get('shares','—')} shares, "
-                                f"avg cost ${pos.get('avg_cost',0):.2f}, "
-                                f"current ${fund2.get('price',0):.2f}, "
-                                f"unrealised P&L ${pos.get('shares',0)*(fund2.get('price',0)-pos.get('avg_cost',0)):.2f}"
-                            )
-                            fund_summary = (
-                                f"52W High={fund2.get('52w_high','—')}, "
-                                f"52W Low={fund2.get('52w_low','—')}, "
-                                f"Market Cap={fund2.get('mkt_cap','—')}, "
-                                f"Volume={fund2.get('volume','—')}"
-                            )
-
-                            # Current market context
-                            fng2 = fetch_fear_greed()
-                            sp_q = fetch_quote("^GSPC")
-                            mkt_ctx = (f"S&P 500 at {sp_q['price']:,.0f} ({sp_q['pct']:+.2f}%), "
-                                       f"Fear & Greed = {fng2['value']} ({fng2['label']})"
-                                       if sp_q else "Market data unavailable")
-
-                            prompt = f"""You are a senior equity analyst. Provide a comprehensive analysis of {an_sym} ({fund2.get("short_name","")}).
-
-TECHNICAL INDICATORS:
-{tech_summary}
-
-MOMENTUM:
-{mom_summary}
-
-FUNDAMENTAL SNAPSHOT:
-{fund_summary}
-
-INVESTOR POSITION:
-{pos_summary}
-
-CURRENT MARKET CONTEXT:
-{mkt_ctx}
-
-Write a structured analysis with these sections:
-1. **Technical Picture** — What the indicators say, confluence or divergence, key levels to watch
-2. **Momentum Assessment** — Trend strength, rotation signals, sector context
-3. **Risk Assessment** — Volatility, downside risk, stop-loss levels based on ATR and support
-4. **Catalyst Watch** — What could drive the next move up or down
-5. **Recommendation** — Clear BUY / HOLD / SELL / WATCH with price target rationale and suggested position sizing
-
-Be specific with numbers. Max 350 words. Use the investor's actual position data when relevant."""
-
-                            resp = oai.chat.completions.create(
-                                model="llama-3.3-70b-versatile",
-                                messages=[
-                                    {"role":"system","content":"You are a senior equity analyst. Be direct, data-driven, cite specific numbers."},
-                                    {"role":"user","content":prompt},
-                                ],
-                                temperature=0.15, max_tokens=700,
-                            )
-                            analysis = resp.choices[0].message.content
-                            st.session_state.portfolio_notes[an_sym] = analysis
-                        except Exception as e:
-                            st.error(f"AI analysis error: {e}")
-
-                if an_sym in st.session_state.portfolio_notes:
-                    st.markdown(
-                        f'<div class="ai-analysis-card">'
-                        f'<div class="aac-header">AI Analysis · {an_sym} · {_dt.datetime.utcnow().strftime("%Y-%m-%d")}</div>'
-                        f'<div class="aac-body">{st.session_state.portfolio_notes[an_sym].replace(chr(10),"<br>")}</div>'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
-                else:
-                    st.markdown('<div style="font-family:Syne,sans-serif;font-size:.8rem;color:#4A3858;'
-                                'padding:1.5rem;text-align:center;">Click the button above to generate AI-powered analysis</div>',
-                                unsafe_allow_html=True)
-
-        # ── Tab 2: Simulate Position ──────────────────────────────────────
-        with an_tabs[2]:
-            fund3 = fetch_stock_fundamentals(an_sym) if not fund else fund
-            curr_price = fund3.get("price") or 0
-            pos3 = portfolio.get(an_sym, {})
-            avg3 = pos3.get("avg_cost", curr_price)
-            shares3 = pos3.get("shares", 1)
-
-            st.markdown('<div style="font-family:Space Mono,monospace;font-size:.52rem;'
-                        'letter-spacing:.18em;text-transform:uppercase;color:var(--velvet-gl);'
-                        'margin-bottom:.7rem;">Position Simulator</div>', unsafe_allow_html=True)
-
-            sc1, sc2 = st.columns(2)
-            with sc1:
-                sim_target = st.number_input("Target price ($)", value=float(round(curr_price*1.15,2)),
-                                             step=0.5, key="sim_target")
-                sim_stop   = st.number_input("Stop-loss price ($)", value=float(round(curr_price*0.92,2)),
-                                             step=0.5, key="sim_stop")
-            with sc2:
-                sim_shares = st.number_input("Position size (shares)", value=float(shares3),
-                                             step=0.1, key="sim_shares")
-                sim_entry  = st.number_input("Entry price ($)", value=float(round(avg3,2)),
-                                             step=0.1, key="sim_entry")
-
-            if curr_price > 0:
-                gain_amt   = (sim_target - sim_entry) * sim_shares
-                loss_amt   = (sim_entry  - sim_stop)  * sim_shares
-                rr_ratio   = abs(gain_amt / loss_amt) if loss_amt else 0
-                gain_pct   = (sim_target - sim_entry) / sim_entry * 100
-                loss_pct   = (sim_entry  - sim_stop)  / sim_entry * 100
-                curr_pnl   = (curr_price - sim_entry) * sim_shares
-                position_val = sim_entry * sim_shares
-
-                r1, r2, r3, r4 = st.columns(4)
-                def _sim_card(col, label, val, color):
-                    col.markdown(f'<div style="background:var(--card-2);border:1px solid var(--border);'
-                                 f'border-top:2px solid {color};border-radius:8px;padding:.65rem .8rem;'
-                                 f'font-family:Space Mono,monospace;">'
-                                 f'<div style="font-size:.44rem;letter-spacing:.15em;text-transform:uppercase;'
-                                 f'color:#4A3858;">{label}</div>'
-                                 f'<div style="font-family:Cormorant Garamond,serif;font-size:1.45rem;'
-                                 f'font-weight:300;color:{color};line-height:1.1;">{val}</div>'
-                                 f'</div>', unsafe_allow_html=True)
-
-                _sim_card(r1, "Max Gain",    f"+${gain_amt:,.2f} (+{gain_pct:.1f}%)", "#4ade80")
-                _sim_card(r2, "Max Loss",    f"-${loss_amt:,.2f} (-{loss_pct:.1f}%)", "#f87171")
-                _sim_card(r3, "R:R Ratio",   f"{rr_ratio:.2f}:1",
-                          "#4ade80" if rr_ratio >= 2 else ("#F0C040" if rr_ratio >= 1 else "#f87171"))
-                _sim_card(r4, "Current P&L", f"{'+'if curr_pnl>=0 else ''}${curr_pnl:,.2f}",
-                          "#4ade80" if curr_pnl >= 0 else "#f87171")
-
-                st.markdown(f'<div style="margin-top:.7rem;padding:.6rem .9rem;'
-                            f'background:rgba(107,45,107,.08);border:1px solid var(--border);'
-                            f'border-radius:8px;font-family:Space Mono,monospace;font-size:.58rem;'
-                            f'color:var(--text-dim);">'
-                            f'Position Value: ${position_val:,.2f} &nbsp;·&nbsp; '
-                            f'Entry: ${sim_entry:,.2f} &nbsp;·&nbsp; '
-                            f'Current: ${curr_price:,.2f} &nbsp;·&nbsp; '
-                            f'Target: ${sim_target:,.2f} &nbsp;·&nbsp; '
-                            f'Stop: ${sim_stop:,.2f}'
-                            f'</div>', unsafe_allow_html=True)
-
-                # Scenario table
-                st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;'
-                            'letter-spacing:.15em;text-transform:uppercase;color:#4A3858;'
-                            'margin:.8rem 0 .4rem;">Scenario Analysis</div>', unsafe_allow_html=True)
-                scenarios = [
-                    ("Bear -20%", curr_price*0.80),
-                    ("Bear -10%", curr_price*0.90),
-                    ("Base  +0%", curr_price),
-                    ("Bull +10%", curr_price*1.10),
-                    ("Bull +20%", curr_price*1.20),
-                    ("Bull +30%", curr_price*1.30),
-                ]
-                sc_rows = "".join(
-                    f'<tr>'
-                    f'<td style="font-family:Space Mono,monospace;font-size:.6rem;color:var(--text-dim);">{sc_lbl}</td>'
-                    f'<td style="font-family:Space Mono,monospace;font-size:.6rem;color:#9A8AAA;">${sc_price:,.2f}</td>'
-                    f'<td style="font-family:Space Mono,monospace;font-size:.6rem;'
-                    f'color:{"#4ade80" if (sc_price-sim_entry)*sim_shares>=0 else "#f87171"};">'
-                    f'{"+"if (sc_price-sim_entry)*sim_shares>=0 else ""}${(sc_price-sim_entry)*sim_shares:,.2f}</td>'
-                    f'<td style="font-family:Space Mono,monospace;font-size:.6rem;'
-                    f'color:{"#4ade80" if sc_price>=sim_entry else "#f87171"};">'
-                    f'{"+"if sc_price>=sim_entry else ""}{(sc_price-sim_entry)/sim_entry*100:.1f}%</td>'
-                    f'</tr>'
-                    for sc_lbl, sc_price in scenarios
-                )
-                st.markdown(
-                    f'<table style="width:100%;border-collapse:collapse;">'
-                    f'<thead><tr>'
-                    f'<th style="background:rgba(107,45,107,.18);border:1px solid var(--border);'
-                    f'padding:.35rem .7rem;font-family:Space Mono,monospace;font-size:.46rem;'
-                    f'text-transform:uppercase;letter-spacing:.1em;color:var(--velvet-gl);text-align:left;">Scenario</th>'
-                    f'<th style="background:rgba(107,45,107,.18);border:1px solid var(--border);'
-                    f'padding:.35rem .7rem;font-family:Space Mono,monospace;font-size:.46rem;'
-                    f'text-transform:uppercase;letter-spacing:.1em;color:var(--velvet-gl);">Price</th>'
-                    f'<th style="background:rgba(107,45,107,.18);border:1px solid var(--border);'
-                    f'padding:.35rem .7rem;font-family:Space Mono,monospace;font-size:.46rem;'
-                    f'text-transform:uppercase;letter-spacing:.1em;color:var(--velvet-gl);">P&L</th>'
-                    f'<th style="background:rgba(107,45,107,.18);border:1px solid var(--border);'
-                    f'padding:.35rem .7rem;font-family:Space Mono,monospace;font-size:.46rem;'
-                    f'text-transform:uppercase;letter-spacing:.1em;color:var(--velvet-gl);">Return</th>'
-                    f'</tr></thead><tbody>{sc_rows}</tbody></table>',
-                    unsafe_allow_html=True,
-                )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# ══════════════════════════════════════════════════════════════════════════════
-#  v8 HELPERS: SOURCE EVIDENCE PANEL + ANALYST MODE
-# ══════════════════════════════════════════════════════════════════════════════
-
-# Section classifier: map chunk text → probable report section
-_SECTION_PATTERNS = [
-    (r"management.{0,20}discussion|MD&A",                        "Management Discussion & Analysis"),
-    (r"risk factor",                                              "Risk Factors"),
-    (r"financial statement|balance sheet|income statement|P&L",  "Financial Statements"),
-    (r"cash flow",                                                "Cash Flow Statement"),
-    (r"note\s+\d|notes to|accounting polic",                     "Notes to Accounts"),
-    (r"auditor.{0,15}report|independent auditor",                "Auditor's Report"),
-    (r"segment|business unit|division",                          "Segment Reporting"),
-    (r"revenue|sales|turnover",                                   "Revenue & Sales"),
-    (r"profit|margin|EBITDA|operating income",                   "Profitability"),
-    (r"debt|borrowing|loan|credit facilit",                      "Debt & Financing"),
-    (r"dividend|share capital|equity",                            "Shareholders' Equity"),
-    (r"outlook|guidance|forward.looking",                        "Outlook & Guidance"),
-    (r"corporate governance",                                     "Corporate Governance"),
-    (r"chairman|board of director|CEO|management team",          "Board & Leadership"),
-    (r"macroeconomic|market condition|industry trend",           "Market & Industry"),
-]
-
-def guess_section(text: str) -> str:
-    """Infer probable document section from chunk text."""
-    t = text[:600].lower()
-    for pattern, label in _SECTION_PATTERNS:
-        if re.search(pattern, t, re.IGNORECASE):
-            return label
-    return "General / Other"
-
-def render_source_panel(sources: list[dict]) -> None:
-    """
-    Render rich expandable evidence panel below an answer.
-    sources: list of {"filename", "score", "preview", "chunk_full"(optional), "chunk_idx"(optional)}
-    """
-    if not sources:
-        return
-    n = len(sources)
-    with st.expander(f"📂  View Sources  ·  {n} evidence chunk{'s' if n>1 else ''} retrieved"):
-        st.markdown('<div class="evidence-panel">', unsafe_allow_html=True)
-        for i, src in enumerate(sources, 1):
-            score     = src.get("score", 0)
-            score_pct = int(score * 100)
-            score_cls = "score-hi" if score_pct >= 75 else ("score-mid" if score_pct >= 50 else "score-lo")
-            score_lbl = "High relevance" if score_pct >= 75 else ("Moderate" if score_pct >= 50 else "Low relevance")
-            # Use full chunk if available, else preview
-            chunk_text = src.get("chunk_full") or src.get("preview","")
-            section    = guess_section(chunk_text)
-            chunk_idx  = src.get("chunk_idx", "")
-            page_est   = f"Chunk #{chunk_idx}" if chunk_idx != "" else f"Chunk ~{i}"
-            fname      = _ht.escape(src.get("filename","Unknown"))
-            chunk_disp = _ht.escape(chunk_text[:500] + ("…" if len(chunk_text) > 500 else ""))
-
-            st.markdown(
-                f'<div class="evidence-source-card">'
-                f'  <div class="esc-header">'
-                f'    <div style="display:flex;align-items:center;gap:.6rem;">'
-                f'      <span class="esc-source-num">Source {i}</span>'
-                f'      <span class="esc-filename">📄 {fname}</span>'
-                f'    </div>'
-                f'    <div class="esc-meta">'
-                f'      <span class="esc-chip">{page_est}</span>'
-                f'      <span class="esc-chip {score_cls}">⬡ {score_pct}% · {score_lbl}</span>'
-                f'    </div>'
-                f'  </div>'
-                f'  <div class="esc-section">📑 {_ht.escape(section)}</div>'
-                f'  <div class="esc-body">{chunk_disp}</div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-        st.markdown('</div>', unsafe_allow_html=True)
-
-
-def render_analyst_output(raw_json_str: str, question: str) -> None:
-    """
-    Parse the structured JSON from Analyst Mode and render as a rich card.
-    Falls back gracefully to markdown if JSON is malformed.
-    """
-    # Strip possible fences
-    clean = re.sub(r"```(?:json)?", "", raw_json_str, flags=re.IGNORECASE).strip().strip("`").strip()
-
-    try:
-        data = json.loads(clean)
-    except json.JSONDecodeError:
-        # Graceful fallback — render raw markdown
-        st.markdown(raw_json_str)
-        return
-
-    metrics  = data.get("metrics", [])       # list of {label, value, unit, change, direction}
-    summary  = data.get("summary", "")
-    risks    = data.get("key_risks", [])
-    outlook  = data.get("outlook", "")
-    signal   = data.get("recommendation", "") # BUY / HOLD / SELL / WATCH / N/A
-
-    sig_css = {"BUY":"buy","HOLD":"hold","SELL":"sell","WATCH":"watch"}.get(
-                signal.upper() if signal else "", "watch")
-    sig_emoji = {"BUY":"🟢","HOLD":"🟡","SELL":"🔴","WATCH":"🔵","N/A":"⚪"}.get(
-                  signal.upper() if signal else "N/A","⚪")
-
-    # ── Header ────────────────────────────────────────────────────────────
-    st.markdown(
-        f'<div class="analyst-output">'
-        f'<div class="ao-header">'
-        f'  <div class="ao-title">Analyst Report</div>'
-        f'  <div style="display:flex;align-items:center;gap:.5rem;">'
-        f'    <span class="ao-mode-badge">📊 Analyst Mode</span>'
-        + (f'    <span class="signal {sig_css}" style="font-size:.5rem;">{sig_emoji} {signal.upper()}</span>'
-           if signal and signal.upper() != "N/A" else "") +
-        f'  </div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
-    # ── Metrics grid ──────────────────────────────────────────────────────
-    if metrics:
-        metrics_html = '<div class="ao-grid">'
-        for m in metrics:
-            val   = str(m.get("value","—"))
-            unit  = m.get("unit","")
-            chg   = m.get("change","")
-            dirn  = str(m.get("direction","")).lower()
-            v_cls = "pos" if dirn == "up" else ("neg" if dirn == "down" else "neu")
-            chg_html = ""
-            if chg:
-                chg_col = "#4ade80" if dirn=="up" else ("#f87171" if dirn=="down" else "#9A8AAA")
-                chg_html = (f'<div style="font-family:Space Mono,monospace;font-size:.44rem;'
-                            f'color:{chg_col};margin-top:.1rem;">'
-                            f'{"▲" if dirn=="up" else ("▼" if dirn=="down" else "●")} {_ht.escape(str(chg))}</div>')
-            metrics_html += (
-                f'<div class="ao-metric">'
-                f'  <div class="ao-metric-label">{_ht.escape(m.get("label",""))}</div>'
-                f'  <div class="ao-metric-value {v_cls}">{_ht.escape(val)}'
-                f'  <span style="font-family:Space Mono,monospace;font-size:.5rem;color:#4A3858;"> {_ht.escape(unit)}</span></div>'
-                + chg_html +
-                f'</div>'
-            )
-        metrics_html += "</div>"
-        st.markdown(metrics_html, unsafe_allow_html=True)
-
-    # ── Summary ───────────────────────────────────────────────────────────
-    if summary:
-        st.markdown(
-            f'<div class="ao-section">'
-            f'<div class="ao-section-title">Executive Summary</div>'
-            f'<div class="ao-section-body">{_ht.escape(summary).replace(chr(10),"<br>")}</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-
-    # ── Key risks ─────────────────────────────────────────────────────────
-    if risks:
-        risk_items = "".join(
-            f'<div class="ao-risk-item">{_ht.escape(str(r))}</div>'
-            for r in risks
-        )
-        st.markdown(
-            f'<div class="ao-section">'
-            f'<div class="ao-section-title">Key Risk Highlights</div>'
-            f'{risk_items}'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-
-    # ── Outlook ───────────────────────────────────────────────────────────
-    if outlook:
-        st.markdown(
-            f'<div class="ao-section">'
-            f'<div class="ao-section-title">Outlook</div>'
-            f'<div class="ao-section-body">{_ht.escape(outlook).replace(chr(10),"<br>")}</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-
-    st.markdown("</div>", unsafe_allow_html=True)   # close .analyst-output
-
-
-# Analyst Mode system prompt + user prompt templates
-_ANALYST_SYSTEM = """You are a senior financial analyst. The user is querying financial documents.
-You MUST respond ONLY with a valid JSON object — no prose, no markdown fences, no preamble.
-
-JSON schema (all fields optional except metrics):
-{
-  "metrics": [
-    {"label": "Revenue FY24", "value": "₹2,43,020 Cr", "unit": "INR Cr", "change": "+12.3% YoY", "direction": "up"},
-    {"label": "Net Income", "value": "₹26,S248 Cr", "unit": "INR Cr", "change": "+8.1% YoY", "direction": "up"},
-    ...
-  ],
-  "summary": "2-3 sentence executive summary of the key findings.",
-  "key_risks": ["Risk 1 text", "Risk 2 text", "Risk 3 text"],
-  "outlook": "Forward-looking commentary based on document.",
-  "recommendation": "BUY | HOLD | SELL | WATCH | N/A"
-}
-
-Rules:
-- Extract exact numbers from the document context. Never fabricate values.
-- If a value is not found, omit that metric rather than guessing.
-- direction must be exactly "up", "down", or "flat".
-- recommendation must be exactly one of: BUY, HOLD, SELL, WATCH, N/A.
-- Return ONLY the JSON. No other text whatsoever."""
-
-def build_analyst_prompt(question: str, live_context: str, doc_context: str) -> str:
-    return (f"{live_context}\n\n=== DOCUMENT CONTEXT ===\n{doc_context}\n\n"
-            f"User question: {question}\n\n"
-            f"Extract structured financial data as specified. Return ONLY JSON.")
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # INDIA NEWS RSS
@@ -2994,334 +1769,6 @@ def fetch_rss(url, max_items=6):
             if title: results.append({"title":title,"link":link,"date":pub,"summary":desc})
         return results
     except: return []
-
-# ─────────────────────────────────────────────────────────────────────────────
-# RICH CHART BUILDER  +  AI MARKET ANALYSIS
-# ─────────────────────────────────────────────────────────────────────────────
-_CHART_THEME = dict(
-    paper_bgcolor="rgba(0,0,0,0)",
-    plot_bgcolor="rgba(0,0,0,0)",
-    font_family="Space Mono, monospace",
-    font_color="#9A8AAA",
-    xaxis=dict(
-        gridcolor="rgba(107,45,107,.14)", gridwidth=1,
-        zeroline=False, showline=False,
-        tickfont=dict(size=9, color="#4A3858"),
-    ),
-    yaxis=dict(
-        gridcolor="rgba(107,45,107,.14)", gridwidth=1,
-        zeroline=False, showline=False,
-        tickfont=dict(size=9, color="#4A3858"),
-    ),
-    margin=dict(l=6, r=6, t=28, b=6),
-    legend=dict(
-        bgcolor="rgba(13,11,18,.7)", bordercolor="rgba(107,45,107,.3)",
-        borderwidth=1, font=dict(size=9, color="#9A8AAA"),
-        orientation="h", y=-0.12,
-    ),
-    hovermode="x unified",
-    hoverlabel=dict(
-        bgcolor="#1A1225", bordercolor="rgba(107,45,107,.4)",
-        font=dict(size=11, family="Space Mono, monospace", color="#EDE8F5"),
-    ),
-)
-
-_PALETTE = ["#C084C8","#4ADE80","#F0C040","#60A5FA","#FB923C","#F472B6","#34D399","#A78BFA"]
-
-def _add_bollinger(fig: "go.Figure", closes: pd.Series, window: int = 20, color: str = "#C084C8") -> None:
-    """Add Bollinger Bands ±2σ as filled area to figure."""
-    sma = closes.rolling(window).mean()
-    std = closes.rolling(window).std()
-    upper = sma + 2 * std; lower = sma - 2 * std
-    fig.add_trace(go.Scatter(x=upper.index, y=upper.values, name="BB Upper",
-                             line=dict(color=color, width=0.6, dash="dot"), showlegend=False,
-                             hoverinfo="skip"))
-    fig.add_trace(go.Scatter(x=lower.index, y=lower.values, name="BB Band",
-                             fill="tonexty",
-                             fillcolor=f"rgba(192,132,200,0.06)",
-                             line=dict(color=color, width=0.6, dash="dot"),
-                             showlegend=False, hoverinfo="skip"))
-
-def _sma_trace(fig: "go.Figure", closes: pd.Series, w: int, color: str, name: str) -> None:
-    sma = closes.rolling(w).mean().dropna()
-    if not sma.empty:
-        fig.add_trace(go.Scatter(x=sma.index, y=sma.values, name=name,
-                                 line=dict(color=color, width=1, dash="dash"),
-                                 opacity=0.7, hovertemplate=f"{name}: %{{y:.2f}}<extra></extra>"))
-
-def build_rich_chart(
-    series_dict: dict,           # {label: pd.Series}
-    mode: str = "normalized",    # "normalized" | "absolute" | "candlestick"
-    title: str = "1-Year Price History",
-    show_bollinger: bool = True,
-    show_sma: bool = True,
-    height: int = 380,
-    single_ohlc: pd.DataFrame | None = None,  # for candlestick
-) -> "go.Figure | None":
-    """Build a premium dark Plotly chart from a dict of price series."""
-    if not _PLOTLY:
-        return None
-
-    fig = go.Figure()
-
-    if mode == "candlestick" and single_ohlc is not None and not single_ohlc.empty:
-        sym = list(series_dict.keys())[0] if series_dict else "Price"
-        fig.add_trace(go.Candlestick(
-            x=single_ohlc.index,
-            open=single_ohlc["open"], high=single_ohlc["high"],
-            low=single_ohlc["low"],   close=single_ohlc["close"],
-            name=sym,
-            increasing=dict(fillcolor="rgba(74,222,128,.55)", line=dict(color="#4ade80", width=1)),
-            decreasing=dict(fillcolor="rgba(248,113,113,.45)", line=dict(color="#f87171", width=1)),
-        ))
-        if show_bollinger:
-            _add_bollinger(fig, single_ohlc["close"])
-        if show_sma:
-            _sma_trace(fig, single_ohlc["close"], 20,  "#F0C040", "SMA-20")
-            _sma_trace(fig, single_ohlc["close"], 50,  "#60A5FA", "SMA-50")
-            _sma_trace(fig, single_ohlc["close"], 200, "#FB923C", "SMA-200")
-        fig.update_layout(xaxis_rangeslider_visible=False)
-
-    else:
-        for i, (label, s) in enumerate(series_dict.items()):
-            if s is None or s.empty: continue
-            s = s.dropna()
-            if mode == "normalized":
-                y = (s / s.iloc[0] - 1) * 100
-                ytitle = "% Return from start"
-                hover  = f"%{{y:.2f}}%<extra>{label}</extra>"
-            else:
-                y = s; ytitle = "Price"; hover = f"%{{y:,.4f}}<extra>{label}</extra>"
-            color = _PALETTE[i % len(_PALETTE)]
-            # Area fill for single series
-            fill = "tozeroy" if len(series_dict) == 1 else "none"
-            fillcolor = "rgba(192,132,200,.06)" if len(series_dict) == 1 else None
-            fig.add_trace(go.Scatter(
-                x=y.index, y=y.values, name=label, mode="lines",
-                line=dict(color=color, width=1.8),
-                fill=fill, fillcolor=fillcolor,
-                hovertemplate=hover,
-            ))
-            if show_bollinger and len(series_dict) == 1:
-                _add_bollinger(fig, s, color=color)
-            if show_sma and len(series_dict) == 1:
-                _sma_trace(fig, s, 20,  "#F0C040", "SMA-20")
-                _sma_trace(fig, s, 50,  "#60A5FA", "SMA-50")
-                _sma_trace(fig, s, 200, "#FB923C", "SMA-200")
-        ytitle = "% Return" if mode == "normalized" else "Price"
-        fig.update_layout(yaxis_title=ytitle)
-
-    layout = dict(**_CHART_THEME, height=height,
-                  title=dict(text=title, font=dict(family="Cormorant Garamond, serif",
-                                                   size=14, color="#C084C8"), x=0.01))
-    fig.update_layout(**layout)
-    return fig
-
-
-_AI_MARKET_SYSTEM = """You are a senior quantitative analyst and trader with 20 years of experience.
-You receive structured price data for stocks, crypto, currencies, or commodities for a SPECIFIC TIMEFRAME.
-Tailor your analysis to that horizon. Rules:
-- Lead with the most important insight for that timeframe (intraday momentum, weekly swing, monthly trend, annual cycle)
-- Cite exact numbers from the data (current price, period high/low, % change, volatility)
-- Comment on technicals appropriate to the timeframe: for 1D use momentum/volume; for 1W use swing levels;
-  for 1M use trend/SMA crossovers; for 1Y use macro positioning/annual cyclicality
-- If multiple assets: compare relative strength and correlations
-- End with a forward view calibrated to the timeframe (next session / next week / next month / next quarter)
-- Be direct, specific, professional. Bloomberg terminal brevity.
-- 4-6 sentences. Never be vague."""
-
-# Timeframe → Yahoo Finance params
-_TF_PARAMS = {
-    "1D":  ("1d",  "5m",  "Intraday (Today)"),
-    "1W":  ("5d",  "30m", "Past Week"),
-    "1M":  ("1mo", "1d",  "Past Month"),
-    "1Y":  ("1y",  "1d",  "Past Year"),
-}
-
-@st.cache_data(ttl=120)
-def fetch_tf_series(symbol: str, period: str, interval: str) -> pd.Series:
-    """Fetch a close-price series for any period/interval from Yahoo Finance."""
-    url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-           f"?range={period}&interval={interval}&includePrePost=false")
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "application/json",
-    }
-    try:
-        r = requests.get(url, headers=headers, timeout=15)
-        r.raise_for_status()
-        data = r.json(); res = data["chart"]["result"][0]
-        ts = res["timestamp"]; q = res["indicators"]["quote"][0]
-        closes = q.get("close", [])
-        idx = pd.to_datetime(ts, unit="s", utc=True)
-        s = pd.Series(closes, index=idx, dtype=float, name=symbol).dropna()
-        return s
-    except Exception:
-        return pd.Series(dtype=float)
-
-def _compute_tf_stats(symbol: str, period: str, interval: str) -> dict:
-    """Stats for a given timeframe, used by AI."""
-    s = fetch_tf_series(symbol, period, interval)
-    if s.empty: return {"symbol": symbol}
-    pct   = round((s.iloc[-1] / s.iloc[0] - 1) * 100, 2) if len(s) > 1 else None
-    hi    = round(float(s.max()), 4)
-    lo    = round(float(s.min()), 4)
-    vol   = round(float(s.pct_change().std() * 100), 4) if len(s) > 2 else None
-    sma10 = round(float(s.rolling(10).mean().iloc[-1]), 4) if len(s) >= 10 else None
-    return {
-        "symbol": symbol,
-        "current_price": round(float(s.iloc[-1]), 4),
-        "pct_change": pct,
-        "period_high": hi, "period_low": lo,
-        "typical_move_pct": vol,
-        "sma10": sma10,
-    }
-
-def ai_market_analysis(symbols_data: list[dict], groq_api_key: str, context: str = "") -> str:
-    if not groq_api_key: return "⚠ No API key — add your Groq key in the sidebar."
-    lines = []
-    for d in symbols_data:
-        parts = [f"  {d.get('symbol','?')}:"]
-        for k,v in d.items():
-            if k != "symbol" and v is not None:
-                parts.append(f"{k}={v}")
-        lines.append(" ".join(parts))
-    prompt = (f"Timeframe context: {context}\n\nData:\n" + "\n".join(lines)
-              + "\n\nProvide your analyst note for this timeframe:")
-    try:
-        from openai import OpenAI
-        oai = OpenAI(api_key=groq_api_key, base_url="https://api.groq.com/openai/v1")
-        resp = oai.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role":"system","content":_AI_MARKET_SYSTEM},
-                      {"role":"user","content":prompt}],
-            temperature=0.18, max_tokens=360,
-        )
-        return resp.choices[0].message.content.strip()
-    except Exception as e:
-        return f"Analysis unavailable: {e}"
-
-def _compute_symbol_stats(df: pd.DataFrame, sym: str) -> dict:
-    """Compute stats from a 1Y OHLCV DataFrame (legacy, kept for portfolio use)."""
-    if df.empty: return {"symbol": sym}
-    closes = df["close"].dropna()
-    sma20  = float(closes.rolling(20).mean().iloc[-1]) if len(closes) >= 20 else None
-    sma50  = float(closes.rolling(50).mean().iloc[-1]) if len(closes) >= 50 else None
-    vol30  = float(closes.pct_change().rolling(30).std().iloc[-1] * 100 * (252**0.5)) if len(closes) >= 30 else None
-    pct1y  = round((closes.iloc[-1] / closes.iloc[0] - 1) * 100, 2) if len(closes) > 1 else None
-    return {
-        "symbol": sym, "current_price": round(float(closes.iloc[-1]), 4),
-        "pct_1y": pct1y, "high_1y": round(float(closes.max()), 4),
-        "low_1y": round(float(closes.min()), 4),
-        "sma20": round(sma20, 4) if sma20 else None,
-        "sma50": round(sma50, 4) if sma50 else None,
-        "volatility_30d": round(vol30, 2) if vol30 else None,
-    }
-
-def render_ai_timeframe_panel(
-    symbols: list[str],
-    panel_key: str,          # e.g. "chart", "fx", "comm", "crypto"
-    groq_api_key: str,
-    accent: str = "#C084C8",
-    label: str = "AI Market Analysis",
-) -> None:
-    """
-    Renders the AI analysis panel with ◀ 1D · 1W · 1M · 1Y ▶ arrow navigator.
-    The graph is rendered by the caller; this function adds the analysis block below.
-    """
-    TF_ORDER = ["1D", "1W", "1M", "1Y"]
-    TF_LABELS = {"1D": "Day", "1W": "Week", "1M": "Month", "1Y": "Year"}
-    tf_key   = f"_{panel_key}_ai_tf"
-    text_key = f"_{panel_key}_ai_text"
-
-    current_tf = st.session_state.get(tf_key, "1Y")
-
-    # ── AI Analysis Box ──────────────────────────────────────────────────
-    st.markdown(
-        f'<div style="background:linear-gradient(135deg,rgba(13,11,18,.98),rgba(20,15,30,.97));'
-        f'border:1px solid rgba(107,45,107,.28);border-radius:12px;'
-        f'padding:.85rem 1.1rem .8rem;margin-top:.7rem;">'
-        f'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.65rem;">'
-        f'<div style="font-family:Space Mono,monospace;font-size:.52rem;letter-spacing:.16em;'
-        f'text-transform:uppercase;color:{accent};">🤖 {label}</div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
-    # ── Timeframe navigator: ◀ [1D] [1W] [1M] [1Y] ▶ ────────────────────
-    nav_cols = st.columns([1, 1, 1, 1, 1, 1])
-    ci = TF_ORDER.index(current_tf)
-
-    with nav_cols[0]:
-        if st.button("◀", key=f"{panel_key}_tf_prev",
-                     help="Previous timeframe", use_container_width=True):
-            new_tf = TF_ORDER[max(0, ci - 1)]
-            st.session_state[tf_key]   = new_tf
-            st.session_state[text_key] = ""   # clear cached text
-            st.rerun()
-
-    for i, tf in enumerate(TF_ORDER):
-        with nav_cols[i + 1]:
-            is_active = (tf == current_tf)
-            style = (
-                f"background:linear-gradient(135deg,{accent},{accent}88)!important;"
-                f"border-color:{accent}!important;color:#fff!important;font-weight:700!important;"
-                if is_active else ""
-            )
-            if st.button(TF_LABELS[tf], key=f"{panel_key}_tf_{tf}", use_container_width=True,
-                         help=f"Show {TF_LABELS[tf].lower()} analysis"):
-                st.session_state[tf_key]   = tf
-                st.session_state[text_key] = ""
-                st.rerun()
-
-    with nav_cols[5]:
-        if st.button("▶", key=f"{panel_key}_tf_next",
-                     help="Next timeframe", use_container_width=True):
-            new_tf = TF_ORDER[min(len(TF_ORDER) - 1, ci + 1)]
-            st.session_state[tf_key]   = new_tf
-            st.session_state[text_key] = ""
-            st.rerun()
-
-    # ── Active timeframe label ────────────────────────────────────────────
-    period, interval, tf_label = _TF_PARAMS[current_tf]
-    st.markdown(
-        f'<div style="font-family:Space Mono,monospace;font-size:.48rem;letter-spacing:.12em;'
-        f'text-transform:uppercase;color:#4A3858;margin:.45rem 0 .55rem;">'
-        f'Horizon: {tf_label} · {current_tf} view</div>',
-        unsafe_allow_html=True,
-    )
-
-    # ── Auto-load AI text when timeframe changes ──────────────────────────
-    cached_text = st.session_state.get(text_key, "")
-    if not cached_text:
-        if groq_api_key and symbols:
-            with st.spinner(f"Analysing {tf_label.lower()} price action…"):
-                stats = []
-                for sym in symbols[:6]:   # cap at 6 to stay within token budget
-                    s = _compute_tf_stats(sym, period, interval)
-                    if s.get("current_price"):
-                        stats.append(s)
-                if stats:
-                    context_str = (f"{tf_label} ({current_tf}) horizon · "
-                                   f"symbols: {', '.join(symbols[:6])}")
-                    text = ai_market_analysis(stats, groq_api_key, context=context_str)
-                    st.session_state[text_key] = text
-                    cached_text = text
-
-    if cached_text:
-        st.markdown(
-            f'<div style="font-family:Syne,sans-serif;font-size:.82rem;color:#C8B8D8;'
-            f'line-height:1.78;padding:.2rem 0;">{cached_text}</div>',
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            '<div style="font-family:Space Mono,monospace;font-size:.6rem;color:#4A3858;'
-            'padding:.5rem 0;">Add a Groq API key in the sidebar to enable AI analysis.</div>',
-            unsafe_allow_html=True,
-        )
-
-    st.markdown("</div>", unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MARKET SYMBOL DICTS
@@ -3377,7 +1824,7 @@ with st.sidebar:
       </div>
       <div style="font-family:'Space Mono',monospace;font-size:.52rem;letter-spacing:.22em;
                   color:#4A3858;text-transform:uppercase;margin-top:.35rem;">
-        Financial Intelligence · v6
+        Financial Intelligence · v11
       </div>
     </div>
     """, unsafe_allow_html=True)
@@ -3398,6 +1845,18 @@ with st.sidebar:
             os.environ["GROQ_API_KEY"] = GROQ_API_KEY
             st.markdown('<div class="key-ok"><div class="key-dot"></div>API Key Active</div>',
                         unsafe_allow_html=True)
+
+    # Embedding model status
+    embed_name = st.session_state.get("_embed_model_name", "FinBERT (loads on first ingest)")
+    is_finbert = "finbert" in embed_name.lower()
+    emb_color = "#4ade80" if is_finbert else "#f0c040"
+    emb_icon  = "🧠" if is_finbert else "⚡"
+    st.markdown(f'<div style="margin:.6rem 0 .3rem;background:rgba(74,222,128,.05);'
+                f'border:1px solid rgba(74,222,128,.15);border-radius:6px;padding:.5rem .7rem;">'
+                f'<div style="font-family:Space Mono,monospace;font-size:.5rem;letter-spacing:.15em;'
+                f'text-transform:uppercase;color:#4A3858;margin-bottom:.2rem;">Embedding Model</div>'
+                f'<div style="font-family:Space Mono,monospace;font-size:.55rem;color:{emb_color};">'
+                f'{emb_icon} {embed_name}</div></div>', unsafe_allow_html=True)
 
     bucket = _get_bucket(); tl = int(bucket._tokens); pf = tl / bucket._cap
     bc = "#4ade80" if pf > 0.5 else ("#f0c040" if pf > 0.2 else "#f87171")
@@ -3444,77 +1903,96 @@ with st.sidebar:
     with col_a2:
         if st.button("🗑 Clear Docs", use_container_width=True):
             for k in ["vectorstore","file_names","uploaded_docs","chunk_count",
-                      "doc_full_text","auto_metrics","auto_generated","search_query","search_results"]:
+                      "doc_full_text","auto_metrics","auto_generated","search_query",
+                      "search_results","show_analytics"]:
                 st.session_state[k] = (None if k=="vectorstore" else
                                        [] if k in ["file_names","auto_metrics","search_results"] else
                                        0  if k in ["uploaded_docs","chunk_count"] else
-                                       False if k=="auto_generated" else "")
+                                       False if k in ["auto_generated","show_analytics"] else "")
             st.rerun()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TOP ACTION BAR  — [＋ Upload]  [Simulate Portfolio]  [Search]
-# ─────────────────────────────────────────────────────────────────────────────
-import random as _random
-_bull_bear = _random.choice(["🐂", "🐻"])   # fresh choice each session
+# Pre-fetch market mood for mood-reactive button
+_fng_pre = fetch_fear_greed(); fng_val = _fng_pre["value"]; fng_label = _fng_pre["label"]
 
-_btn_upload, _btn_portfolio, _search_col = st.columns([1.5, 2.4, 6.1], gap="small")
+# ─────────────────────────────────────────────────────────────────────────────
+# ① TOP BAR — sticky, very top of page
+#    Aesthetic + upload button | file status | analytics | chat | portfolio
+# ─────────────────────────────────────────────────────────────────────────────
+st.markdown('<div class="top-upload-bar">', unsafe_allow_html=True)
+
+# ── Three columns: [Upload cube] [Portfolio cube] [Search bar + misc] ─────────
+_btn_upload, _btn_portfolio, _right_col = st.columns([1.6, 1.6, 6.8], gap="small")
+
+# Mood class for portfolio button
+_mood_cls_pf = "mood-bull" if fng_val >= 60 else ("mood-bear" if fng_val <= 35 else "")
+_mood_icon   = "🐂" if fng_val >= 60 else ("🐻" if fng_val <= 35 else "◈")
+_mood_word   = "Bull" if fng_val >= 60 else ("Bear" if fng_val <= 35 else "Neutral")
+_n_pf_pre    = len(st.session_state.portfolio)
+_pf_open_pre = st.session_state.show_portfolio
+_pf_open_cls = "pf-open " if _pf_open_pre else ""
+_pf_full_cls = f"sq-btn-simulate {_pf_open_cls}{_mood_cls_pf}".strip()
+_pf_sub_lbl  = f"({_n_pf_pre} holdings)" if _n_pf_pre else f"{fng_label}"
 
 with _btn_upload:
     st.markdown('<div class="sq-btn-upload">', unsafe_allow_html=True)
-    if st.button(
-        "＋\n\nUpload\nDocument",
-        key="top_upload_btn",
-        use_container_width=True,
-        help="Upload PDF · Excel · CSV · DOCX · TXT",
-    ):
+    _upload_icon = "✓⊞" if st.session_state.file_names else "⊞"
+    _upload_lbl  = f"{_upload_icon}\n\nUpload\nDocument"
+    if st.button(_upload_lbl, key="top_upload_btn", use_container_width=True,
+                 help="Upload PDF · Excel · CSV · DOCX · TXT"):
         st.session_state.show_upload = not st.session_state.show_upload
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
 with _btn_portfolio:
-    _n_pf    = len(st.session_state.portfolio)
-    _pf_open = st.session_state.show_portfolio
-    _pf_sub  = f"({_n_pf} Holdings)" if _n_pf else "AI Assistant"
-    _pf_cls  = "sq-btn-simulate pf-open" if _pf_open else "sq-btn-simulate"
-    st.markdown(f'<div class="{_pf_cls}">', unsafe_allow_html=True)
-    if st.button(
-        f"{_bull_bear}\n\nSimulate Portfolio\n{_pf_sub}",
-        key="top_portfolio_btn",
-        use_container_width=True,
-        help="Build & AI-simulate your global stock portfolio",
-    ):
-        st.session_state.show_portfolio = not _pf_open
+    st.markdown(f'<div class="{_pf_full_cls}">', unsafe_allow_html=True)
+    _pf_label = f"{_mood_icon} Portfolio\n{_mood_word} · {fng_val}\n{_pf_sub_lbl}"
+    if st.button(_pf_label, key="top_portfolio_btn", use_container_width=True,
+                 help=f"Market: {fng_label} ({fng_val}) · Build & simulate portfolio"):
+        st.session_state.show_portfolio = not _pf_open_pre
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
-with _search_col:
-    # Inline global search
-    _raw_q = st.text_input(
-        "global_search",
-        value=st.session_state.search_query,
-        placeholder="🔍  Search documents — revenue 2023, risk factors, gross margin…",
-        label_visibility="collapsed",
-        key="g_search_input",
-    )
-    if _raw_q and _raw_q != st.session_state.search_query:
-        st.session_state.search_query = _raw_q
-        hits = []
-        if st.session_state.vectorstore:
-            try:
-                vs    = st.session_state.vectorstore
-                q_emb = vs["model"].encode([_raw_q], normalize_embeddings=True).tolist()
-                res   = vs["collection"].query(query_embeddings=q_emb, n_results=5,
-                                               include=["documents","metadatas","distances"])
-                for chunk, meta, dist in zip(res["documents"][0], res["metadatas"][0], res["distances"][0]):
-                    hits.append({"filename": meta["filename"],
-                                 "score":    round(1 - dist/2, 3),
-                                 "snippet":  chunk[:300]})
-            except: pass
-        st.session_state.search_results = hits
+with _right_col:
+    # Row: search bar | analytics | chat
+    _right_inner = st.columns([5.5, 1.5, 0.8], gap="small")
+    with _right_inner[0]:
+        _raw_q = st.text_input(
+            "global_search",
+            value=st.session_state.search_query,
+            placeholder="🔍  Search documents — revenue 2023, risk factors, gross margin…",
+            label_visibility="collapsed",
+            key="g_search_input",
+        )
+        if _raw_q and _raw_q != st.session_state.search_query:
+            st.session_state.search_query = _raw_q
+            hits = []
+            if st.session_state.vectorstore:
+                try:
+                    vs    = st.session_state.vectorstore
+                    q_emb = vs["model"].encode([_raw_q], normalize_embeddings=True).tolist()
+                    res   = vs["collection"].query(query_embeddings=q_emb, n_results=5,
+                                                   include=["documents","metadatas","distances"])
+                    for chunk, meta, dist in zip(res["documents"][0], res["metadatas"][0], res["distances"][0]):
+                        hits.append({"filename": meta["filename"],
+                                     "score":    round(1 - dist/2, 3),
+                                     "snippet":  chunk[:300]})
+                except: pass
+            st.session_state.search_results = hits
+        if not _raw_q and st.session_state.search_query:
+            st.session_state.search_query = ""
+            st.session_state.search_results = []
+    with _right_inner[1]:
+        if st.session_state.auto_generated:
+            if st.button("📊 Analytics", use_container_width=True, key="top_analytics_btn"):
+                st.session_state.show_analytics = not st.session_state.show_analytics
+                st.rerun()
+    with _right_inner[2]:
+        if st.button("💬", key="chat_icon_btn", help="Chat"):
+            st.session_state.show_chat = not st.session_state.show_chat
+            st.rerun()
 
-    if not _raw_q and st.session_state.search_query:
-        st.session_state.search_query = ""
-        st.session_state.search_results = []
+st.markdown('</div>', unsafe_allow_html=True)
 
 # Search results inline below bar
 if st.session_state.search_query and st.session_state.search_results:
@@ -3542,28 +2020,25 @@ elif st.session_state.search_query and not st.session_state.search_results:
                 f'</div>', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# UPLOAD PANEL  (slides open below action bar when 📂 clicked)
+# UPLOAD DRAWER (appears below top bar when toggled)
 # ─────────────────────────────────────────────────────────────────────────────
 if st.session_state.show_upload:
-    st.markdown('<div class="upload-panel">'
-                '<div class="upload-panel-hdr">'
-                '<div><div class="upload-panel-title">◈ Upload Financial Documents</div>'
-                '<div class="upload-panel-formats">Supported: PDF · XLSX · XLS · CSV · DOCX · TXT</div>'
-                '</div></div>',
+    st.markdown('<div class="upload-drawer">'
+                '<div class="upload-drawer-title">◈ Upload Financial Documents — PDF · XLSX · XLS · CSV · DOCX · TXT</div>',
                 unsafe_allow_html=True)
     inline_files = st.file_uploader(
-        "Upload files", type=["pdf","txt","xlsx","xls","csv","docx"],
+        "Upload", type=["pdf","txt","xlsx","xls","csv","docx"],
         accept_multiple_files=True, label_visibility="collapsed", key="drawer_upload",
     )
     col_ing, col_cls = st.columns([3, 1])
     with col_ing:
-        if inline_files and st.button("⬆  Ingest & Analyse", use_container_width=True, key="drawer_ingest"):
+        if inline_files and st.button("⬆  Ingest Documents (FinBERT embeddings)", use_container_width=True, key="drawer_ingest"):
             if not GROQ_API_KEY:
                 st.error("Enter your Groq API key in the sidebar first.")
             else:
                 try:
                     n = ingest_documents(inline_files)
-                    st.success(f"✓ {n} chunks indexed · Analytics ready below ↓")
+                    st.success(f"✓ {n} chunks from {len(inline_files)} file(s) ingested with FinBERT · Analytics auto-generated below ↓")
                     st.session_state.show_upload = False
                     st.rerun()
                 except Exception as e:
@@ -3574,287 +2049,217 @@ if st.session_state.show_upload:
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# INLINE ANALYTICS PANEL  (appears directly below upload, after ingest)
-# No separate tab — lives right here in the main page flow
-# ─────────────────────────────────────────────────────────────────────────────
-if st.session_state.auto_generated:
-    n_m = len(st.session_state.auto_metrics)
-    st.markdown(f'<div class="analytics-inline-panel">'
-                f'<div class="aip-header">'
-                f'<div class="aip-title">Document Analytics</div>'
-                f'<span class="aip-badge">✅ {n_m} metrics extracted · FinBERT embeddings</span>'
-                f'</div></div>', unsafe_allow_html=True)
-
-    _atabs = st.tabs(["📊 Metrics","📈 Doc vs Market","📋 Templates","🔍 Hybrid Search","🧪 Eval"])
-
-    with _atabs[0]:
-        if st.session_state.auto_metrics:
-            render_metrics_dashboard(st.session_state.auto_metrics)
-            st.markdown("<hr style='border-color:rgba(139,58,139,.15);margin:.8rem 0;'>",
-                        unsafe_allow_html=True)
-            render_trend_chart(st.session_state.auto_metrics)
-            with st.expander("📄 Raw extraction table"):
-                st.dataframe(pd.DataFrame([
-                    {"Metric":m["label"],"Value":fmt_val(m["value"],m["unit"]),
-                     "Unit":m["unit"],"Category":m["category"],"Raw Text":m["raw"]}
-                    for m in st.session_state.auto_metrics
-                ]), use_container_width=True, hide_index=True)
-        else:
-            st.info("No numeric metrics matched regex patterns. Try Templates tab for LLM extraction.")
-
-    with _atabs[1]:
-        render_comparison_tab(st.session_state.auto_metrics, GROQ_API_KEY)
-
-    with _atabs[2]:
-        cats = sorted({v["category"] for v in TEMPLATES.values()})
-        chosen_cat = st.selectbox("Filter", ["All"]+cats, label_visibility="collapsed", key="tpl_cat2")
-        visible = {k:v for k,v in TEMPLATES.items() if chosen_cat=="All" or v["category"]==chosen_cat}
-        items = list(visible.items())
-        for rs in range(0, len(items), 3):
-            cols = st.columns(3)
-            for ci, (tn, tm) in enumerate(items[rs:rs+3]):
-                with cols[ci]:
-                    color = CAT_COLORS.get(tm["category"], VELVET["dim"])
-                    st.markdown(f'<div style="background:{VELVET["card2"]};border:1px solid rgba(139,58,139,.22);'
-                                f'border-top:2px solid {color};border-radius:10px;padding:.8rem .9rem .6rem;">'
-                                f'<div style="font-size:1.2rem;">{tm["icon"]}</div>'
-                                f'<div style="font-family:Syne,sans-serif;font-size:.82rem;font-weight:600;'
-                                f'color:{VELVET["text"]};margin:.3rem 0 .2rem;">{tn}</div>'
-                                f'<div style="font-family:Space Mono,monospace;font-size:.52rem;color:{color};'
-                                f'text-transform:uppercase;">{tm["category"]}</div></div>', unsafe_allow_html=True)
-                    if st.button("Run →", key=f"tpl2_{tn[:18]}", use_container_width=True):
-                        st.session_state["_prefill"] = tm["prompt"]
-                        st.session_state.show_chat = True
-                        st.success(f"✓ '{tn}' → open Chat ↑")
-
-    with _atabs[3]:
-        hs_q = st.text_input("Hybrid search", placeholder="e.g. free cash flow 2023",
-                             label_visibility="collapsed", key="hs_q2")
-        c1, c2, c3 = st.columns(3)
-        with c1: bw2 = st.slider("BM25 weight", 0.0, 1.0, 0.35, 0.05, key="bw2")
-        with c2: tn2 = st.slider("Results", 3, 10, 5, key="tn2")
-        with c3: uce2 = st.checkbox("Re-rank", value=True, key="uce2")
-        if hs_q and st.session_state.vectorstore:
-            with st.spinner("Retrieving…"):
-                try:
-                    vs = st.session_state.vectorstore
-                    ar = vs["collection"].get(include=["documents","embeddings","metadatas"])
-                    cks, emb, mts = ar["documents"], ar["embeddings"], ar["metadatas"]
-                    qe2 = vs["model"].encode([hs_q], normalize_embeddings=True).tolist()[0]
-                    hits2 = HybridRetriever(cks, emb).retrieve(hs_q, qe2, n=tn2, bw=bw2, rerank=uce2)
-                    for rank, h in enumerate(hits2, 1):
-                        mt = mts[h["idx"]] if h["idx"] < len(mts) else {}
-                        tags_h = tag_chunk(h["chunk"])
-                        th = " ".join(f'<span style="background:rgba(139,58,139,.15);'
-                                      f'border:1px solid rgba(139,58,139,.3);font-family:Space Mono,monospace;'
-                                      f'font-size:.5rem;padding:.1rem .35rem;border-radius:3px;'
-                                      f'color:{CAT_COLORS.get(t,VELVET["dim"])};">{t}</span>' for t in tags_h)
-                        st.markdown(f'<div style="background:{VELVET["card"]};border:1px solid rgba(139,58,139,.22);'
-                                    f'border-left:3px solid #C084C8;border-radius:0 8px 8px 0;'
-                                    f'padding:.7rem .9rem;margin-bottom:.5rem;">'
-                                    f'<div style="font-family:Space Mono,monospace;font-size:.58rem;color:#C084C8;'
-                                    f'margin-bottom:.3rem;">#{rank} · 📄 {mt.get("filename","—")}'
-                                    f' · score:{h["score"]:.3f}</div>'
-                                    f'<div style="font-size:.8rem;color:#9A8AAA;line-height:1.55;">'
-                                    f'{h["chunk"][:320]}…</div>'
-                                    f'<div style="margin-top:.35rem;display:flex;gap:.3rem;flex-wrap:wrap;">{th}</div>'
-                                    f'</div>', unsafe_allow_html=True)
-                except Exception as e:
-                    st.error(f"Search error: {e}")
-        elif hs_q:
-            st.info("Ingest documents first.")
-
-    with _atabs[4]:
-        st.markdown('<div style="font-family:Space Mono,monospace;font-size:.54rem;letter-spacing:.18em;'
-                    'text-transform:uppercase;color:#C084C8;margin-bottom:.8rem;">'
-                    'FinanceBench-Style QA Accuracy Evaluation</div>', unsafe_allow_html=True)
-        if st.button("▶  Run Benchmark", key="bench2"):
-            if not st.session_state.vectorstore or not GROQ_API_KEY:
-                st.error("Need documents and API key.")
-            else:
-                er2 = []; prog2 = st.progress(0, text="Evaluating…")
-                for i, eq in enumerate(EVAL_QUESTIONS):
-                    try:
-                        from openai import OpenAI as _OAI
-                        _oai2 = _OAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
-                        vs2 = st.session_state.vectorstore
-                        qe3 = vs2["model"].encode([eq["question"]], normalize_embeddings=True).tolist()
-                        res3 = vs2["collection"].query(query_embeddings=qe3, n_results=4,
-                                                      include=["documents","metadatas","distances"])
-                        ctx3 = "\n---\n".join(res3["documents"][0])
-                        resp3 = _oai2.chat.completions.create(
-                            model="llama-3.3-70b-versatile",
-                            messages=[{"role":"system","content":"Answer concisely using only the context."},
-                                      {"role":"user","content":f"Context:\n{ctx3}\n\nQuestion: {eq['question']}"}],
-                            temperature=0.05, max_tokens=400)
-                        ans3 = resp3.choices[0].message.content
-                        sc3  = score_answer(ans3, eq["expected_keywords"])
-                        er2.append({"question":eq["question"],"category":eq["category"],"answer":ans3,"score":sc3})
-                    except Exception as exc:
-                        er2.append({"question":eq["question"],"category":eq["category"],
-                                    "answer":f"Error:{exc}","score":{"recall":0,"hits":0,"total":0,"score_pct":0}})
-                    prog2.progress((i+1)/len(EVAL_QUESTIONS))
-                prog2.empty(); render_eval_dashboard(er2)
-
-    st.markdown("<hr style='border-color:rgba(139,58,139,.1);margin:.6rem 0 1rem;'>",
-                unsafe_allow_html=True)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# PORTFOLIO PANEL  (slides open when 📊 Portfolio clicked)
-# ─────────────────────────────────────────────────────────────────────────────
-if st.session_state.show_portfolio:
-    n_holdings = len(st.session_state.portfolio)
-
-    # ── 2-column layout: live markets strip | portfolio ───────────────────
-    _pf_mkt_col, _pf_main_col = st.columns([1, 3], gap="small")
-
-    with _pf_mkt_col:
-        # Live global markets side panel — shown only when Portfolio is open
-        st.markdown(
-            '<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;'
-            'padding:.8rem .9rem;position:sticky;top:0;">'
-            '<div style="font-family:Space Mono,monospace;font-size:.5rem;letter-spacing:.18em;'
-            'text-transform:uppercase;color:var(--velvet-gl);margin-bottom:.7rem;">◈ Live Markets</div>',
-            unsafe_allow_html=True,
-        )
-        # Global indices
-        _pf_idx_syms = {
-            "^GSPC":("S&P 500","🇺🇸"), "^IXIC":("NASDAQ","🇺🇸"),
-            "^NSEI":("NIFTY 50","🇮🇳"), "^N225":("Nikkei","🇯🇵"),
-            "^FTSE":("FTSE 100","🇬🇧"), "^GDAXI":("DAX","🇩🇪"),
-        }
-        _pf_idx_q = fetch_multi_quotes(tuple(_pf_idx_syms.keys()))
-        _idx_rows = ""
-        for sym, (name, flag) in _pf_idx_syms.items():
-            info = _pf_idx_q.get(sym)
-            if info:
-                arr  = "▲" if info["pct"] >= 0 else "▼"
-                col  = "#4ade80" if info["pct"] >= 0 else "#f87171"
-                bg   = "rgba(74,222,128,.05)" if info["pct"] >= 0 else "rgba(248,113,113,.05)"
-                bd   = "rgba(74,222,128,.15)" if info["pct"] >= 0 else "rgba(248,113,113,.15)"
-                _idx_rows += (
-                    f'<div style="display:flex;align-items:center;justify-content:space-between;'
-                    f'padding:.35rem .5rem;background:{bg};border:1px solid {bd};'
-                    f'border-radius:6px;margin-bottom:.3rem;">'
-                    f'<div>'
-                    f'  <div style="font-family:Space Mono,monospace;font-size:.52rem;color:var(--accent);">'
-                    f'    {flag} {name}</div>'
-                    f'  <div style="font-family:Cormorant Garamond,serif;font-size:1.05rem;'
-                    f'    font-weight:300;color:#EDE8F5;line-height:1;">{info["price"]:,.0f}</div>'
-                    f'</div>'
-                    f'<div style="font-family:Space Mono,monospace;font-size:.56rem;color:{col};'
-                    f'font-weight:700;">{arr} {abs(info["pct"]):.2f}%</div>'
-                    f'</div>'
-                )
-        st.markdown(_idx_rows + "</div>", unsafe_allow_html=True)
-
-        # Top movers in portfolio
-        if st.session_state.portfolio:
-            st.markdown(
-                '<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;'
-                'padding:.8rem .9rem;margin-top:.6rem;">'
-                '<div style="font-family:Space Mono,monospace;font-size:.5rem;letter-spacing:.18em;'
-                'text-transform:uppercase;color:var(--velvet-gl);margin-bottom:.6rem;">◈ Your Movers</div>',
-                unsafe_allow_html=True,
-            )
-            _mover_rows = ""
-            for sym in list(st.session_state.portfolio.keys())[:8]:
-                _mi = fetch_quote(sym)
-                if _mi:
-                    arr  = "▲" if _mi["pct"] >= 0 else "▼"
-                    col  = "#4ade80" if _mi["pct"] >= 0 else "#f87171"
-                    bg   = "rgba(74,222,128,.04)" if _mi["pct"] >= 0 else "rgba(248,113,113,.04)"
-                    bd   = "rgba(74,222,128,.12)" if _mi["pct"] >= 0 else "rgba(248,113,113,.12)"
-                    _mover_rows += (
-                        f'<div style="display:flex;align-items:center;justify-content:space-between;'
-                        f'padding:.28rem .45rem;background:{bg};border:1px solid {bd};'
-                        f'border-radius:5px;margin-bottom:.25rem;">'
-                        f'<div style="font-family:Space Mono,monospace;font-size:.56rem;color:var(--accent);">{sym}</div>'
-                        f'<div style="font-family:Space Mono,monospace;font-size:.56rem;color:{col};">{arr} {abs(_mi["pct"]):.2f}%</div>'
-                        f'</div>'
-                    )
-            st.markdown(_mover_rows + "</div>", unsafe_allow_html=True)
-
-    with _pf_main_col:
-        st.markdown(
-            f'<div class="portfolio-panel">'
-            f'<div class="portfolio-panel-hdr">'
-            f'<div class="pph-title">Portfolio</div>'
-            f'<div style="font-family:Space Mono,monospace;font-size:.52rem;color:#ff80c0;">'
-            f'{n_holdings} holding{"s" if n_holdings != 1 else ""} · Live prices · FinBERT RAG</div>'
-            f'</div></div>',
-            unsafe_allow_html=True,
-        )
-        render_portfolio_panel(GROQ_API_KEY)
-
-    st.markdown("<hr style='border-color:rgba(139,58,139,.1);margin:.6rem 0 1rem;'>",
-                unsafe_allow_html=True)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# CHAT PANEL  (slides open below analytics when 💬 clicked)
+# CHAT PANEL (toggled via 💬 icon in top bar) — appears at top
+# v8: Mode toggle (Chat / Analyst) + Source Evidence Panel
 # ─────────────────────────────────────────────────────────────────────────────
 if st.session_state.show_chat:
-    st.markdown('<div class="chat-panel">'
-                '<div class="chat-panel-hdr">'
-                '<span class="chat-panel-title">◈ Ask Anything — Markets · Crypto · Documents</span>'
-                '</div>'
-                '<div class="chat-panel-body">',
-                unsafe_allow_html=True)
+    st.markdown('<div class="chat-panel">', unsafe_allow_html=True)
 
-    # ── Mode Toggle ────────────────────────────────────────────────────────
-    _mode_cols = st.columns([2, 8])
+    # ── Mode toggle bar ──────────────────────────────────────────────────────
+    _mode_cols = st.columns([3, 2, 5])
     with _mode_cols[0]:
-        _analyst = st.toggle(
-            "📊 Analyst Mode",
-            value=st.session_state.analyst_mode,
-            key="analyst_toggle",
-            help="OFF = Chat Mode (free-form answers)  ·  ON = Analyst Mode (structured financial extraction)",
-        )
-        if _analyst != st.session_state.analyst_mode:
-            st.session_state.analyst_mode = _analyst
-            st.rerun()
+        st.markdown('<div style="font-family:Space Mono,monospace;font-size:.52rem;letter-spacing:.15em;'
+                    'text-transform:uppercase;color:#4A3858;padding-top:.45rem;">Mode</div>',
+                    unsafe_allow_html=True)
     with _mode_cols[1]:
-        if st.session_state.analyst_mode:
+        _is_analyst = st.session_state.analyst_mode
+        _toggle_label = "⚡ Analyst Mode ON" if _is_analyst else "💬 Chat Mode"
+        _toggle_color = "#F0C040" if _is_analyst else "#C084C8"
+        if st.button(_toggle_label, key="mode_toggle_btn", use_container_width=True,
+                     help="Toggle between conversational Chat Mode and structured Analyst Mode"):
+            st.session_state.analyst_mode = not _is_analyst
+            st.rerun()
+    with _mode_cols[2]:
+        if _is_analyst:
             st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;color:#F0C040;'
-                        'padding:.3rem .5rem;background:rgba(240,192,64,.06);border:1px solid rgba(240,192,64,.2);'
-                        'border-radius:5px;">📊 Analyst Mode — returns structured metrics table, '
-                        'risks &amp; outlook as a JSON-parsed report card</div>',
+                        'padding-top:.45rem;opacity:.8;">'
+                        '⚡ Returns structured tables · metrics grid · risk highlights · verdict</div>',
                         unsafe_allow_html=True)
         else:
-            st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;color:#C084C8;'
-                        'padding:.3rem .5rem;background:rgba(192,132,200,.05);border:1px solid rgba(192,132,200,.15);'
-                        'border-radius:5px;">💬 Chat Mode — conversational answers with source evidence panel</div>',
+            st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;color:#9A8AAA;'
+                        'padding-top:.45rem;opacity:.8;">'
+                        '💬 Conversational answers with source evidence panel</div>',
                         unsafe_allow_html=True)
 
-    st.markdown("<hr style='border-color:rgba(139,58,139,.12);margin:.4rem 0 .6rem;'>",
+    st.markdown(f'<div style="height:1px;background:linear-gradient(90deg,{"rgba(240,192,64,.25)" if _is_analyst else "rgba(139,58,139,.2)"},transparent);margin:.4rem 0 .7rem;"></div>',
+                unsafe_allow_html=True)
+
+    # ── Chat title ───────────────────────────────────────────────────────────
+    st.markdown(f'<div class="chat-panel-title">{"⚡ Analyst Mode — Structured Financial Intelligence" if _is_analyst else "💬 AI Assistant — Markets, Currencies & Documents"}</div>',
                 unsafe_allow_html=True)
 
     if not st.session_state.messages:
-        st.markdown("""
-        <div style="text-align:center;padding:2rem 1rem;">
-          <div style="font-size:2rem;margin-bottom:.6rem;opacity:.5;">◈</div>
-          <div style="font-family:'Cormorant Garamond',serif;font-size:1.4rem;font-weight:300;
-                      font-style:italic;color:#4A3858;">Ready without uploads</div>
-          <div style="font-family:Syne,sans-serif;font-size:.76rem;color:#4A3858;
-                      margin-top:.4rem;max-width:340px;margin-left:auto;margin-right:auto;line-height:1.8;">
-            Ask about live stocks, gold, crypto, FX rates — no documents needed.<br>
-            Upload a report above to unlock document Q&amp;A.
-          </div>
-        </div>""", unsafe_allow_html=True)
+        if _is_analyst:
+            st.markdown("""
+<div style="text-align:center;padding:1.5rem 1rem;">
+  <div style="font-size:1.8rem;margin-bottom:.5rem;opacity:.5;">⚡</div>
+  <div style="font-family:'Cormorant Garamond',serif;font-size:1.35rem;font-weight:300;
+    font-style:italic;color:#F0C040;">Analyst Mode Active</div>
+  <div style="font-family:'Syne',sans-serif;font-size:.76rem;color:#9A8AAA;margin-top:.4rem;line-height:1.75;max-width:420px;margin-left:auto;margin-right:auto;">
+    Ask financial questions and get structured outputs:<br>
+    metrics grids · margin tables · risk highlights · analyst verdict<br>
+    <span style="color:#4A3858;">Works best with uploaded documents</span>
+  </div>
+</div>""", unsafe_allow_html=True)
+        else:
+            st.markdown("""
+<div style="text-align:center;padding:1.5rem 1rem;">
+  <div style="font-size:1.8rem;margin-bottom:.5rem;opacity:.5;">◈</div>
+  <div style="font-family:'Cormorant Garamond',serif;font-size:1.35rem;font-weight:300;
+    font-style:italic;color:#4A3858;">Ready without uploads</div>
+  <div style="font-family:'Syne',sans-serif;font-size:.76rem;color:#4A3858;margin-top:.4rem;line-height:1.7;">
+    Ask about live stocks, gold, crypto, FX rates — no documents needed.<br>
+    Upload reports via 📎 above for deep document analysis.
+  </div>
+</div>""", unsafe_allow_html=True)
 
+    # ── Render existing conversation ─────────────────────────────────────────
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
-            is_analyst = msg.get("analyst_mode", False)
-            if msg["role"] == "assistant" and is_analyst:
-                # Render structured analyst output card
+            if msg["role"] == "assistant" and msg.get("analyst_mode"):
+                # Re-render in analyst card format
                 render_analyst_output(msg["content"], msg.get("question",""))
             else:
                 st.markdown(msg["content"])
-            # ── Source Evidence Panel ─────────────────────────────────────
-            if msg.get("sources"):
+            # Source evidence panel for every assistant message
+            if msg["role"] == "assistant" and msg.get("sources"):
                 render_source_panel(msg["sources"])
 
-    st.markdown("</div></div>", unsafe_allow_html=True)
+    prefill  = st.session_state.pop("_prefill", None)
+    question = st.chat_input("Ask about stocks, gold, crypto, currencies, or your documents…")
+    q = prefill or question
+
+    if q:
+        if not GROQ_API_KEY:
+            st.error("Please enter your Groq API key in the sidebar."); st.stop()
+
+        with st.chat_message("user"):
+            st.markdown(q)
+        st.session_state.messages.append({"role":"user","content":q})
+
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking…"):
+                try:
+                    from openai import OpenAI
+                    oai = OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
+
+                    fng_live = fetch_fear_greed()
+                    fng_val_live = fng_live["value"]; fng_lbl_live = fng_live["label"]
+                    symbols = ["AAPL","MSFT","NVDA","TSLA"]
+                    stock_lines = [f"  {sym}: ${info['price']:,.2f} ({'▲' if info['pct']>=0 else '▼'}{abs(info['pct']):.2f}%)"
+                                   for sym in symbols if (info := fetch_quote(sym))]
+                    comm_lines  = [f"  {name}: ${info['price']:,.{dec}f} {unit} ({'+' if info['pct']>=0 else ''}{info['pct']:.2f}%)"
+                                   for sym, (name, unit, _, dec) in COMMODITY_SYMS.items() if (info := fetch_quote(sym))]
+                    crypto_lines = [f"  {ticker}: ${info['price']:,.{dec}f} ({'+' if info['pct']>=0 else ''}{info['pct']:.2f}%)"
+                                    for sym, (name, ticker, _, dec) in CRYPTO_SYMS.items() if (info := fetch_quote(sym))]
+                    fx_syms = ("USDINR=X","USDJPY=X","USDCNY=X","EURUSD=X","GBPUSD=X")
+                    fx_lines = []
+                    for _fxsym in fx_syms:
+                        _fxi = fetch_quote(_fxsym)
+                        if _fxi:
+                            _p  = _fxi["price"]; _rs = f"{_p:,.2f}" if _p >= 10 else f"{_p:.4f}"
+                            _sg = "+" if _fxi["pct"] >= 0 else ""
+                            fx_lines.append(f"  {ALL_FX.get(_fxsym,{}).get('label',_fxsym)}: {_rs} ({_sg}{_fxi['pct']:.3f}%)")
+
+                    utc_now = _dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+                    live_context = (
+                        f"=== LIVE MARKET DATA ({utc_now}) ===\n"
+                        f"STOCKS:\n{chr(10).join(stock_lines) or '  (none)'}\n"
+                        f"COMMODITIES:\n{chr(10).join(comm_lines) or '  (unavailable)'}\n"
+                        f"CRYPTO:\n{chr(10).join(crypto_lines) or '  (unavailable)'}\n"
+                        f"CURRENCIES (vs USD):\n{chr(10).join(fx_lines) or '  (unavailable)'}\n"
+                        f"MARKET MOOD: Fear & Greed = {fng_val_live} ({fng_lbl_live})"
+                    ).strip()
+
+                    # ── Retrieve from vector store ────────────────────────────
+                    doc_context = ""; sources_data = []
+                    if st.session_state.vectorstore:
+                        vs    = st.session_state.vectorstore
+                        q_emb = vs["model"].encode([q], normalize_embeddings=True).tolist()
+                        res   = vs["collection"].query(query_embeddings=q_emb, n_results=6,
+                                                       include=["documents","metadatas","distances"])
+                        cks, mts, dts = res["documents"][0], res["metadatas"][0], res["distances"][0]
+                        doc_context  = "\n---\n".join(
+                            f"[Source {i+1} | {m['filename']} | chunk {m.get('chunk','?')}]\n{c}"
+                            for i, (c, m) in enumerate(zip(cks, mts)))
+                        sources_data = [
+                            {"filename": m["filename"],
+                             "score":    round(1 - d/2, 3),
+                             "preview":  c[:380],
+                             "meta":     m,
+                             "chunk_idx": m.get("chunk", idx)}
+                            for idx, (c, m, d) in enumerate(zip(cks, mts, dts))
+                        ]
+
+                    # ── Build system prompt based on mode ────────────────────
+                    is_analyst = st.session_state.analyst_mode
+
+                    if is_analyst:
+                        system_prompt = (
+                            "You are a senior financial analyst producing structured research output. "
+                            "When answering, ALWAYS structure your response as follows:\n\n"
+                            "1. **KEY METRICS** — For each financial metric found, state it clearly: "
+                            "'Revenue (FY23): $X.XB', 'Net Income: $X.XB', 'Gross Margin: XX%', etc.\n"
+                            "2. **GROWTH & TRENDS** — YoY or QoQ changes with percentages.\n"
+                            "3. **KEY RISK FACTORS** — List 2-4 specific risks mentioned.\n"
+                            "4. **GUIDANCE & OUTLOOK** — Any forward-looking statements.\n"
+                            "5. **OVERALL VERDICT** — One sentence conclusion with a Rating: "
+                            "Strong Buy / Buy / Hold / Sell / Strong Sell.\n\n"
+                            "Be precise. Use exact numbers from the documents. "
+                            "Label every figure with its period (FY23, Q3 2024, etc.). "
+                            "Never fabricate numbers. If data is unavailable, state '—'."
+                        )
+                    else:
+                        system_prompt = (
+                            "You are an expert financial analyst with real-time data access. "
+                            "You have live prices for stocks, gold, silver, oil, crypto, and FX rates. "
+                            "Use live data for market questions. For document questions, cite specific numbers. "
+                            "Be concise, precise, never fabricate numbers."
+                        )
+
+                    user_msg = (f"{live_context}\n\n=== DOCUMENT CONTEXT ===\n{doc_context}\n\nQuestion: {q}"
+                                if doc_context else f"{live_context}\n\nQuestion: {q}")
+
+                    resp = oai.chat.completions.create(
+                        model="llama-3.3-70b-versatile",
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            *[{"role": m["role"], "content": m["content"]}
+                              for m in st.session_state.messages[:-1]],
+                            {"role": "user", "content": user_msg},
+                        ],
+                        temperature=0.1 if is_analyst else 0.15,
+                        max_tokens=1800,
+                    )
+                    answer = resp.choices[0].message.content
+                    tokens = resp.usage.total_tokens
+
+                    # ── Render answer ─────────────────────────────────────────
+                    if is_analyst:
+                        render_analyst_output(answer, q)
+                    else:
+                        st.markdown(answer)
+
+                    # ── Source evidence panel ─────────────────────────────────
+                    if sources_data:
+                        render_source_panel(sources_data)
+
+                    # ── Token / model caption ─────────────────────────────────
+                    mode_lbl = "⚡ Analyst Mode" if is_analyst else "💬 Chat Mode"
+                    st.caption(f"{mode_lbl} · llama-3.3-70b-versatile · {tokens} tokens · FinBERT retrieval · live data injected")
+
+                    st.session_state.messages.append({
+                        "role":         "assistant",
+                        "content":      answer,
+                        "sources":      sources_data,
+                        "analyst_mode": is_analyst,
+                        "question":     q,
+                    })
+
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HERO
@@ -3867,7 +2272,7 @@ st.markdown("""
      10-Ks &amp; Earnings Transcripts. Live markets &amp; crypto always on.</p>
   <div class="badge-row">
     <span class="badge v">FinBERT Embeddings</span>
-    <span class="badge v">Source-backed Answers</span>
+    <span class="badge v">Semantic Retrieval</span>
     <span class="badge v">Llama 3.3 · 70B</span>
     <span class="badge">Groq</span>
     <span class="badge g">Live Data</span>
@@ -3882,10 +2287,11 @@ st.markdown("""
 chunks = st.session_state.chunk_count
 docs   = st.session_state.uploaded_docs
 msgs   = len(st.session_state.messages) // 2
+embed_label = "FinBERT" if "finbert" in st.session_state.get("_embed_model_name","").lower() else "MiniLM"
 st.markdown(f"""
 <div class="stat-strip">
   <div class="stat-cell"><div class="stat-lbl">Embeddings</div>
-    <div class="stat-val-mono">FinBERT · Finance</div></div>
+    <div class="stat-val-mono">{embed_label}</div></div>
   <div class="stat-cell"><div class="stat-lbl">Chunks Indexed</div>
     <div class="stat-val {'active' if chunks else ''}">{chunks if chunks else '—'}</div></div>
   <div class="stat-cell"><div class="stat-lbl">Documents</div>
@@ -3898,7 +2304,7 @@ st.markdown(f"""
 # ─────────────────────────────────────────────────────────────────────────────
 # MARKET MOOD + GLOBAL INDICES
 # ─────────────────────────────────────────────────────────────────────────────
-fng = fetch_fear_greed(); fng_val = fng["value"]; fng_label = fng["label"]
+fng = _fng_pre  # already fetched above for mood button
 INDEX_SYMS = {"^GSPC":{"name":"S&P 500","flag":"🇺🇸"},"^IXIC":{"name":"NASDAQ","flag":"🇺🇸"},
               "^FTSE":{"name":"FTSE 100","flag":"🇬🇧"},"^NSEI":{"name":"NIFTY 50","flag":"🇮🇳"},
               "^N225":{"name":"Nikkei","flag":"🇯🇵"},"^GDAXI":{"name":"DAX","flag":"🇩🇪"}}
@@ -3910,8 +2316,7 @@ for sym, meta in INDEX_SYMS.items():
         arrow    = "▲" if info["pct"] >= 0 else "▼"
         cls      = "up" if info["pct"] >= 0 else "down"
         chip_cls = "chip-up" if info["pct"] >= 0 else "chip-down"
-        idx_chips += (f'<div class="mood-idx-chip {chip_cls}">'
-                      f'<div class="mood-idx-name">{meta["flag"]} {meta["name"]}</div>'
+        idx_chips += (f'<div class="mood-idx-chip {chip_cls}"><div class="mood-idx-name">{meta["flag"]} {meta["name"]}</div>'
                       f'<div class="mood-idx-val">{info["price"]:,.0f}</div>'
                       f'<div class="mood-idx-chg {cls}">{arrow} {abs(info["pct"]):.2f}%</div></div>')
 mood_color = "#f87171" if fng_val<25 else ("#fb923c" if fng_val<45 else ("#facc15" if fng_val<55 else ("#86efac" if fng_val<75 else "#4ade80")))
@@ -3934,124 +2339,6 @@ st.markdown(f"""
   <div class="mood-indices">{idx_chips}</div>
 </div>
 """, unsafe_allow_html=True)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# HEDGE FUND MOVES  — auto-sliding 3D cube carousel
-# ─────────────────────────────────────────────────────────────────────────────
-_HF_ANNOUNCEMENTS = [
-    {"fund": "Bridgewater Associates", "action": "Increased", "asset": "Gold ETF (GLD)", "size": "$2.1B", "type": "BUY", "note": "Macro inflation hedge amid rising debt concerns"},
-    {"fund": "Citadel", "action": "Opened", "asset": "NVIDIA (NVDA)", "size": "$890M", "type": "BUY", "note": "AI chip supercycle thesis — H100 demand underpriced"},
-    {"fund": "Millennium Management", "action": "Reduced", "asset": "US Treasuries", "size": "$3.4B", "type": "SELL", "note": "Duration risk as Fed holds rates higher for longer"},
-    {"fund": "Two Sigma", "action": "Initiated", "asset": "Reliance Industries", "size": "$540M", "type": "BUY", "note": "India infrastructure + Jio 5G runway undervalued"},
-    {"fund": "Point72", "action": "Increased", "asset": "Bitcoin Futures", "size": "$1.2B", "type": "BUY", "note": "ETF approval structural inflows not yet priced in"},
-    {"fund": "Renaissance Technologies", "action": "Exited", "asset": "Regional Banks (KRE)", "size": "$780M", "type": "SELL", "note": "CRE exposure and deposit outflow risk remain elevated"},
-    {"fund": "D.E. Shaw", "action": "Built", "asset": "Taiwan Semiconductor (TSM)", "size": "$1.6B", "type": "BUY", "note": "Geopolitical premium overdone vs. structural AI demand"},
-    {"fund": "Pershing Square", "action": "Shorted", "asset": "Long-dated US Bonds", "size": "$2.8B", "type": "SHORT", "note": "Fiscal deficits will keep long yields structurally elevated"},
-    {"fund": "Tiger Global", "action": "Added", "asset": "Alphabet (GOOGL)", "size": "$1.1B", "type": "BUY", "note": "Search + Cloud re-acceleration; AI narrative recoupled"},
-    {"fund": "Coatue Management", "action": "Trimmed", "asset": "Moderna (MRNA)", "size": "$420M", "type": "SELL", "note": "Post-COVID revenue cliff; pipeline needs 2026+ catalyst"},
-]
-
-def _build_hf_carousel(items: list[dict]) -> str:
-    cards_html = ""
-    for i, item in enumerate(items):
-        color    = "#4ade80" if item["type"] in ("BUY","INCREASE") else ("#f87171" if item["type"] in ("SELL","SHORT") else "#F0C040")
-        bg       = "rgba(74,222,128,.06)" if item["type"] in ("BUY","INCREASE") else ("rgba(248,113,113,.06)" if item["type"] in ("SELL","SHORT") else "rgba(240,192,64,.06)")
-        bd       = color.replace(")", ",.25)").replace("rgb", "rgba") if "rgba" not in color else color
-        tag_bg   = "rgba(74,222,128,.15)" if item["type"] == "BUY" else ("rgba(248,113,113,.15)" if item["type"] in ("SELL","SHORT") else "rgba(240,192,64,.15)")
-        cards_html += f"""
-        <div class="hf-card" style="background:{bg};border:1px solid rgba(255,255,255,.07);
-             border-left:3px solid {color};border-radius:14px;
-             padding:1.1rem 1.3rem;min-height:130px;display:flex;flex-direction:column;
-             justify-content:space-between;flex-shrink:0;width:100%;box-sizing:border-box;">
-          <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:.6rem;">
-            <div>
-              <div style="font-family:'Space Mono',monospace;font-size:.52rem;letter-spacing:.14em;
-                   text-transform:uppercase;color:#4A3858;margin-bottom:.2rem;">{item['fund']}</div>
-              <div style="font-family:'Cormorant Garamond',serif;font-size:1.12rem;font-weight:300;
-                   color:#EDE8F5;line-height:1.2;">{item['action']} <span style="color:{color};">{item['asset']}</span></div>
-            </div>
-            <div style="font-family:'Space Mono',monospace;font-size:.62rem;font-weight:700;
-                 background:{tag_bg};border:1px solid {color};border-radius:5px;
-                 padding:.2rem .5rem;color:{color};white-space:nowrap;margin-left:.8rem;">{item['type']}</div>
-          </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;">
-            <div style="font-family:'Syne',sans-serif;font-size:.74rem;color:#9A8AAA;
-                 line-height:1.5;max-width:78%;">{item['note']}</div>
-            <div style="font-family:'Space Mono',monospace;font-size:.78rem;font-weight:700;
-                 color:{color};white-space:nowrap;margin-left:.5rem;">{item['size']}</div>
-          </div>
-        </div>"""
-
-    carousel_html = f"""<!DOCTYPE html>
-<html><head><style>
-*{{margin:0;padding:0;box-sizing:border-box;}}
-body{{background:transparent;overflow:hidden;}}
-.hf-wrap{{
-  background:linear-gradient(135deg,rgba(13,11,18,.97),rgba(20,12,30,.98));
-  border:1px solid rgba(107,45,107,.25);border-radius:16px;
-  padding:1rem 1.2rem;font-family:sans-serif;
-  overflow:hidden;
-}}
-.hf-header{{
-  display:flex;align-items:center;justify-content:space-between;margin-bottom:.8rem;
-}}
-.hf-title{{
-  font-family:'Space Mono',monospace;font-size:.52rem;letter-spacing:.2em;
-  text-transform:uppercase;color:#C084C8;display:flex;align-items:center;gap:.4rem;
-}}
-.hf-dot{{width:6px;height:6px;border-radius:50%;background:#C084C8;
-  animation:blink 1.4s ease-in-out infinite;}}
-@keyframes blink{{0%,100%{{opacity:1}}50%{{opacity:.3}}}}
-.hf-counter{{font-family:'Space Mono',monospace;font-size:.5rem;color:#4A3858;}}
-.hf-track{{position:relative;overflow:hidden;height:136px;}}
-.hf-slider{{
-  display:flex;flex-direction:column;
-  transition:transform .6s cubic-bezier(.77,0,.175,1);
-}}
-.hf-card{{margin-bottom:.5rem;}}
-.hf-dots{{display:flex;gap:.3rem;justify-content:center;margin-top:.6rem;flex-wrap:wrap;}}
-.hf-pip{{width:5px;height:5px;border-radius:50%;background:rgba(107,45,107,.35);
-  cursor:pointer;transition:all .2s;border:none;padding:0;}}
-.hf-pip.active{{background:#C084C8;transform:scale(1.4);}}
-</style></head><body>
-<div class="hf-wrap">
-  <div class="hf-header">
-    <div class="hf-title">
-      <div class="hf-dot"></div>
-      Major Hedge Fund Moves
-    </div>
-    <div class="hf-counter" id="counter">1 / {len(items)}</div>
-  </div>
-  <div class="hf-track">
-    <div class="hf-slider" id="slider">
-      {cards_html}
-    </div>
-  </div>
-  <div class="hf-dots" id="dots">
-    {''.join(f'<button class="hf-pip{" active" if i==0 else ""}" onclick="goTo({i})" id="pip{i}"></button>' for i in range(len(items)))}
-  </div>
-</div>
-<script>
-const n={len(items)},CARD_H=152;
-let cur=0,timer;
-const slider=document.getElementById('slider');
-const counter=document.getElementById('counter');
-function goTo(i){{
-  document.getElementById('pip'+cur).classList.remove('active');
-  cur=(i+n)%n;
-  slider.style.transform='translateY(-'+(cur*CARD_H)+'px)';
-  counter.textContent=(cur+1)+' / '+n;
-  document.getElementById('pip'+cur).classList.add('active');
-}}
-function next(){{goTo(cur+1);}}
-timer=setInterval(next,3000);
-slider.addEventListener('mouseenter',()=>clearInterval(timer));
-slider.addEventListener('mouseleave',()=>{{timer=setInterval(next,3000);}});
-</script></body></html>"""
-    return carousel_html
-
-_hf_html = _build_hf_carousel(_HF_ANNOUNCEMENTS)
-st.components.v1.html(_hf_html, height=260, scrolling=False)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # NEWS CAROUSELS
@@ -4079,40 +2366,11 @@ comm_chips  = "".join(
     for sym, (name, unit, icon, dec) in COMMODITY_SYMS.items() if (info := comm_quotes.get(sym))
 )
 if comm_chips:
-    st.markdown(
-        '<div class="comm-panel">'
-        '<div class="comm-title">Precious Metals &amp; Commodities · Historical Data</div>',
-        unsafe_allow_html=True)
-    st.markdown('<div class="chips-row">'+comm_chips+'</div>', unsafe_allow_html=True)
-
-    # Commodity 1Y chart
-    with st.expander("📈 Show 1-Year Price Chart", expanded=True):
-        comm_hist: dict[str, pd.Series] = {}
-        with st.spinner("Loading commodity history…"):
-            for sym, (name, unit, icon, dec) in COMMODITY_SYMS.items():
-                df_c = fetch_stock_history_1y(sym)
-                if not df_c.empty:
-                    comm_hist[f"{icon} {name}"] = df_c["close"]
-        if comm_hist:
-            fig_comm = build_rich_chart(comm_hist, mode="normalized",
-                                        title="Commodity % Return · 1 Year",
-                                        show_bollinger=False, show_sma=False, height=280)
-            if fig_comm:
-                st.plotly_chart(fig_comm, use_container_width=True,
-                                config=dict(displayModeBar=False, displaylogo=False))
-
-    # AI timeframe navigator
-    render_ai_timeframe_panel(
-        symbols=list(COMMODITY_SYMS.keys()),
-        panel_key="comm",
-        groq_api_key=GROQ_API_KEY,
-        accent="#F0C040",
-        label="Commodity Analysis",
-    )
-    st.markdown(
-        '<div style="font-family:Space Mono,monospace;font-size:.5rem;color:#4A3858;'
-        'margin-top:.65rem;text-align:right;">Futures · Yahoo Finance · 60s cache</div></div>',
-        unsafe_allow_html=True)
+    st.markdown('<div class="comm-panel"><div class="comm-title">Precious Metals &amp; Commodities</div>'
+                '<div class="chips-row">'+comm_chips+'</div>'
+                '<div style="font-family:Space Mono,monospace;font-size:.5rem;color:#4A3858;'
+                'margin-top:.65rem;text-align:right;">Futures · Yahoo Finance · 60s cache</div></div>',
+                unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CRYPTO
@@ -4123,74 +2381,33 @@ crypto_chips  = "".join(
     for sym, (name, ticker, icon, dec) in CRYPTO_SYMS.items() if (info := crypto_quotes.get(sym))
 )
 if crypto_chips:
-    st.markdown(
-        '<div class="crypto-panel">'
-        '<div class="crypto-title">Crypto Markets · Historical Data</div>',
-        unsafe_allow_html=True)
-    st.markdown('<div class="chips-row">'+crypto_chips+'</div>', unsafe_allow_html=True)
-
-    # Crypto 1Y chart
-    with st.expander("📈 Show 1-Year Price Chart", expanded=True):
-        crypto_hist: dict[str, pd.Series] = {}
-        with st.spinner("Loading crypto history…"):
-            for sym, (name, ticker, icon, dec) in CRYPTO_SYMS.items():
-                df_cr = fetch_stock_history_1y(sym)
-                if not df_cr.empty:
-                    crypto_hist[f"{icon} {name}"] = df_cr["close"]
-        if crypto_hist:
-            fig_cry = build_rich_chart(crypto_hist, mode="normalized",
-                                       title="Crypto % Return · 1 Year",
-                                       show_bollinger=False, show_sma=False, height=280)
-            if fig_cry:
-                st.plotly_chart(fig_cry, use_container_width=True,
-                                config=dict(displayModeBar=False, displaylogo=False))
-
-    # AI timeframe navigator
-    render_ai_timeframe_panel(
-        symbols=list(CRYPTO_SYMS.keys()),
-        panel_key="crypto",
-        groq_api_key=GROQ_API_KEY,
-        accent="#FB923C",
-        label="Crypto Analysis",
-    )
-    st.markdown(
-        '<div style="font-family:Space Mono,monospace;font-size:.5rem;color:#4A3858;'
-        'margin-top:.65rem;text-align:right;">Spot · Yahoo Finance · 60s cache</div></div>',
-        unsafe_allow_html=True)
+    st.markdown('<div class="crypto-panel"><div class="crypto-title">Crypto Markets</div>'
+                '<div class="chips-row">'+crypto_chips+'</div>'
+                '<div style="font-family:Space Mono,monospace;font-size:.5rem;color:#4A3858;'
+                'margin-top:.65rem;text-align:right;">Spot · Yahoo Finance · 60s cache</div></div>',
+                unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# LIVE STOCK CHART  — 1 Year · Candlestick/Area · AI Analysis
+# LIVE STOCK CHART
 # ─────────────────────────────────────────────────────────────────────────────
-st.markdown(
-    '<div style="background:#0D0B12;border:1px solid rgba(139,58,139,.22);'
-    'border-radius:12px;padding:1.2rem 1.4rem .9rem;margin-bottom:1.4rem;">',
-    unsafe_allow_html=True)
-st.markdown(
-    '<div style="font-family:\'Cormorant Garamond\',serif;font-size:1.1rem;font-weight:300;'
-    'color:#EDE8F5;margin-bottom:.8rem;display:flex;align-items:center;gap:.5rem;">'
-    '<span style="display:inline-block;width:3px;height:1.1rem;'
-    'background:linear-gradient(180deg,#6B2D6B,#C084C8);border-radius:2px;"></span>'
-    'Stock Charts · 1 Year Historical Data</div>', unsafe_allow_html=True)
-
-sc_r1, sc_r2, sc_r3 = st.columns([4, 1.1, 1.1])
-with sc_r1:
+st.markdown('<div style="background:#0D0B12;border:1px solid rgba(139,58,139,.22);'
+            'border-radius:12px;padding:1.2rem 1.4rem .5rem;margin-bottom:1.4rem;">',
+            unsafe_allow_html=True)
+st.markdown('<div style="font-family:\'Cormorant Garamond\',serif;font-size:1.1rem;font-weight:300;'
+            'color:#EDE8F5;margin-bottom:.8rem;display:flex;align-items:center;gap:.5rem;">'
+            '<span style="display:inline-block;width:3px;height:1.1rem;'
+            'background:linear-gradient(180deg,#6B2D6B,#C084C8);border-radius:2px;"></span>'
+            'Live Stock Chart</div>', unsafe_allow_html=True)
+col_sym, col_rng = st.columns([4, 1])
+with col_sym:
     symbols = st.multiselect("symbols",
         options=["AAPL","MSFT","NVDA","GOOGL","AMZN","TSLA","META","TSM","SAP","BABA","SONY","NVO",
-                 "RELIANCE.NS","TCS.NS","INFY.NS","WIPRO.NS","HDFCBANK.NS","BTC-USD","ETH-USD",
-                 "GC=F","CL=F","^GSPC","^NSEI"],
-        default=["AAPL","MSFT","NVDA","TSLA"], label_visibility="collapsed",
-        key="main_chart_syms")
-with sc_r2:
-    chart_type = st.selectbox("chart_type",
-        ["% Return","Absolute Price","Candlestick (1 symbol)"],
-        index=0, label_visibility="collapsed", key="chart_type_sel")
-with sc_r3:
-    rng = st.selectbox("range", ["1M","3M","6M","1Y"], index=3,
-                       label_visibility="collapsed", key="chart_rng")
-
-period_map   = {"1M":"1mo","3M":"3mo","6M":"6mo","1Y":"1y"}
-interval_map = {"1M":"1d","3M":"1d","6M":"1d","1Y":"1d"}
-
+                 "RELIANCE.NS","TCS.NS","INFY.NS","WIPRO.NS"],
+        default=["AAPL","MSFT","NVDA","TSLA"], label_visibility="collapsed")
+with col_rng:
+    rng = st.selectbox("range", ["1D","5D","1M","3M","6M","1Y"], index=2, label_visibility="collapsed")
+period_map   = {"1D":"1d","5D":"5d","1M":"1mo","3M":"3mo","6M":"6mo","1Y":"1y"}
+interval_map = {"1D":"5m","5D":"30m","1M":"1d","3M":"1d","6M":"1d","1Y":"1wk"}
 if symbols:
     sq = fetch_multi_quotes(tuple(symbols))
     cps = []
@@ -4199,68 +2416,23 @@ if symbols:
         if info:
             arr = "▲" if info["pct"] >= 0 else "▼"
             cc  = "#4ade80" if info["pct"] >= 0 else "#f87171"
-            cps.append(
-                f'<div style="display:flex;flex-direction:column;align-items:center;'
-                f'background:#120E1A;border:1px solid rgba(139,58,139,.22);border-radius:8px;'
-                f'padding:.45rem .75rem;min-width:80px;font-family:Space Mono,monospace;">'
-                f'<span style="font-size:.62rem;color:#C084C8;font-weight:700;">{sym}</span>'
-                f'<span style="font-size:.74rem;color:#EDE8F5;margin-top:.1rem;">${info["price"]:,.2f}</span>'
-                f'<span style="font-size:.58rem;color:{cc};">{arr} {abs(info["pct"]):.2f}%</span></div>'
-            )
+            cps.append(f'<div style="display:flex;flex-direction:column;align-items:center;'
+                       f'background:#120E1A;border:1px solid rgba(139,58,139,.22);border-radius:8px;'
+                       f'padding:.45rem .75rem;min-width:80px;font-family:Space Mono,monospace;">'
+                       f'<span style="font-size:.62rem;color:#C084C8;font-weight:700;">{sym}</span>'
+                       f'<span style="font-size:.74rem;color:#EDE8F5;margin-top:.1rem;">${info["price"]:,.2f}</span>'
+                       f'<span style="font-size:.58rem;color:{cc};">{arr} {abs(info["pct"]):.2f}%</span></div>')
     if cps:
         st.markdown('<div style="display:flex;gap:.55rem;flex-wrap:wrap;margin-bottom:.8rem;">'
                     +"".join(cps)+"</div>", unsafe_allow_html=True)
-
-    # ── Fetch 1Y history ────────────────────────────────────────────────
-    hist_frames: dict[str, pd.DataFrame] = {}
-    series_dict: dict[str, pd.Series] = {}
-    with st.spinner("Loading 1 year of historical data…"):
-        for sym in symbols:
-            df = fetch_stock_history_1y(sym)
-            if not df.empty:
-                hist_frames[sym] = df
-                series_dict[sym] = df["close"]
-
-    if series_dict:
-        is_candle = (chart_type == "Candlestick (1 symbol)")
-        mode = "normalized" if "Return" in chart_type else "absolute"
-
-        if is_candle and len(symbols) == 1 and symbols[0] in hist_frames:
-            fig = build_rich_chart(
-                series_dict, mode="candlestick",
-                title=f"{symbols[0]} · Candlestick Chart · {rng}",
-                single_ohlc=hist_frames[symbols[0]],
-                height=420,
-            )
-        else:
-            fig = build_rich_chart(
-                series_dict, mode=mode,
-                title=f"{'Normalised % Return' if mode=='normalized' else 'Price'} · {rng}",
-                show_bollinger=(len(series_dict) == 1),
-                show_sma=(len(series_dict) == 1),
-                height=380,
-            )
-
-        if fig is not None:
-            st.plotly_chart(fig, use_container_width=True, config=dict(
-                displayModeBar=True,
-                modeBarButtonsToRemove=["toImage","sendDataToCloud","zoom2d","pan2d"],
-                displaylogo=False,
-            ))
-        else:
-            normed = (pd.DataFrame(series_dict).dropna(how="all").ffill()
-                      / pd.DataFrame(series_dict).dropna(how="all").ffill().iloc[0] - 1) * 100
-            st.line_chart(normed, height=280, use_container_width=True)
-
-        # ── AI Timeframe Analysis (always shown below chart) ──────────────
-        render_ai_timeframe_panel(
-            symbols=symbols,
-            panel_key="chart",
-            groq_api_key=GROQ_API_KEY,
-            accent="#C084C8",
-            label="Stock Market Analysis",
-        )
-
+    chart = pd.DataFrame()
+    for sym in symbols:
+        s = fetch_yahoo_series(sym, period_map[rng], interval_map[rng])
+        if s is not None and not s.empty: chart[sym] = s
+    if not chart.empty:
+        normed = (chart.dropna(how="all").ffill() / chart.dropna(how="all").ffill().iloc[0] - 1) * 100
+        st.line_chart(normed, height=230, use_container_width=True)
+        st.caption(f"% return from period start · {rng} · Yahoo Finance")
     else:
         st.warning("Chart data unavailable — try again in a moment.")
 else:
@@ -4273,71 +2445,44 @@ st.markdown("</div>", unsafe_allow_html=True)
 fx_options     = {f"{m['flag']} {m['label']} · {m['name']}": sym for sym, m in ALL_FX.items()}
 default_labels = [k for k, v in fx_options.items()
                   if v in ("USDINR=X","USDJPY=X","USDCNY=X","EURUSD=X","GBPUSD=X","USDCHF=X")]
-st.markdown('<div class="fx-panel"><div class="fx-panel-title">Currencies vs USD · 1 Year Data</div>',
+st.markdown('<div class="fx-panel"><div class="fx-panel-title">Currencies vs USD</div>',
             unsafe_allow_html=True)
 fx_r1, fx_r2 = st.columns([5, 1])
 with fx_r1:
     selected_labels = st.multiselect("currencies", options=list(fx_options.keys()),
         default=default_labels, label_visibility="collapsed", key="fx_select")
 with fx_r2:
-    fx_rng = st.selectbox("fx_range", ["1M","3M","6M","1Y"], index=3,
+    fx_rng = st.selectbox("fx_range", ["1M","3M","6M","1Y"], index=0,
                           label_visibility="collapsed", key="fx_rng")
 selected_syms = [fx_options[lbl] for lbl in selected_labels]
 st.session_state["fx_select_syms"] = selected_syms
 fx_period   = {"1M":"1mo","3M":"3mo","6M":"6mo","1Y":"1y"}
-fx_interval = {"1M":"1d","3M":"1d","6M":"1d","1Y":"1d"}
+fx_interval = {"1M":"1d","3M":"1d","6M":"1d","1Y":"1wk"}
 if selected_syms:
-    fx_series: dict[str, pd.Series] = {}
-    fx_hist:   dict[str, pd.DataFrame] = {}
+    fx_chart = pd.DataFrame()
     for sym in selected_syms:
         meta = ALL_FX[sym]; s = fetch_yahoo_series(sym, fx_period[fx_rng], fx_interval[fx_rng])
         if s is not None and not s.empty:
             if meta["invert"]: s = 1.0 / s
-            label = meta["flag"]+" "+meta["label"]
-            fx_series[label] = s
-            # store raw for stats (inverted if needed)
-            df_raw = pd.DataFrame({"close": s})
-            fx_hist[sym] = df_raw
-
-    if fx_series:
-        fig_fx = build_rich_chart(fx_series, mode="normalized",
-                                  title=f"Currency % Change vs USD · {fx_rng}",
-                                  show_bollinger=False, show_sma=False, height=280)
-        if fig_fx is not None:
-            st.plotly_chart(fig_fx, use_container_width=True,
-                            config=dict(displayModeBar=False, displaylogo=False))
-        else:
-            nc = pd.DataFrame(fx_series).dropna(how="all").ffill()
-            nc = (nc / nc.iloc[0] - 1) * 100
-            st.line_chart(nc, height=220, use_container_width=True)
-
-    # ── AI Timeframe Analysis ─────────────────────────────────────────────
-    if selected_syms:
-        render_ai_timeframe_panel(
-            symbols=selected_syms,
-            panel_key="fx",
-            groq_api_key=GROQ_API_KEY,
-            accent="#60A5FA",
-            label="Currency Analysis",
-        )
-
+            s = (s / s.iloc[0] - 1) * 100; s.name = meta["flag"]+" "+meta["label"]
+            fx_chart[s.name] = s
+    if not fx_chart.empty:
+        st.line_chart(fx_chart.dropna(how="all").ffill(), height=220, use_container_width=True)
+        st.caption(f"% change from {fx_rng} start · Rising = USD strengthening · Yahoo Finance")
     fx_quotes = fetch_multi_quotes(tuple(selected_syms))
     fx_chips  = []
     for sym in selected_syms:
         meta = ALL_FX[sym]; info = fx_quotes.get(sym)
         if info:
-            rate = info["price"]; pct = info["pct"]
-            rs   = f"{rate:,.2f}" if rate >= 10 else f"{rate:.4f}"
-            arr  = "▲" if pct > 0.005 else ("▼" if pct < -0.005 else "●")
-            cls  = "up" if pct > 0.005 else ("down" if pct < -0.005 else "flat")
-            chip_cls = "chip-up" if pct > 0.005 else ("chip-down" if pct < -0.005 else "")
-            fx_chips.append(
-                f'<div class="price-chip {chip_cls}">'
-                f'<div class="pc-sym">{meta["flag"]} {meta["label"]}</div>'
-                f'<div class="pc-name">{meta["name"]}</div>'
-                f'<div class="pc-val">{rs}</div>'
-                f'<div class="pc-chg {cls}">{arr} {abs(pct):.3f}%</div></div>'
-            )
+            rate     = info["price"]; pct = info["pct"]
+            rs       = f"{rate:,.2f}" if rate >= 10 else f"{rate:.4f}"
+            arr      = "▲" if pct > 0.005 else ("▼" if pct < -0.005 else "●")
+            cls      = "up" if pct > 0.005 else ("down" if pct < -0.005 else "flat")
+            chip_cls = "chip-up" if pct > 0.005 else ("chip-down" if pct < -0.005 else "chip-flat")
+            fx_chips.append(f'<div class="price-chip {chip_cls}"><div class="pc-sym">{meta["flag"]} {meta["label"]}</div>'
+                            f'<div class="pc-name">{meta["name"]}</div>'
+                            f'<div class="pc-val">{rs}</div>'
+                            f'<div class="pc-chg {cls}">{arr} {abs(pct):.3f}%</div></div>')
     if fx_chips:
         now_ist = _dt.datetime.utcnow() + _dt.timedelta(hours=5, minutes=30)
         st.markdown('<div class="chips-row" style="margin-top:.75rem;">'+"".join(fx_chips)
@@ -4414,117 +2559,995 @@ else:
 st.markdown("<hr style='border-color:rgba(139,58,139,.15);margin:1.4rem 0;'>", unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CHAT INPUT  (always rendered so st.chat_input works; messages show in panel above)
+# ③ INLINE ANALYTICS — appears BELOW market content after document upload
 # ─────────────────────────────────────────────────────────────────────────────
-prefill  = st.session_state.pop("_prefill", None)
-question = st.chat_input("Ask about stocks, gold, crypto, currencies, or your documents…")
-q = prefill or question
+if st.session_state.show_analytics and st.session_state.auto_generated:
+    n_metrics = len(st.session_state.auto_metrics)
+    st.markdown(
+        f'<div class="analytics-banner">'
+        f'<div class="ab-icon">🧠</div>'
+        f'<div>'
+        f'<div class="ab-title">FinBERT Analytics Ready — {n_metrics} metric{"s" if n_metrics!=1 else ""} auto-extracted</div>'
+        f'<div class="ab-sub">Finance-specific embeddings (yiyanghkust/finbert-pretrain) · '
+        f'Hybrid BM25 + Dense retrieval · Sector benchmarks</div>'
+        f'</div></div>',
+        unsafe_allow_html=True,
+    )
+    render_inline_analytics(
+        vectorstore   = st.session_state.get("vectorstore"),
+        groq_api_key  = GROQ_API_KEY,
+        doc_full_text = st.session_state.get("doc_full_text",""),
+        auto_metrics  = st.session_state.get("auto_metrics", []),
+    )
 
-if q:
-    # Auto-open chat panel when a question is submitted
-    if not st.session_state.show_chat:
-        st.session_state.show_chat = True
+elif st.session_state.file_names and not st.session_state.show_analytics:
+    # Show a minimal nudge if docs loaded but analytics hidden
+    st.markdown(
+        '<div style="text-align:center;padding:.8rem;background:rgba(74,222,128,.04);'
+        'border:1px solid rgba(74,222,128,.12);border-radius:10px;margin-bottom:1rem;">'
+        '<span style="font-family:Space Mono,monospace;font-size:.6rem;color:#4A3858;">'
+        '📊 Document analytics ready — click <strong style="color:#86efac;">View Analytics</strong> in the top bar</span>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
-    if not GROQ_API_KEY:
-        st.error("Please enter your Groq API key in the sidebar."); st.stop()
+# ─────────────────────────────────────────────────────────────────────────────
+# PORTFOLIO PANEL  (v7) — slides open when 💼 clicked
+# ─────────────────────────────────────────────────────────────────────────────
+if st.session_state.show_portfolio:
+    if not _PORTFOLIO_READY:
+        st.error(
+            "Portfolio module requires extra packages. Install them with:\n\n"
+            "```\npip install yfinance plotly scipy numpy\n```\n\n"
+            "Then restart Streamlit."
+        )
+    else:
+        # ── Inline CSS for portfolio panel ─────────────────────────────────
+        st.markdown("""
+<style>
+/* ── PORTFOLIO PANEL ── */
+.pfol-panel{background:var(--card);border:1px solid rgba(192,132,200,.3);
+  border-radius:16px;padding:1.2rem 1.4rem;margin-bottom:1.2rem}
+.pfol-stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;
+  background:rgba(107,45,107,.2);border-radius:10px;overflow:hidden;
+  border:1px solid rgba(107,45,107,.2);margin-bottom:1rem}
+.pfol-stat{background:#0D0B12;padding:.7rem .9rem}
+.pfol-stat-lbl{font-family:'Space Mono',monospace;font-size:.48rem;letter-spacing:.18em;
+  text-transform:uppercase;color:#4A3858;margin-bottom:.25rem}
+.pfol-stat-val{font-family:'Cormorant Garamond',serif;font-size:1.5rem;font-weight:300;color:#EDE8F5;line-height:1}
+.pfol-stat-val.pos{color:#4ade80}.pfol-stat-val.neg{color:#f87171}
+.hcard{background:#120E1A;border:1px solid rgba(139,58,139,.22);border-radius:12px;
+  padding:.8rem 1rem;margin-bottom:.5rem}
+.fund-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem;margin:.6rem 0}
+.fund-cell{background:#120E1A;border:1px solid rgba(139,58,139,.18);border-radius:8px;padding:.5rem .7rem}
+.fund-lbl{font-family:'Space Mono',monospace;font-size:.46rem;letter-spacing:.15em;text-transform:uppercase;color:#4A3858;margin-bottom:.2rem}
+.fund-val{font-family:'Space Mono',monospace;font-size:.7rem;color:#EDE8F5}
+.signal-badge{display:inline-flex;align-items:center;gap:.4rem;font-family:'Space Mono',monospace;
+  font-size:.6rem;letter-spacing:.08em;text-transform:uppercase;padding:.25rem .6rem;border-radius:6px;font-weight:700}
+.ai-report{background:#120E1A;border:1px solid rgba(139,58,139,.25);border-left:3px solid #C084C8;
+  border-radius:0 10px 10px 0;padding:1rem 1.2rem;font-size:.86rem;color:#9A8AAA;line-height:1.9}
+.ai-report strong{color:#EDE8F5}
+</style>
+        """, unsafe_allow_html=True)
 
-    st.session_state.messages.append({"role":"user","content":q})
+        # ── Panel header ────────────────────────────────────────────────────
+        st.markdown("""
+<div style="background:linear-gradient(135deg,rgba(107,45,107,.2) 0%,rgba(13,11,18,.97) 100%);
+  border:1px solid rgba(192,132,200,.35);border-radius:16px;padding:1rem 1.4rem .8rem;
+  margin-bottom:.8rem;">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;">
+    <div>
+      <div style="font-family:'Space Mono',monospace;font-size:.52rem;letter-spacing:.22em;
+        text-transform:uppercase;color:#C084C8;margin-bottom:.3rem;">v7 · New Feature</div>
+      <div style="font-family:'Cormorant Garamond',serif;font-size:1.6rem;font-weight:300;color:#EDE8F5;">
+        Portfolio &amp; <em style="font-style:italic;">Stock Analysis</em>
+      </div>
+      <div style="font-family:'Syne',sans-serif;font-size:.75rem;color:#9A8AAA;margin-top:.25rem;">
+        Build your portfolio · AI stock deep-dives · Candlestick + RSI + MACD charts · Signal scoring
+      </div>
+    </div>
+    <div style="display:flex;gap:.4rem;flex-wrap:wrap;">
+      <span style="font-family:'Space Mono',monospace;font-size:.52rem;padding:.2rem .5rem;
+        background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.22);color:#86efac;border-radius:4px;">yfinance</span>
+      <span style="font-family:'Space Mono',monospace;font-size:.52rem;padding:.2rem .5rem;
+        background:rgba(192,132,200,.08);border:1px solid rgba(192,132,200,.22);color:#C084C8;border-radius:4px;">Plotly</span>
+      <span style="font-family:'Space Mono',monospace;font-size:.52rem;padding:.2rem .5rem;
+        background:rgba(240,192,64,.08);border:1px solid rgba(240,192,64,.22);color:#F0C040;border-radius:4px;">Llama 3.3-70B</span>
+    </div>
+  </div>
+</div>
+        """, unsafe_allow_html=True)
 
-    with st.spinner("Thinking…" if not st.session_state.analyst_mode else "Extracting structured insights…"):
-        try:
-            from openai import OpenAI
-            oai = OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
+        # ── Tab navigation ──────────────────────────────────────────────────
+        pfol_tabs = st.tabs(["💼 My Portfolio", "🔎 Stock Deep-Dive", "📈 Performance", "🤖 AI Report", "⚙️ Manage Holdings"])
 
-            stock_lines = [f"  {sym}: ${info['price']:,.2f} ({'▲' if info['pct']>=0 else '▼'}{abs(info['pct']):.2f}%)"
-                           for sym in symbols if (info := fetch_quote(sym))]
-            comm_lines  = [f"  {name}: ${info['price']:,.{dec}f} {unit} ({'+' if info['pct']>=0 else ''}{info['pct']:.2f}%)"
-                           for sym, (name, unit, _, dec) in COMMODITY_SYMS.items() if (info := fetch_quote(sym))]
-            crypto_lines = [f"  {ticker}: ${info['price']:,.{dec}f} ({'+' if info['pct']>=0 else ''}{info['pct']:.2f}%)"
-                            for sym, (name, ticker, _, dec) in CRYPTO_SYMS.items() if (info := fetch_quote(sym))]
-            fx_lines = []
-            for _fxsym in st.session_state.get("fx_select_syms", ("USDINR=X","USDJPY=X","USDCNY=X")):
-                _fxi = fetch_quote(_fxsym)
-                if _fxi:
-                    _p  = _fxi["price"]; _rs = f"{_p:,.2f}" if _p >= 10 else f"{_p:.4f}"
-                    _sg = "+" if _fxi["pct"] >= 0 else ""
-                    fx_lines.append(f"  {ALL_FX.get(_fxsym,{}).get('label',_fxsym)}: {_rs} ({_sg}{_fxi['pct']:.3f}%)")
+        # ─── helpers ─────────────────────────────────────────────────────────
+        CHART_BG="#07060C"; CHART_CARD="#0D0B12"; CHART_GRID="rgba(139,58,139,.12)"
+        CHART_TEXT="#EDE8F5"; CHART_DIM="#9A8AAA"; CHART_ACC="#C084C8"
+        CHART_GREEN="#4ADE80"; CHART_RED="#F87171"; CHART_GOLD="#F0C040"
+        _BASE_LAYOUT=dict(paper_bgcolor=CHART_BG,plot_bgcolor=CHART_CARD,
+            font=dict(family="Space Mono, monospace",color=CHART_TEXT,size=10),
+            margin=dict(l=30,r=20,t=36,b=30),
+            xaxis=dict(gridcolor=CHART_GRID,zeroline=False,showgrid=True),
+            yaxis=dict(gridcolor=CHART_GRID,zeroline=False,showgrid=True),
+            hovermode="x unified",
+            legend=dict(bgcolor="rgba(0,0,0,0)",bordercolor=CHART_GRID,borderwidth=1))
 
-            utc_now = _dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
-            live_context = (
-                f"=== LIVE MARKET DATA ({utc_now}) ===\n"
-                f"STOCKS:\n{chr(10).join(stock_lines) or '  (none)'}\n"
-                f"COMMODITIES:\n{chr(10).join(comm_lines) or '  (unavailable)'}\n"
-                f"CRYPTO:\n{chr(10).join(crypto_lines) or '  (unavailable)'}\n"
-                f"CURRENCIES (vs USD):\n{chr(10).join(fx_lines) or '  (unavailable)'}\n"
-                f"MARKET MOOD: Fear & Greed = {fng_val} ({fng_label})"
-            ).strip()
+        # ── GLOBAL STOCK UNIVERSE ─────────────────────────────────────────────
+        POPULAR_STOCKS={
+            "🇺🇸 US Mega Cap": [
+                "AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","BRK-B","JPM","V",
+                "UNH","XOM","LLY","JNJ","AVGO","MA","PG","HD","MRK","CVX",
+            ],
+            "🇺🇸 US Mid Cap / Growth": [
+                "PLTR","SNOW","COIN","HOOD","RBLX","LYFT","UBER","ABNB","DASH","DKNG",
+                "SOFI","AFRM","RIVN","LCID","SMCI","ARM","CRWD","ZS","PANW","NET",
+            ],
+            "🇮🇳 India NSE — Blue Chip": [
+                "RELIANCE.NS","TCS.NS","INFY.NS","HDFCBANK.NS","ICICIBANK.NS",
+                "WIPRO.NS","HINDUNILVR.NS","BAJFINANCE.NS","AXISBANK.NS","LT.NS",
+                "TATAMOTORS.NS","SUNPHARMA.NS","KOTAKBANK.NS","ONGC.NS","SBIN.NS",
+            ],
+            "🇮🇳 India NSE — Mid Cap": [
+                "ADANIENT.NS","ADANIPORTS.NS","ZOMATO.NS","PAYTM.NS","NYKAA.NS",
+                "DELHIVERY.NS","POLICYBZR.NS","IRCTC.NS","DIXON.NS","TATAPOWER.NS",
+                "PIDILITIND.NS","MUTHOOTFIN.NS","COFORGE.NS","PERSISTENT.NS","LTIM.NS",
+            ],
+            "🇨🇳 China / HK": [
+                "BABA","JD","BIDU","NIO","PDD","9988.HK","700.HK","9618.HK",
+                "1810.HK","3690.HK","2318.HK","0388.HK","0941.HK","TCEHY","XPEV",
+            ],
+            "🇯🇵 Japan (TSE)": [
+                "7203.T","6758.T","9984.T","8306.T","6861.T","9432.T","8058.T",
+                "SONY","TM","HMC","FANUY","MUFG","NTT","FUJIY","NTDOY",
+            ],
+            "🇰🇷 South Korea (KRX)": [
+                "005930.KS","000660.KS","005380.KS","035420.KS","051910.KS",
+                "006400.KS","000270.KS","068270.KS","207940.KS","035720.KS",
+            ],
+            "🇬🇧 United Kingdom (LSE)": [
+                "AZN.L","SHEL.L","HSBA.L","BP.L","GSK.L","DGE.L","RIO.L",
+                "ULVR.L","LLOY.L","VOD.L","BT-A.L","BARC.L","BATS.L","REL.L",
+            ],
+            "🇩🇪 Germany (XETRA)": [
+                "SAP.DE","SIE.DE","ALV.DE","MBG.DE","BMW.DE","VOW3.DE","BAS.DE",
+                "BAYN.DE","MUV2.DE","ADS.DE","DTE.DE","DBK.DE","RWE.DE","HEN3.DE",
+            ],
+            "🇫🇷 France (Euronext)": [
+                "MC.PA","OR.PA","SAN.PA","TTE.PA","BNP.PA","AIR.PA","SU.PA",
+                "DG.PA","CAP.PA","KER.PA","ACA.PA","GLE.PA","SAF.PA","TEP.PA",
+            ],
+            "🇨🇭 Switzerland (SIX)": [
+                "NESN.SW","NOVN.SW","ROG.SW","ABBN.SW","ZURN.SW","UBSG.SW",
+                "CSGN.SW","SREN.SW","LONN.SW","GIVN.SW","SLHN.SW","PGHN.SW",
+            ],
+            "🇳🇱 Netherlands": [
+                "ASML","ASML.AS","HEIA.AS","REN.AS","INGA.AS","NN.AS","AKZA.AS",
+                "PHIA.AS","WKL.AS","AD.AS","ABN.AS","DSM.AS","KPN.AS","MT.AS",
+            ],
+            "🇸🇪 Nordics (Sweden/Norway)": [
+                "ERIC-B.ST","VOLV-B.ST","ATCO-A.ST","SEB-A.ST","SHB-A.ST",
+                "NHY.OL","DNB.OL","EQNR.OL","MOWI.OL","ORK.OL",
+            ],
+            "🇦🇺 Australia (ASX)": [
+                "BHP.AX","CBA.AX","CSL.AX","NAB.AX","WBC.AX","ANZ.AX",
+                "MQG.AX","WES.AX","FMG.AX","RIO.AX","TLS.AX","WOW.AX","GMG.AX",
+            ],
+            "🇨🇦 Canada (TSX)": [
+                "SHOP","RY","TD","BNS","BMO","CNR","ENB","SU","ABX","BCE",
+                "MFC","POW","TRI","CP","AEM",
+            ],
+            "🇧🇷 Brazil (B3)": [
+                "VALE","PBR","ITUB","BBD","BRKM5.SA","PETR4.SA","BBAS3.SA",
+                "WEGE3.SA","MGLU3.SA","SUZB3.SA","RENT3.SA","JBSS3.SA",
+            ],
+            "🇸🇬 Singapore (SGX)": [
+                "D05.SI","O39.SI","U11.SI","Z74.SI","C6L.SI","G13.SI",
+                "BN4.SI","U96.SI","F34.SI","C38U.SI","A17U.SI","ME8U.SI",
+            ],
+            "🌍 Emerging Markets": [
+                "TSM","VALE","PBR","GOLD","NEM","FCX","SCCO","MT","BTG","KGC",
+                "ITUB","BBD","ERJ","VIV","GFI",
+            ],
+            "📈 US Sector ETFs": [
+                "XLK","XLF","XLE","XLV","XLI","XLY","XLP","XLB","XLRE","XLU",
+                "XLC","GLD","SLV","USO","TLT",
+            ],
+            "📈 Global / Broad ETFs": [
+                "SPY","QQQ","VTI","IWM","DIA","EEM","EFA","VEA","VWO","ARKK",
+                "IEMG","ACWI","VT","BNDX","AGG",
+            ],
+            "💎 Semiconductor & AI": [
+                "NVDA","AMD","INTC","TSM","ASML","AMAT","LRCX","KLAC","MU","MRVL",
+                "QCOM","AVGO","TXN","ADI","MCHP",
+            ],
+            "🏦 Global Banks": [
+                "JPM","BAC","WFC","C","GS","MS","HSBC","BCS","CS","DB",
+                "BNP.PA","SAN","BBVA","ITUB","RY",
+            ],
+        }
 
-            # ── Document retrieval (richer source metadata) ───────────────
-            doc_context = ""; sources_data = []
-            if st.session_state.vectorstore:
-                vs    = st.session_state.vectorstore
-                q_emb = vs["model"].encode([q], normalize_embeddings=True).tolist()
-                res   = vs["collection"].query(query_embeddings=q_emb, n_results=5,
-                                               include=["documents","metadatas","distances"])
-                cks, mts, dts = res["documents"][0], res["metadatas"][0], res["distances"][0]
-                doc_context  = "\n---\n".join(f"[{m['filename']}]\n{c}" for c, m in zip(cks, mts))
-                sources_data = [
-                    {
-                        "filename":   m["filename"],
-                        "score":      round(1 - d/2, 3),
-                        "preview":    c[:220],
-                        "chunk_full": c,                          # full chunk for evidence panel
-                        "chunk_idx":  m.get("chunk", ""),         # chunk number for page approximation
-                        "section":    guess_section(c),           # inferred section label
-                    }
-                    for c, m, d in zip(cks, mts, dts)
-                ]
+        # ── Global ticker search helper ────────────────────────────────────────
+        @st.cache_data(ttl=120, show_spinner=False)
+        def _search_ticker(query: str) -> list[dict]:
+            """Search Yahoo Finance for tickers matching a query string."""
+            if not query or len(query) < 2:
+                return []
+            try:
+                url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}&newsCount=0&enableFuzzyQuery=true&quotesCount=10"
+                r = requests.get(url, headers={"User-Agent":"Mozilla/5.0"}, timeout=6)
+                data = r.json()
+                results = []
+                for q in data.get("quotes", [])[:12]:
+                    sym   = q.get("symbol","")
+                    name  = q.get("longname") or q.get("shortname") or sym
+                    exch  = q.get("exchDisp","")
+                    qtype = q.get("quoteType","")
+                    if sym and qtype in ("EQUITY","ETF","MUTUALFUND","INDEX","CURRENCY","CRYPTOCURRENCY"):
+                        results.append({"symbol":sym,"name":name[:45],"exchange":exch,"type":qtype})
+                return results
+            except:
+                return []
 
-            # ── Branch: Analyst Mode vs Chat Mode ────────────────────────
-            if st.session_state.analyst_mode:
-                # Analyst Mode: JSON-structured extraction
-                user_msg = build_analyst_prompt(q, live_context, doc_context)
-                resp = oai.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=[
-                        {"role": "system", "content": _ANALYST_SYSTEM},
-                        {"role": "user",   "content": user_msg},
-                    ],
-                    temperature=0.05, max_tokens=1200,
-                    response_format={"type": "json_object"},
-                )
-                answer = resp.choices[0].message.content
-                st.session_state.messages.append({
-                    "role": "assistant", "content": answer,
-                    "sources": sources_data, "analyst_mode": True, "question": q,
-                })
+        @st.cache_data(ttl=300, show_spinner=False)
+        def _get_stock(ticker):
+            try:
+                t=yf.Ticker(ticker); info=t.info or {}
+                hist=t.history(period="1y",auto_adjust=True)
+                cur=info.get("currentPrice") or info.get("regularMarketPrice") or (hist["Close"].iloc[-1] if not hist.empty else 0)
+                return {"ticker":ticker,"name":info.get("longName") or info.get("shortName") or ticker,
+                    "sector":info.get("sector","—"),"industry":info.get("industry","—"),
+                    "exchange":info.get("exchange","—"),"currency":info.get("currency","USD"),
+                    "market_cap":info.get("marketCap"),"pe_ratio":info.get("trailingPE") or info.get("forwardPE"),
+                    "forward_pe":info.get("forwardPE"),"pb_ratio":info.get("priceToBook"),
+                    "roe":info.get("returnOnEquity"),"roa":info.get("returnOnAssets"),
+                    "gross_margin":info.get("grossMargins"),"operating_margin":info.get("operatingMargins"),
+                    "profit_margin":info.get("profitMargins"),"revenue":info.get("totalRevenue"),
+                    "revenue_growth":info.get("revenueGrowth"),"earnings_growth":info.get("earningsGrowth"),
+                    "debt_to_equity":info.get("debtToEquity"),"current_ratio":info.get("currentRatio"),
+                    "free_cash_flow":info.get("freeCashflow"),"dividend_yield":info.get("dividendYield"),
+                    "beta":info.get("beta"),"52w_high":info.get("fiftyTwoWeekHigh"),
+                    "52w_low":info.get("fiftyTwoWeekLow"),"target_price":info.get("targetMeanPrice"),
+                    "analyst_rating":info.get("recommendationKey","").replace("_"," ").title(),
+                    "analyst_count":info.get("numberOfAnalystOpinions"),
+                    "current_price":cur,"prev_close":info.get("previousClose"),
+                    "description":(info.get("longBusinessSummary") or "")[:400],"hist":hist,
+                    "error":None}
+            except Exception as e:
+                return {"ticker":ticker,"name":ticker,"hist":None,"error":str(e),"current_price":0}
+
+        @st.cache_data(ttl=300, show_spinner=False)
+        def _get_hist_multi(tickers_tuple, period="1y"):
+            try:
+                raw=yf.download(list(tickers_tuple),period=period,auto_adjust=True,progress=False,group_by="ticker")
+                result={}
+                for t in tickers_tuple:
+                    try: result[t]=(raw["Close"] if len(tickers_tuple)==1 else raw[t]["Close"]).dropna()
+                    except: pass
+                return result
+            except: return {}
+
+        def _calc_tech(hist):
+            if hist is None or hist.empty or len(hist)<20: return {}
+            close=hist["Close"]
+            sma20=close.rolling(20).mean().iloc[-1]
+            sma50=close.rolling(50).mean().iloc[-1] if len(close)>=50 else None
+            sma200=close.rolling(200).mean().iloc[-1] if len(close)>=200 else None
+            delta=close.diff(); gain=delta.clip(lower=0).rolling(14).mean()
+            loss=(-delta.clip(upper=0)).rolling(14).mean()
+            rsi=(100-100/(1+gain/(loss+1e-9))).iloc[-1]
+            ema12=close.ewm(span=12).mean(); ema26=close.ewm(span=26).mean()
+            macd=(ema12-ema26).iloc[-1]; sig_line=(ema12-ema26).ewm(span=9).mean().iloc[-1]
+            bb_mid=close.rolling(20).mean(); bb_std=close.rolling(20).std()
+            bb_up=(bb_mid+2*bb_std).iloc[-1]; bb_lo=(bb_mid-2*bb_std).iloc[-1]
+            rets=close.pct_change().dropna(); ann_vol=rets.std()*np.sqrt(252)*100
+            ret_1d=(close.iloc[-1]/close.iloc[-2]-1)*100 if len(close)>=2 else 0
+            ret_1w=(close.iloc[-1]/close.iloc[-5]-1)*100 if len(close)>=5 else 0
+            ret_1m=(close.iloc[-1]/close.iloc[-21]-1)*100 if len(close)>=21 else 0
+            ret_3m=(close.iloc[-1]/close.iloc[-63]-1)*100 if len(close)>=63 else 0
+            ret_1y=(close.iloc[-1]/close.iloc[0]-1)*100
+            sharpe=(ret_1y-5.25)/(ann_vol+1e-9)
+            curr=close.iloc[-1]
+            trend="Strong Bullish" if (sma50 and curr>sma50) else ("Bullish" if curr>sma20 else "Bearish")
+            rsi_sig="Overbought" if rsi>70 else ("Oversold" if rsi<30 else "Neutral")
+            return dict(current=curr,sma20=sma20,sma50=sma50,sma200=sma200,rsi=rsi,rsi_signal=rsi_sig,
+                macd=macd,macd_signal=sig_line,bb_upper=bb_up,bb_lower=bb_lo,
+                ann_vol=ann_vol,sharpe=sharpe,ret_1d=ret_1d,ret_1w=ret_1w,ret_1m=ret_1m,
+                ret_3m=ret_3m,ret_1y=ret_1y,trend=trend)
+
+        def _signal(info, tech):
+            score=0; signals=[]
+            pe=info.get("pe_ratio")
+            if pe and pe<20: score+=1; signals.append(("P/E < 20","+","Value"))
+            elif pe and pe>40: score-=1; signals.append(("P/E > 40","−","Overvalued"))
+            roe=info.get("roe")
+            if roe and roe>0.15: score+=1; signals.append(("ROE > 15%","+","Quality"))
+            if info.get("profit_margin") and info["profit_margin"]>0.15: score+=1; signals.append(("Net Margin > 15%","+","Quality"))
+            if info.get("revenue_growth") and info["revenue_growth"]>0.10: score+=1; signals.append(("Rev Growth > 10%","+","Growth"))
+            if info.get("debt_to_equity") and info["debt_to_equity"]>200: score-=1; signals.append(("High D/E","−","Risk"))
+            rsi=tech.get("rsi")
+            if rsi:
+                if rsi<30: score+=2; signals.append(("RSI Oversold","+","Technical"))
+                elif rsi>70: score-=2; signals.append(("RSI Overbought","−","Technical"))
+            macd=tech.get("macd"); msig=tech.get("macd_signal")
+            if macd and msig:
+                if macd>msig: score+=1; signals.append(("MACD Bullish","+","Technical"))
+                else: score-=1; signals.append(("MACD Bearish","−","Technical"))
+            sma50=tech.get("sma50"); curr=tech.get("current")
+            if sma50 and curr:
+                if curr>sma50: score+=1; signals.append(("Above SMA50","+","Trend"))
+                else: score-=1; signals.append(("Below SMA50","−","Trend"))
+            rat=info.get("analyst_rating","").lower()
+            if "buy" in rat or "outperform" in rat: score+=1; signals.append(("Analyst Buy","+","Consensus"))
+            elif "sell" in rat or "underperform" in rat: score-=1; signals.append(("Analyst Sell","−","Consensus"))
+            score=max(-6,min(6,score))
+            if score>=3: v,c="Strong Buy","#4ade80"
+            elif score>=1: v,c="Buy","#86efac"
+            elif score>=-1: v,c="Hold","#F0C040"
+            elif score>=-3: v,c="Sell","#fb923c"
+            else: v,c="Strong Sell","#f87171"
+            return {"score":score,"verdict":v,"color":c,"signals":signals}
+
+        def _fc(val,unit="USD"):
+            if val is None: return "—"
+            if unit=="USD":
+                if abs(val)>=1e12: return f"${val/1e12:.2f}T"
+                if abs(val)>=1e9:  return f"${val/1e9:.2f}B"
+                if abs(val)>=1e6:  return f"${val/1e6:.1f}M"
+                if abs(val)>=1e3:  return f"${val/1e3:.1f}K"
+                return f"${val:,.2f}"
+            if unit=="%": return f"{val*100:.1f}%" if abs(val)<10 else f"{val:.1f}%"
+            if unit=="x": return f"{val:.2f}x"
+            return f"{val:,.2f}"
+
+        def _pfol_metrics():
+            holdings=st.session_state.portfolio_holdings
+            cache=st.session_state.portfolio_prices_cache
+            total_v=0; total_c=0; positions=[]
+            for ticker,h in holdings.items():
+                info=cache.get(ticker,{}); price=info.get("current_price") or 0
+                shares=h.get("shares",0); cost=h.get("avg_cost",0)
+                mv=price*shares; cb=cost*shares; pnl=mv-cb
+                pnl_pct=(pnl/cb*100) if cb else 0
+                total_v+=mv; total_c+=cb
+                positions.append(dict(ticker=ticker,name=(info.get("name",ticker) or ticker)[:22],
+                    shares=shares,avg_cost=cost,current_price=price,market_value=mv,
+                    cost_basis=cb,pnl=pnl,pnl_pct=pnl_pct,weight=0,
+                    beta=info.get("beta") or 1.0,sector=info.get("sector","—")))
+            for p in positions:
+                p["weight"]=(p["market_value"]/total_v*100) if total_v else 0
+            total_pnl=total_v-total_c
+            return dict(total_value=total_v,total_cost=total_c,total_pnl=total_pnl,
+                total_pnl_pct=(total_pnl/total_c*100 if total_c else 0),positions=positions,
+                weighted_beta=sum(p["beta"]*p["weight"]/100 for p in positions) if positions else 1.0,
+                num_positions=len(positions))
+
+        # Chart builders
+        def _chart_candle(info, ticker):
+            h=info.get("hist")
+            if h is None or h.empty: return go.Figure()
+            df=h.tail(90)
+            fig=make_subplots(rows=2,cols=1,shared_xaxes=True,row_heights=[0.72,0.28],vertical_spacing=0.02)
+            fig.add_trace(go.Candlestick(x=df.index,open=df["Open"],high=df["High"],
+                low=df["Low"],close=df["Close"],name="Price",
+                increasing_line_color=CHART_GREEN,decreasing_line_color=CHART_RED,
+                increasing_fillcolor=CHART_GREEN,decreasing_fillcolor=CHART_RED),row=1,col=1)
+            for period,color in [(20,CHART_ACC),(50,CHART_GOLD)]:
+                if len(df)>=period:
+                    sma=df["Close"].rolling(period).mean()
+                    fig.add_trace(go.Scatter(x=df.index,y=sma,name=f"SMA{period}",
+                        line=dict(color=color,width=1,dash="dot"),opacity=0.8),row=1,col=1)
+            if "Volume" in df.columns:
+                vc=[CHART_GREEN if df["Close"].iloc[i]>=df["Open"].iloc[i] else CHART_RED for i in range(len(df))]
+                fig.add_trace(go.Bar(x=df.index,y=df["Volume"],name="Volume",
+                    marker_color=vc,opacity=0.5),row=2,col=1)
+            fig.update_layout(**_BASE_LAYOUT,title=dict(text=f"{ticker} — 90-Day Candlestick",
+                font=dict(size=12,color=CHART_TEXT)),height=380)
+            fig.update_xaxes(rangeslider_visible=False)
+            return fig
+
+        def _chart_rsi(info, ticker):
+            h=info.get("hist")
+            if h is None or h.empty: return go.Figure()
+            close=h["Close"].tail(90)
+            delta=close.diff(); gain=delta.clip(lower=0).rolling(14).mean()
+            loss=(-delta.clip(upper=0)).rolling(14).mean()
+            rsi_s=(100-100/(1+gain/(loss+1e-9))).dropna()
+            fig=go.Figure()
+            fig.add_trace(go.Scatter(x=rsi_s.index,y=rsi_s,name="RSI(14)",
+                line=dict(color=CHART_ACC,width=1.5)))
+            fig.add_hline(y=70,line_dash="dot",line_color=CHART_RED,
+                annotation_text="Overbought 70",annotation_font_color=CHART_RED)
+            fig.add_hline(y=30,line_dash="dot",line_color=CHART_GREEN,
+                annotation_text="Oversold 30",annotation_font_color=CHART_GREEN)
+            fig.add_hrect(y0=70,y1=100,fillcolor=CHART_RED,opacity=0.05,line_width=0)
+            fig.add_hrect(y0=0,y1=30,fillcolor=CHART_GREEN,opacity=0.05,line_width=0)
+            fig.update_layout(**_BASE_LAYOUT,title=dict(text="RSI (14)",
+                font=dict(size=11,color=CHART_TEXT)),height=220,yaxis=dict(range=[0,100],gridcolor=CHART_GRID))
+            return fig
+
+        def _chart_macd(info, ticker):
+            h=info.get("hist")
+            if h is None or h.empty: return go.Figure()
+            close=h["Close"].tail(120)
+            ema12=close.ewm(span=12).mean(); ema26=close.ewm(span=26).mean()
+            macd_l=ema12-ema26; sig=macd_l.ewm(span=9).mean(); hb=macd_l-sig
+            vc=[CHART_GREEN if v>=0 else CHART_RED for v in hb]
+            fig=make_subplots(rows=1,cols=1)
+            fig.add_trace(go.Bar(x=close.index,y=hb,name="Histogram",marker_color=vc,opacity=0.6))
+            fig.add_trace(go.Scatter(x=close.index,y=macd_l,name="MACD",line=dict(color=CHART_ACC,width=1.5)))
+            fig.add_trace(go.Scatter(x=close.index,y=sig,name="Signal",line=dict(color=CHART_GOLD,width=1,dash="dot")))
+            fig.update_layout(**_BASE_LAYOUT,title=dict(text="MACD (12,26,9)",
+                font=dict(size=11,color=CHART_TEXT)),height=200)
+            return fig
+
+        def _chart_donut(positions):
+            if not positions: return go.Figure()
+            labels=[p["ticker"] for p in positions]; values=[p["market_value"] for p in positions]
+            colors=px.colors.qualitative.Prism
+            fig=go.Figure(go.Pie(labels=labels,values=values,hole=0.58,textinfo="label+percent",
+                textfont=dict(size=9,color=CHART_TEXT),
+                marker=dict(colors=colors[:len(labels)],line=dict(color=CHART_BG,width=2)),
+                hovertemplate="<b>%{label}</b><br>%{value:$,.0f} (%{percent})<extra></extra>"))
+            fig.update_layout(**_BASE_LAYOUT,title=dict(text="Portfolio Allocation",
+                font=dict(size=11,color=CHART_TEXT)),height=280,showlegend=False,
+                annotations=[dict(text="Allocation",x=0.5,y=0.5,showarrow=False,
+                    font=dict(size=9,color=CHART_DIM))])
+            return fig
+
+        def _chart_pnl(positions):
+            if not positions: return go.Figure()
+            sorted_p=sorted(positions,key=lambda x:x["pnl_pct"])
+            tickers=[p["ticker"] for p in sorted_p]; pnls=[p["pnl_pct"] for p in sorted_p]
+            colors=[CHART_GREEN if v>=0 else CHART_RED for v in pnls]
+            fig=go.Figure(go.Bar(x=tickers,y=pnls,marker_color=colors,
+                text=[f"{v:+.1f}%" for v in pnls],textposition="outside",
+                textfont=dict(size=9,color=CHART_TEXT)))
+            fig.update_layout(**_BASE_LAYOUT,title=dict(text="P&L % by Position",
+                font=dict(size=11,color=CHART_TEXT)),height=280,yaxis_ticksuffix="%")
+            fig.add_hline(y=0,line_color="rgba(255,255,255,.2)",line_width=1)
+            return fig
+
+        def _chart_perf(tickers_tuple, period="1y"):
+            hd=_get_hist_multi(tickers_tuple, period)
+            fig=go.Figure()
+            pal=[CHART_ACC,CHART_GREEN,CHART_GOLD,"#60a5fa","#fb923c","#f472b6","#34d399","#a78bfa"]
+            for i,(tk,h) in enumerate(hd.items()):
+                if h is None or h.empty: continue
+                normed=(h/h.iloc[0]-1)*100
+                fig.add_trace(go.Scatter(x=normed.index,y=normed,name=tk,
+                    line=dict(color=pal[i%len(pal)],width=1.5),
+                    hovertemplate=f"<b>{tk}</b>: %{{y:.1f}}%<extra></extra>"))
+            fig.add_hline(y=0,line_color="rgba(255,255,255,.15)",line_dash="dot")
+            fig.update_layout(**_BASE_LAYOUT,title=dict(text=f"Normalised Performance ({period})",
+                font=dict(size=11,color=CHART_TEXT)),height=320,yaxis_ticksuffix="%")
+            return fig
+
+        # ── TAB 0: MY PORTFOLIO ────────────────────────────────────────────
+        with pfol_tabs[0]:
+            holdings=st.session_state.portfolio_holdings
+            if not holdings:
+                st.markdown("""
+<div style="text-align:center;padding:3rem 1rem;">
+  <div style="font-size:2.5rem;margin-bottom:.7rem;opacity:.3;">💼</div>
+  <div style="font-family:'Cormorant Garamond',serif;font-size:1.5rem;font-weight:300;
+    font-style:italic;color:#4A3858;">No holdings yet</div>
+  <div style="font-family:'Syne',sans-serif;font-size:.78rem;color:#4A3858;margin-top:.5rem;line-height:1.8;">
+    Go to <strong style="color:#C084C8;">⚙️ Manage Holdings</strong> to add stocks<br>
+    or use <strong style="color:#C084C8;">🔎 Stock Deep-Dive</strong> to analyse any stock
+  </div>
+</div>""", unsafe_allow_html=True)
             else:
-                # Chat Mode: normal conversational answer
-                user_msg = (f"{live_context}\n\n=== DOCUMENT CONTEXT ===\n{doc_context}\n\nQuestion: {q}"
-                            if doc_context else f"{live_context}\n\nQuestion: {q}")
-                resp = oai.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=[
-                        {"role":"system","content":(
-                            "You are an expert financial analyst with real-time data access. "
-                            "You have live prices for stocks, gold, silver, oil, crypto, and FX rates. "
-                            "Use live data for market questions. For document questions, cite specific numbers. "
-                            "Be concise, precise, never fabricate numbers.")},
-                        *[{"role":m["role"],"content":m["content"]} for m in st.session_state.messages[:-1]],
-                        {"role":"user","content":user_msg},
-                    ],
-                    temperature=0.15, max_tokens=1500,
-                )
-                answer = resp.choices[0].message.content
-                st.session_state.messages.append({
-                    "role": "assistant", "content": answer,
-                    "sources": sources_data, "analyst_mode": False,
-                })
+                with st.spinner("Fetching live prices…"):
+                    for tk in holdings:
+                        if tk not in st.session_state.portfolio_prices_cache:
+                            st.session_state.portfolio_prices_cache[tk]=_get_stock(tk)
+                m=_pfol_metrics()
+                pnl_cls="pos" if m["total_pnl"]>=0 else "neg"
+                pnl_sgn="+" if m["total_pnl"]>=0 else ""
+                st.markdown(f"""
+<div class="pfol-stat-row">
+  <div class="pfol-stat"><div class="pfol-stat-lbl">Portfolio Value</div>
+    <div class="pfol-stat-val">{_fc(m["total_value"])}</div></div>
+  <div class="pfol-stat"><div class="pfol-stat-lbl">Total Cost</div>
+    <div class="pfol-stat-val">{_fc(m["total_cost"])}</div></div>
+  <div class="pfol-stat"><div class="pfol-stat-lbl">Total P&amp;L</div>
+    <div class="pfol-stat-val {pnl_cls}">{pnl_sgn}{_fc(m["total_pnl"])}</div></div>
+  <div class="pfol-stat"><div class="pfol-stat-lbl">Return %</div>
+    <div class="pfol-stat-val {pnl_cls}">{pnl_sgn}{m["total_pnl_pct"]:.2f}%</div></div>
+</div>""", unsafe_allow_html=True)
+                bc1,bc2,bc3=st.columns(3)
+                bc1.metric("Portfolio Beta",f"{m['weighted_beta']:.2f}")
+                bc2.metric("Positions",m["num_positions"])
+                bc3.metric("Return",f"{m['total_pnl_pct']:.1f}%",delta=f"{m['total_pnl_pct']:.1f}%")
+                if len(m["positions"])>=2:
+                    dc1,dc2=st.columns(2)
+                    with dc1: st.plotly_chart(_chart_donut(m["positions"]),use_container_width=True,config={"displayModeBar":False})
+                    with dc2: st.plotly_chart(_chart_pnl(m["positions"]),use_container_width=True,config={"displayModeBar":False})
+                # Holdings table
+                st.markdown('<div style="font-family:Space Mono,monospace;font-size:.52rem;letter-spacing:.18em;text-transform:uppercase;color:#C084C8;margin:.7rem 0 .4rem;">Position Details</div>',unsafe_allow_html=True)
+                rows=[{"Ticker":p["ticker"],"Name":p["name"],"Shares":p["shares"],
+                    "Avg Cost":f'${p["avg_cost"]:.2f}',"Price":f'${p["current_price"]:.2f}',
+                    "Value":_fc(p["market_value"]),"P&L %":f'{p["pnl_pct"]:+.1f}%',
+                    "P&L $":_fc(p["pnl"]),"Weight":f'{p["weight"]:.1f}%',"Sector":p["sector"]}
+                    for p in sorted(m["positions"],key=lambda x:x["market_value"],reverse=True)]
+                if rows: st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
 
-            st.rerun()  # re-render so new messages appear in the chat panel above
+        # ── TAB 1: STOCK DEEP-DIVE ─────────────────────────────────────────
+        with pfol_tabs[1]:
+            st.markdown("""
+<div style="background:linear-gradient(90deg,rgba(107,45,107,.12),rgba(13,11,18,.0));
+  border-left:3px solid #C084C8;padding:.5rem .9rem;border-radius:0 8px 8px 0;margin-bottom:.8rem;">
+  <div style="font-family:Space Mono,monospace;font-size:.52rem;letter-spacing:.18em;
+    text-transform:uppercase;color:#C084C8;">🌍 Global Stock Search — Any Exchange, Any Market</div>
+  <div style="font-family:Syne,sans-serif;font-size:.72rem;color:#4A3858;margin-top:.2rem;">
+    Search by company name or ticker · NYSE · NASDAQ · NSE · BSE · LSE · TSE · HKEX · SGX · ASX · Euronext · and more
+  </div>
+</div>""", unsafe_allow_html=True)
 
-        except Exception as e:
-            st.error(f"Error: {e}")
+            # ── Live global search bar ────────────────────────────────────────
+            gsrch_col, ggo_col = st.columns([5, 1])
+            with gsrch_col:
+                global_search = st.text_input(
+                    "search",
+                    placeholder="Search any stock: 'Apple', 'Reliance', 'TSMC', 'HDFC', 'Toyota', 'SAP'…",
+                    label_visibility="collapsed",
+                    key="global_search_input")
+            with ggo_col:
+                do_search = st.button("🔍 Search", key="global_search_btn", use_container_width=True)
+
+            # Show live search results
+            if global_search and len(global_search) >= 2:
+                with st.spinner(f"Searching global markets for '{global_search}'…"):
+                    search_results = _search_ticker(global_search.strip())
+                if search_results:
+                    st.markdown(f'<div style="font-family:Space Mono,monospace;font-size:.5rem;'
+                                f'letter-spacing:.15em;text-transform:uppercase;color:#4A3858;margin:.4rem 0 .3rem;">'
+                                f'{len(search_results)} results</div>', unsafe_allow_html=True)
+                    # Render result chips
+                    sr_cols = st.columns(min(4, len(search_results)))
+                    for sr_i, result in enumerate(search_results):
+                        type_color = {"EQUITY":"#C084C8","ETF":"#4ade80","INDEX":"#F0C040",
+                                      "CRYPTOCURRENCY":"#fb923c","MUTUALFUND":"#60a5fa"}.get(result["type"],"#9A8AAA")
+                        with sr_cols[sr_i % 4]:
+                            st.markdown(f"""
+<div style="background:#120E1A;border:1px solid rgba(139,58,139,.25);border-radius:10px;
+  padding:.55rem .75rem;cursor:pointer;transition:border-color .2s;margin-bottom:.3rem;">
+  <div style="font-family:Space Mono,monospace;font-size:.62rem;font-weight:700;color:#C084C8;">{result['symbol']}</div>
+  <div style="font-size:.68rem;color:#9A8AAA;margin:.1rem 0;line-height:1.3;">{result['name']}</div>
+  <div style="display:flex;gap:.3rem;margin-top:.3rem;">
+    <span style="font-family:Space Mono,monospace;font-size:.44rem;padding:.1rem .3rem;
+      border-radius:3px;background:rgba(107,45,107,.15);color:#4A3858;">{result['exchange']}</span>
+    <span style="font-family:Space Mono,monospace;font-size:.44rem;padding:.1rem .3rem;
+      border-radius:3px;background:{type_color}18;color:{type_color};">{result['type']}</span>
+  </div>
+</div>""", unsafe_allow_html=True)
+                            if st.button(f"Analyse {result['symbol']}", key=f"sr_go_{result['symbol']}_{sr_i}",
+                                         use_container_width=True):
+                                st.session_state["_dive_val"] = result["symbol"]
+                                st.rerun()
+                else:
+                    st.caption("No results found. Try a different name or ticker suffix (e.g. .NS, .L, .T, .HK)")
+
+            st.markdown('<hr style="border-color:rgba(139,58,139,.1);margin:.6rem 0;">', unsafe_allow_html=True)
+
+            # ── Manual ticker entry ───────────────────────────────────────────
+            st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;letter-spacing:.15em;'
+                        'text-transform:uppercase;color:#4A3858;margin-bottom:.35rem;">Or enter ticker directly</div>',
+                        unsafe_allow_html=True)
+            dinp_col, dbtn_col = st.columns([5, 1])
+            with dinp_col:
+                dive_ticker = st.text_input("ticker",
+                    placeholder="AAPL · INFY.NS · 700.HK · AZN.L · SAP.DE · 7203.T · BHP.AX · SHOP.TO",
+                    label_visibility="collapsed", key="dive_ticker_input")
+            with dbtn_col:
+                run_dive = st.button("Analyse →", key="run_dive_btn", use_container_width=True)
+
+            # ── Exchange suffix guide ─────────────────────────────────────────
+            with st.expander("📖 Exchange Suffix Guide — How to type global tickers"):
+                suffix_data = [
+                    ("🇮🇳 India NSE",".NS","RELIANCE.NS, INFY.NS, TCS.NS"),
+                    ("🇮🇳 India BSE",".BO","500325.BO, 500209.BO"),
+                    ("🇬🇧 London LSE",".L","AZN.L, SHEL.L, HSBA.L"),
+                    ("🇩🇪 Germany XETRA",".DE","SAP.DE, SIE.DE, BMW.DE"),
+                    ("🇫🇷 France Euronext",".PA","MC.PA, OR.PA, TTE.PA"),
+                    ("🇯🇵 Japan TSE",".T","7203.T, 6758.T, 9984.T"),
+                    ("🇭🇰 Hong Kong HKEX",".HK","700.HK, 9988.HK, 1810.HK"),
+                    ("🇦🇺 Australia ASX",".AX","BHP.AX, CBA.AX, CSL.AX"),
+                    ("🇨🇦 Canada TSX",".TO","SHOP.TO, RY.TO, TD.TO"),
+                    ("🇸🇬 Singapore SGX",".SI","D05.SI, O39.SI, Z74.SI"),
+                    ("🇮🇹 Italy Euronext",".MI","ENI.MI, ISP.MI, ENEL.MI"),
+                    ("🇪🇸 Spain BME",".MC","SAN.MC, BBVA.MC, ITX.MC"),
+                    ("🇳🇱 Netherlands AEX",".AS","ASML.AS, HEIA.AS, PHIA.AS"),
+                    ("🇸🇪 Sweden Nasdaq",".ST","ERIC-B.ST, VOLV-B.ST"),
+                    ("🇳🇴 Norway Oslo",".OL","NHY.OL, DNB.OL, EQNR.OL"),
+                    ("🇰🇷 South Korea KRX",".KS","005930.KS, 000660.KS"),
+                    ("🇹🇼 Taiwan TWSE",".TW","2330.TW, 2317.TW"),
+                    ("🇿🇦 South Africa JSE",".JO","NPN.JO, SOL.JO"),
+                    ("🇧🇷 Brazil B3",".SA","PETR4.SA, VALE3.SA"),
+                    ("🇺🇸 NYSE/NASDAQ","(none)","AAPL, TSLA, JPM, NVDA"),
+                ]
+                sc1, sc2 = st.columns(2)
+                for i, (market, suffix, examples) in enumerate(suffix_data):
+                    target = sc1 if i % 2 == 0 else sc2
+                    with target:
+                        st.markdown(f'<div style="display:flex;gap:.5rem;align-items:baseline;'
+                                    f'font-family:Space Mono,monospace;font-size:.58rem;padding:.2rem 0;'
+                                    f'border-bottom:1px solid rgba(139,58,139,.07);">'
+                                    f'<span style="color:#C084C8;font-weight:700;min-width:28px;">{suffix}</span>'
+                                    f'<span style="color:#9A8AAA;">{market}</span></div>'
+                                    f'<div style="font-family:Space Mono,monospace;font-size:.46rem;'
+                                    f'color:#4A3858;padding:.1rem 0 .3rem .5rem;">{examples}</div>',
+                                    unsafe_allow_html=True)
+
+            # ── World market quick-picks ─────────────────────────────────────
+            st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;letter-spacing:.15em;'
+                        'text-transform:uppercase;color:#4A3858;margin:.6rem 0 .3rem;">Quick-Pick by Market</div>',
+                        unsafe_allow_html=True)
+            for cat, tickers_list in POPULAR_STOCKS.items():
+                with st.expander(cat):
+                    qcols = st.columns(5 if len(tickers_list) >= 5 else len(tickers_list))
+                    for idx_q, tk in enumerate(tickers_list):
+                        with qcols[idx_q % 5]:
+                            if st.button(tk, key=f"qp_{tk}", use_container_width=True):
+                                st.session_state["_dive_val"] = tk; st.rerun()
+
+            if "_dive_val" in st.session_state:
+                dive_ticker=st.session_state.pop("_dive_val"); run_dive=True
+
+            if dive_ticker:
+                ticker_clean=dive_ticker.upper().strip()
+                with st.spinner(f"📡 Loading {ticker_clean} — price, fundamentals, 1-year history…"):
+                    info=_get_stock(ticker_clean)
+                    st.session_state.portfolio_prices_cache[ticker_clean]=info
+
+                if info.get("error"):
+                    st.error(f"Could not fetch {ticker_clean}: {info['error']}")
+                else:
+                    tech=_calc_tech(info.get("hist"))
+                    sig=_signal(info,tech)
+                    cur=info.get("current_price") or 0
+                    prev=info.get("prev_close") or cur
+                    chg_pct=(cur-prev)/prev*100 if prev else 0
+                    chg_cls="up" if chg_pct>=0 else "down"
+                    sc=sig["color"]
+
+                    # ── Header card ─────────────────────────────────────────
+                    st.markdown(f"""
+<div style="background:#120E1A;border:1px solid rgba(192,132,200,.3);border-radius:14px;
+  padding:1rem 1.3rem;margin-bottom:.9rem;">
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:.5rem;">
+    <div>
+      <div style="font-family:Space Mono,monospace;font-size:.75rem;font-weight:700;color:#C084C8;letter-spacing:.06em;">{ticker_clean}</div>
+      <div style="font-family:'Cormorant Garamond',serif;font-size:1.5rem;font-weight:300;color:#EDE8F5;margin:.1rem 0;">{info.get("name","")}</div>
+      <div style="font-family:Space Mono,monospace;font-size:.55rem;color:#4A3858;">{info.get("sector","—")} · {(info.get("industry","—") or "—")[:35]} · {info.get("exchange","—")}</div>
+    </div>
+    <div style="text-align:right;">
+      <div style="font-family:'Cormorant Garamond',serif;font-size:2.2rem;font-weight:300;color:#EDE8F5;">{info.get("currency","$")} {cur:,.2f}</div>
+      <div style="font-size:.62rem;color:{"#4ade80" if chg_pct>=0 else "#f87171"};">{"▲" if chg_pct>=0 else "▼"} {abs(chg_pct):.2f}% today</div>
+      <div style="margin-top:.3rem;">
+        <span class="signal-badge" style="background:{sc}22;border:1px solid {sc}55;color:{sc};">{sig["verdict"]} ({sig["score"]:+d})</span>
+      </div>
+    </div>
+  </div>
+</div>""", unsafe_allow_html=True)
+
+                    # ── Fundamentals grid ────────────────────────────────────
+                    def _fc2(label,val):
+                        return (f'<div class="fund-cell"><div class="fund-lbl">{label}</div>'
+                                f'<div class="fund-val">{val}</div></div>')
+                    pe_v=f'{info["pe_ratio"]:.1f}x' if info.get("pe_ratio") else "—"
+                    fpe_v=f'{info["forward_pe"]:.1f}x' if info.get("forward_pe") else "—"
+                    pb_v=f'{info["pb_ratio"]:.2f}x' if info.get("pb_ratio") else "—"
+                    dy_v=f'{info["dividend_yield"]*100:.2f}%' if info.get("dividend_yield") else "—"
+                    bet_v=f'{info["beta"]:.2f}' if info.get("beta") else "—"
+                    roe_v=f'{info["roe"]*100:.1f}%' if info.get("roe") else "—"
+                    roa_v=f'{info["roa"]*100:.1f}%' if info.get("roa") else "—"
+                    gm_v=f'{info["gross_margin"]*100:.1f}%' if info.get("gross_margin") else "—"
+                    nm_v=f'{info["profit_margin"]*100:.1f}%' if info.get("profit_margin") else "—"
+                    rg_v=f'{info["revenue_growth"]*100:.1f}%' if info.get("revenue_growth") else "—"
+                    eg_v=f'{info["earnings_growth"]*100:.1f}%' if info.get("earnings_growth") else "—"
+                    tp_v=f'${info["target_price"]:.2f}' if info.get("target_price") else "—"
+                    upside_v=(f'{(info["target_price"]/cur-1)*100:+.1f}%' if info.get("target_price") and cur else "—")
+                    d2e_v=f'{info["debt_to_equity"]:.0f}%' if info.get("debt_to_equity") else "—"
+                    cr_v=f'{info["current_ratio"]:.2f}' if info.get("current_ratio") else "—"
+                    ar_v=info.get("analyst_rating") or "—"
+                    mc_v=_fc(info.get("market_cap"))
+                    st.markdown(f"""
+<div class="fund-grid">
+  {_fc2("Market Cap",mc_v)}{_fc2("P/E (TTM)",pe_v)}{_fc2("Fwd P/E",fpe_v)}
+  {_fc2("P/B Ratio",pb_v)}{_fc2("Dividend Yield",dy_v)}{_fc2("Beta",bet_v)}
+  {_fc2("ROE",roe_v)}{_fc2("ROA",roa_v)}{_fc2("Gross Margin",gm_v)}
+  {_fc2("Net Margin",nm_v)}{_fc2("Rev Growth",rg_v)}{_fc2("EPS Growth",eg_v)}
+  {_fc2("Analyst Target",tp_v)}{_fc2("Upside to Target",upside_v)}{_fc2("Analyst Rating",ar_v)}
+  {_fc2("Debt/Equity",d2e_v)}{_fc2("Current Ratio",cr_v)}{_fc2("Free Cash Flow",_fc(info.get("free_cash_flow")))}
+</div>""", unsafe_allow_html=True)
+
+                    # ── 52-week range ────────────────────────────────────────
+                    w52h=info.get("52w_high") or 0; w52l=info.get("52w_low") or 0
+                    if w52h and w52l and cur:
+                        pir=(cur-w52l)/(w52h-w52l+1e-9)*100
+                        st.markdown(f"""
+<div style="background:#120E1A;border:1px solid rgba(139,58,139,.18);border-radius:8px;padding:.65rem .9rem;margin-bottom:.6rem;">
+  <div style="font-family:Space Mono,monospace;font-size:.5rem;letter-spacing:.15em;text-transform:uppercase;color:#4A3858;margin-bottom:.5rem;">52-Week Range</div>
+  <div style="display:flex;align-items:center;gap:.7rem;">
+    <span style="font-family:Space Mono,monospace;font-size:.6rem;color:#f87171;">${w52l:.2f}</span>
+    <div style="flex:1;height:6px;background:rgba(139,58,139,.2);border-radius:3px;position:relative;">
+      <div style="position:absolute;left:{pir:.0f}%;top:-5px;width:16px;height:16px;border-radius:50%;
+        background:#C084C8;transform:translateX(-50%);border:2px solid #EDE8F5;box-shadow:0 0 8px rgba(192,132,200,.6);"></div>
+    </div>
+    <span style="font-family:Space Mono,monospace;font-size:.6rem;color:#4ade80;">${w52h:.2f}</span>
+  </div>
+  <div style="text-align:center;font-family:Space Mono,monospace;font-size:.52rem;color:#C084C8;margin-top:.4rem;">
+    Current: ${cur:.2f} — {pir:.0f}% of range
+  </div>
+</div>""", unsafe_allow_html=True)
+
+                    # ── Signal breakdown ──────────────────────────────────────
+                    with st.expander("📡 Signal Breakdown"):
+                        for sn,sd,sc_cat in sig["signals"]:
+                            sc2=CHART_GREEN if sd=="+" else CHART_RED
+                            st.markdown(f'<div style="display:flex;gap:.5rem;align-items:center;margin-bottom:.25rem;font-family:Space Mono,monospace;font-size:.6rem;">'
+                                f'<span style="color:{sc2};font-weight:700;">{sd}</span>'
+                                f'<span style="color:#EDE8F5;">{sn}</span>'
+                                f'<span style="color:#4A3858;margin-left:auto;">{sc_cat}</span></div>',unsafe_allow_html=True)
+
+                    # ── Technical section ─────────────────────────────────────
+                    st.markdown("<hr style='border-color:rgba(139,58,139,.12);margin:.7rem 0;'>",unsafe_allow_html=True)
+                    st.markdown('<div style="font-family:Space Mono,monospace;font-size:.52rem;letter-spacing:.18em;text-transform:uppercase;color:#C084C8;margin-bottom:.5rem;">Technical Analysis</div>',unsafe_allow_html=True)
+                    if tech:
+                        rc=st.columns(5)
+                        for ci,(lbl,val) in enumerate([("1D",tech.get("ret_1d",0)),("1W",tech.get("ret_1w",0)),
+                                ("1M",tech.get("ret_1m",0)),("3M",tech.get("ret_3m",0)),("1Y",tech.get("ret_1y",0))]):
+                            rc[ci].metric(f"{lbl} Return",f"{val:+.2f}%")
+                        tc=st.columns(4)
+                        tc[0].metric("RSI (14)",f'{tech.get("rsi",0):.1f}')
+                        tc[1].metric("RSI Signal",tech.get("rsi_signal","—"))
+                        tc[2].metric("Ann. Volatility",f'{tech.get("ann_vol",0):.1f}%')
+                        tc[3].metric("Sharpe Ratio",f'{tech.get("sharpe",0):.2f}')
+
+                    # Charts
+                    st.plotly_chart(_chart_candle(info,ticker_clean),use_container_width=True,config={"displayModeBar":False})
+                    ch1,ch2=st.columns(2)
+                    with ch1: st.plotly_chart(_chart_rsi(info,ticker_clean),use_container_width=True,config={"displayModeBar":False})
+                    with ch2: st.plotly_chart(_chart_macd(info,ticker_clean),use_container_width=True,config={"displayModeBar":False})
+
+                    if info.get("description"):
+                        with st.expander("📋 Business Description"):
+                            st.markdown(f'<div style="font-size:.8rem;color:#9A8AAA;line-height:1.8;">{info["description"]}…</div>',unsafe_allow_html=True)
+
+                    # Add to portfolio
+                    st.markdown("<hr style='border-color:rgba(139,58,139,.1);margin:.6rem 0;'>",unsafe_allow_html=True)
+                    st.markdown('<div style="font-family:Space Mono,monospace;font-size:.52rem;letter-spacing:.18em;text-transform:uppercase;color:#C084C8;margin-bottom:.4rem;">Add to Portfolio</div>',unsafe_allow_html=True)
+                    ac1,ac2,ac3=st.columns([2,2,1])
+                    with ac1: shares_add=st.number_input("Shares",min_value=0.001,value=1.0,step=1.0,key=f"sa_{ticker_clean}")
+                    with ac2: cost_add=st.number_input("Avg Cost ($)",min_value=0.01,value=float(cur) if cur else 1.0,step=0.01,key=f"ca_{ticker_clean}")
+                    with ac3:
+                        if st.button("➕ Add",use_container_width=True,key=f"add_{ticker_clean}"):
+                            st.session_state.portfolio_holdings[ticker_clean]={"shares":shares_add,"avg_cost":cost_add,"name":info.get("name",ticker_clean)}
+                            st.success(f"✓ {ticker_clean} added!"); st.rerun()
+
+        # ── TAB 2: PERFORMANCE ─────────────────────────────────────────────
+        with pfol_tabs[2]:
+            all_tickers=list(st.session_state.portfolio_holdings.keys())+st.session_state.portfolio_watchlist
+            if not all_tickers:
+                st.info("Add holdings in ⚙️ Manage Holdings or search stocks in 🔎 Stock Deep-Dive.")
+            else:
+                st.markdown('<div style="font-family:Space Mono,monospace;font-size:.52rem;letter-spacing:.18em;text-transform:uppercase;color:#C084C8;margin-bottom:.6rem;">Normalised Performance vs Benchmarks</div>',unsafe_allow_html=True)
+                pc1,pc2=st.columns([3,2])
+                with pc1: bench=st.multiselect("Benchmarks",["SPY","QQQ","^NSEI","GLD","TLT"],default=["SPY"],key="bench_sel")
+                with pc2: perf_period=st.selectbox("Period",["1mo","3mo","6mo","1y","2y"],index=3,key="perf_per")
+                all_compare=tuple(set(all_tickers+bench))
+                with st.spinner("Loading historical prices…"):
+                    fig_perf=_chart_perf(all_compare,perf_period)
+                st.plotly_chart(fig_perf,use_container_width=True,config={"displayModeBar":False})
+                # Return summary table
+                with st.spinner("Computing returns…"):
+                    hd=_get_hist_multi(tuple(all_tickers),perf_period)
+                ret_rows=[]
+                for tk2,h2 in hd.items():
+                    if h2 is None or h2.empty: continue
+                    r1m=(h2.iloc[-1]/h2.iloc[-min(21,len(h2))]-1)*100
+                    r3m=(h2.iloc[-1]/h2.iloc[-min(63,len(h2))]-1)*100
+                    rall=(h2.iloc[-1]/h2.iloc[0]-1)*100
+                    v2=h2.pct_change().dropna().std()*np.sqrt(252)*100
+                    ret_rows.append({"Ticker":tk2,"1M Return":f"{r1m:+.2f}%","3M Return":f"{r3m:+.2f}%",
+                        f"Total ({perf_period})":f"{rall:+.2f}%","Ann. Volatility":f"{v2:.1f}%"})
+                if ret_rows: st.dataframe(pd.DataFrame(ret_rows),use_container_width=True,hide_index=True)
+
+        # ── TAB 3: AI REPORT ──────────────────────────────────────────────
+        with pfol_tabs[3]:
+            st.markdown('<div style="font-family:Space Mono,monospace;font-size:.52rem;letter-spacing:.18em;text-transform:uppercase;color:#C084C8;margin-bottom:.6rem;">AI-Generated Portfolio Analysis Report</div>',unsafe_allow_html=True)
+            if not GROQ_API_KEY:
+                st.info("Enter Groq API key in sidebar to generate AI reports.")
+            elif not st.session_state.portfolio_holdings:
+                st.info("Add at least one holding in ⚙️ Manage Holdings first.")
+            else:
+                for tk3 in st.session_state.portfolio_holdings:
+                    if tk3 not in st.session_state.portfolio_prices_cache:
+                        st.session_state.portfolio_prices_cache[tk3]=_get_stock(tk3)
+                m3=_pfol_metrics()
+                ai_type=st.radio("Report type",[
+                    "📊 Full Portfolio Analysis","⚠️ Risk Assessment",
+                    "🎯 Rebalancing Suggestions","💡 Opportunity Scan"],
+                    horizontal=True,key="ai_rpt_type")
+
+                gen_btn=st.button("🤖 Generate AI Report",key="gen_report_btn",use_container_width=True)
+                regen_btn=st.button("🔄 Regenerate",key="regen_btn") if st.session_state.portfolio_ai_report else False
+
+                if st.session_state.portfolio_ai_report and not regen_btn:
+                    st.markdown(f'<div class="ai-report">{st.session_state.portfolio_ai_report}</div>',unsafe_allow_html=True)
+                elif gen_btn or regen_btn:
+                    with st.spinner("Analysing portfolio with Llama 3.3-70B…"):
+                        try:
+                            from openai import OpenAI as _OAI2
+                            _oai2=_OAI2(api_key=GROQ_API_KEY,base_url="https://api.groq.com/openai/v1")
+                            pos_sum="\n".join(
+                                f"  {p['ticker']} ({p['name'][:20]}): {p['shares']} shares @ ${p['avg_cost']:.2f} | "
+                                f"Current ${p['current_price']:.2f} | P&L {p['pnl_pct']:+.1f}% | "
+                                f"Weight {p['weight']:.1f}% | Sector {p['sector']}"
+                                for p in m3["positions"])
+                            fund_sum=""
+                            for tk4 in st.session_state.portfolio_holdings:
+                                i4=st.session_state.portfolio_prices_cache.get(tk4,{})
+                                t4=_calc_tech(i4.get("hist")); s4=_signal(i4,t4)
+                                roe4=f"{i4['roe']*100:.1f}%" if i4.get("roe") else "N/A"
+                                mg4=f"{i4['profit_margin']*100:.1f}%" if i4.get("profit_margin") else "N/A"
+                                fund_sum+=(f"\n{tk4}: P/E={i4.get('pe_ratio','—')}, "
+                                    f"ROE={roe4}, Margin={mg4}, "
+                                    f"Beta={i4.get('beta','—')}, Signal={s4['verdict']}, "
+                                    f"Analyst={i4.get('analyst_rating','—')}")
+                            prompts={
+                                "📊 Full Portfolio Analysis":(
+                                    f"Senior portfolio manager. Analyse:\n\nHOLDINGS:\n{pos_sum}\n\n"
+                                    f"FUNDAMENTALS:{fund_sum}\n\nPortfolio Value: {_fc(m3['total_value'])} | "
+                                    f"Return: {m3['total_pnl_pct']:+.2f}% | Beta: {m3['weighted_beta']:.2f}\n\n"
+                                    f"Write 300-word analysis: composition quality, top/bottom performers, "
+                                    f"risks, overall health rating (1-10), 3 specific recommendations. Cite numbers."),
+                                "⚠️ Risk Assessment":(
+                                    f"Risk officer. Holdings:\n{pos_sum}\nFundamentals:{fund_sum}\n"
+                                    f"Beta: {m3['weighted_beta']:.2f}\n\n280-word risk report: "
+                                    f"market risk, concentration risk, sector/correlation risk, "
+                                    f"individual stock risks, hedging suggestions."),
+                                "🎯 Rebalancing Suggestions":(
+                                    f"Portfolio strategist. Holdings:\n{pos_sum}\nFundamentals:{fund_sum}\n\n"
+                                    f"280-word rebalancing plan: overweight/underweight positions, "
+                                    f"specific trades, sector gaps, tax-loss harvesting, target allocations."),
+                                "💡 Opportunity Scan":(
+                                    f"Growth analyst. Holdings:\n{pos_sum}\nFundamentals:{fund_sum}\n\n"
+                                    f"280-word opportunity scan: existing positions with upside, "
+                                    f"3-4 new stocks to add, underperformers to cut, "
+                                    f"under-exposed themes, one high-conviction trade."),
+                            }
+                            resp4=_oai2.chat.completions.create(
+                                model="llama-3.3-70b-versatile",
+                                messages=[
+                                    {"role":"system","content":"Expert portfolio manager and equity analyst. Be concise, data-driven, professional."},
+                                    {"role":"user","content":prompts[ai_type]}],
+                                temperature=0.2,max_tokens=800)
+                            rpt=resp4.choices[0].message.content
+                            st.session_state.portfolio_ai_report=rpt.replace("\n","<br>")
+                            st.markdown(f'<div class="ai-report">{st.session_state.portfolio_ai_report}</div>',unsafe_allow_html=True)
+                            st.caption(f"Generated by Llama 3.3-70B · {resp4.usage.total_tokens} tokens")
+                        except Exception as e5:
+                            st.error(f"AI Report error: {e5}")
+
+        # ── TAB 4: MANAGE HOLDINGS ────────────────────────────────────────
+        with pfol_tabs[4]:
+            st.markdown('<div style="font-family:Space Mono,monospace;font-size:.52rem;letter-spacing:.18em;text-transform:uppercase;color:#C084C8;margin-bottom:.6rem;">Build Your Global Portfolio</div>',unsafe_allow_html=True)
+
+            # Global search to add holding
+            with st.expander("🔍 Search & Add from Any Global Exchange", expanded=not bool(st.session_state.portfolio_holdings)):
+                st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;color:#4A3858;margin-bottom:.5rem;">'
+                            'Search by company name or ticker from NYSE · NASDAQ · NSE · LSE · TSE · HKEX · ASX · Euronext · and 60+ more</div>',
+                            unsafe_allow_html=True)
+                mgsrch_col, mggo_col = st.columns([5,1])
+                with mgsrch_col:
+                    mg_search = st.text_input("search_add", placeholder="e.g. Reliance, Toyota, ASML, HDFC Bank, Samsung…",
+                                              label_visibility="collapsed", key="mg_search_input")
+                with mggo_col:
+                    mg_do_search = st.button("Search", key="mg_search_btn", use_container_width=True)
+
+                if mg_search and len(mg_search) >= 2:
+                    with st.spinner("Searching…"):
+                        mg_results = _search_ticker(mg_search.strip())
+                    if mg_results:
+                        for mg_r in mg_results[:8]:
+                            type_c = {"EQUITY":"#C084C8","ETF":"#4ade80","INDEX":"#F0C040",
+                                      "CRYPTOCURRENCY":"#fb923c"}.get(mg_r["type"],"#9A8AAA")
+                            rr1,rr2,rr3,rr4,rr5 = st.columns([1.8,2.5,1.2,1.2,1])
+                            rr1.markdown(f'<div style="font-family:Space Mono,monospace;font-size:.65rem;'
+                                         f'font-weight:700;color:{type_c};padding-top:.45rem;">{mg_r["symbol"]}</div>',
+                                         unsafe_allow_html=True)
+                            rr2.markdown(f'<div style="font-size:.7rem;color:#9A8AAA;padding-top:.45rem;">'
+                                         f'{mg_r["name"]} <span style="color:#4A3858;font-size:.55rem;">·{mg_r["exchange"]}</span></div>',
+                                         unsafe_allow_html=True)
+                            mg_sh = rr3.number_input("Sh", value=10.0, min_value=0.001, step=1.0,
+                                                      key=f"mg_sh_{mg_r['symbol']}", label_visibility="collapsed")
+                            mg_co = rr4.number_input("Cost", value=100.0, min_value=0.01, step=0.01,
+                                                      key=f"mg_co_{mg_r['symbol']}", label_visibility="collapsed")
+                            if rr5.button("＋", key=f"mg_add_{mg_r['symbol']}", use_container_width=True):
+                                tk_add = mg_r["symbol"]
+                                st.session_state.portfolio_holdings[tk_add] = {
+                                    "shares": mg_sh, "avg_cost": mg_co, "name": mg_r["name"]}
+                                if tk_add in st.session_state.portfolio_prices_cache:
+                                    del st.session_state.portfolio_prices_cache[tk_add]
+                                st.success(f"✓ Added {tk_add}"); st.rerun()
+                    else:
+                        st.caption("No results. Try a full company name or add exchange suffix (e.g. .NS .L .T .HK .DE).")
+
+                # Direct ticker add
+                st.markdown('<div style="font-family:Space Mono,monospace;font-size:.48rem;color:#4A3858;margin:.5rem 0 .3rem;">Or add directly by ticker:</div>',unsafe_allow_html=True)
+                mg1, mg2, mg3, mg4 = st.columns([2, 1.5, 1.5, 1])
+                with mg1: new_tk = st.text_input("Ticker", placeholder="AAPL · RELIANCE.NS · 700.HK · AZN.L", key="new_tk_input").upper().strip()
+                with mg2: new_sh = st.number_input("Shares", min_value=0.001, value=10.0, step=1.0, key="new_sh")
+                with mg3: new_co = st.number_input("Avg Cost", min_value=0.01, value=100.0, step=0.01, key="new_co")
+                with mg4:
+                    if st.button("Add", key="add_h_btn", use_container_width=True):
+                        if new_tk:
+                            st.session_state.portfolio_holdings[new_tk] = {"shares": new_sh, "avg_cost": new_co, "name": new_tk}
+                            if new_tk in st.session_state.portfolio_prices_cache:
+                                del st.session_state.portfolio_prices_cache[new_tk]
+                            st.success(f"✓ Added {new_tk}"); st.rerun()
+                        else: st.error("Enter a ticker symbol.")
+
+            # Edit / remove existing holdings
+            holdings_now = st.session_state.portfolio_holdings
+            if holdings_now:
+                st.markdown('<div style="font-family:Space Mono,monospace;font-size:.52rem;letter-spacing:.18em;text-transform:uppercase;color:#C084C8;margin:.6rem 0 .3rem;">Current Holdings</div>',unsafe_allow_html=True)
+                for tk5, h5 in list(holdings_now.items()):
+                    ec1, ec2, ec3, ec4, ec5 = st.columns([2, 1.5, 1.5, 1.5, 1])
+                    _h_info = st.session_state.portfolio_prices_cache.get(tk5, {})
+                    _h_name = (_h_info.get("name") or h5.get("name") or tk5)[:20]
+                    ec1.markdown(f'<div style="font-family:Space Mono,monospace;font-size:.68rem;'
+                                 f'color:#C084C8;padding-top:.55rem;font-weight:700;">{tk5}</div>'
+                                 f'<div style="font-family:Syne,sans-serif;font-size:.6rem;color:#4A3858;">{_h_name}</div>',
+                                 unsafe_allow_html=True)
+                    ns5 = ec2.number_input("Sh", value=float(h5["shares"]), min_value=0.001, step=1.0,
+                                           key=f"es_{tk5}", label_visibility="collapsed")
+                    nc5 = ec3.number_input("Co", value=float(h5["avg_cost"]), min_value=0.01, step=0.01,
+                                           key=f"ec_{tk5}", label_visibility="collapsed")
+                    if ec4.button("Update", key=f"upd_{tk5}", use_container_width=True):
+                        st.session_state.portfolio_holdings[tk5]["shares"] = ns5
+                        st.session_state.portfolio_holdings[tk5]["avg_cost"] = nc5
+                        if tk5 in st.session_state.portfolio_prices_cache:
+                            del st.session_state.portfolio_prices_cache[tk5]
+                        st.success(f"✓ Updated {tk5}"); st.rerun()
+                    if ec5.button("🗑", key=f"del_{tk5}", use_container_width=True):
+                        del st.session_state.portfolio_holdings[tk5]
+                        if tk5 in st.session_state.portfolio_prices_cache:
+                            del st.session_state.portfolio_prices_cache[tk5]
+                        st.rerun()
+
+            # Watchlist
+            st.markdown("<hr style='border-color:rgba(139,58,139,.1);margin:.7rem 0;'>",unsafe_allow_html=True)
+            st.markdown('<div style="font-family:Space Mono,monospace;font-size:.52rem;letter-spacing:.18em;text-transform:uppercase;color:#C084C8;margin-bottom:.35rem;">Watchlist</div>',unsafe_allow_html=True)
+            wlc1, wlc2 = st.columns([5, 1])
+            with wlc1:
+                wl_tk = st.text_input("Watch", placeholder="Any ticker from any exchange…",
+                                       label_visibility="collapsed", key="wl_inp").upper().strip()
+            with wlc2:
+                if st.button("Watch", key="wl_add", use_container_width=True):
+                    if wl_tk and wl_tk not in st.session_state.portfolio_watchlist:
+                        st.session_state.portfolio_watchlist.append(wl_tk); st.rerun()
+            if st.session_state.portfolio_watchlist:
+                wl_chips = " ".join(f'<span style="background:rgba(107,45,107,.15);border:1px solid rgba(139,58,139,.3);'
+                                    f'font-family:Space Mono,monospace;font-size:.6rem;padding:.2rem .5rem;border-radius:4px;'
+                                    f'color:#C084C8;">{t}</span>' for t in st.session_state.portfolio_watchlist)
+                st.markdown(f'<div style="display:flex;gap:.3rem;flex-wrap:wrap;margin-bottom:.4rem;">{wl_chips}</div>',
+                            unsafe_allow_html=True)
+                if st.button("Clear Watchlist", key="wl_clear"):
+                    st.session_state.portfolio_watchlist = []; st.rerun()
+
+            st.markdown("<hr style='border-color:rgba(139,58,139,.08);margin:.7rem 0;'>",unsafe_allow_html=True)
+            if st.button("🗑 Reset Entire Portfolio", key="reset_pfol", use_container_width=True):
+                st.session_state.portfolio_holdings = {}
+                st.session_state.portfolio_prices_cache = {}
+                st.session_state.portfolio_watchlist = []
+                st.session_state.portfolio_ai_report = ""
+                st.rerun()
+
+    st.markdown("<hr style='border-color:rgba(139,58,139,.1);margin:.6rem 0 1.2rem;'>",unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # FOOTER
@@ -4532,8 +3555,8 @@ if q:
 st.markdown("""
 <div class="vfooter">
   <div class="vfooter-text">
-    Built by Yash Chaudhary &nbsp;·&nbsp; Financial RAG Assistant v9 &nbsp;·&nbsp;
-    Llama 3.3 × Groq × ChromaDB × FinBERT · Portfolio · Analyst Mode
+    Built by Yash Chaudhary &nbsp;·&nbsp; Financial RAG Assistant v11 &nbsp;·&nbsp;
+    Llama 3.3 × Groq × ChromaDB × FinBERT × yfinance · 60+ global exchanges
   </div>
 </div>
 """, unsafe_allow_html=True)
