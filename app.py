@@ -409,8 +409,7 @@ div[data-testid="stButton"] button.tf-active{
    TOP ACTION BUTTONS
    ═══════════════════════════════════════════════════════ */
 
-/* ── Shared tile base ── */
-.sq-btn-upload div[data-testid="stButton"] > button,
+/* ── Shared tile base — only for simulate (upload uses overlay approach) ── */
 .sq-btn-simulate div[data-testid="stButton"] > button {
   width:100%!important; height:5.4rem!important;
   border-radius:14px!important; padding:0!important;
@@ -428,34 +427,19 @@ div[data-testid="stButton"] button.tf-active{
 /* ── Upload: matte-black, big white +  ─────────────────── */
 .sq-btn-upload {
   position:relative;
-  display:grid;       /* grid stacking: overlay + button occupy same cell */
-  grid-template-columns:1fr;
+  display:block;
 }
-.sq-btn-upload > div {
-  grid-area:1/1;       /* all direct children in the same cell */
-}
-.sq-btn-upload div[data-testid="stButton"] > button {
-  background:#080808!important;
-  border:1.5px solid rgba(255,255,255,.28)!important;
-  color:transparent!important;    /* hide Streamlit button text — overlay draws it */
-  box-shadow: 0 4px 28px rgba(0,0,0,.8),
-              inset 0 1px 0 rgba(255,255,255,.06)!important;
-}
-.sq-btn-upload div[data-testid="stButton"] > button:hover {
-  background:#141414!important;
-  border-color:rgba(255,255,255,.6)!important;
-  transform:translateY(-3px) scale(1.035)!important;
-  box-shadow: 0 0 0 1px rgba(255,255,255,.12),
-              0 0 36px rgba(255,255,255,.07),
-              0 10px 30px rgba(0,0,0,.85)!important;
-}
-/* Overlay: big + and label, sits above button via z-index, passes clicks through */
+/* The overlay sits in normal flow first, then the button is pulled UP over it */
 .sq-btn-upload-plus {
-  position:relative; z-index:5;
   display:flex; flex-direction:column;
   align-items:center; justify-content:center;
   height:5.4rem; width:100%;
-  pointer-events:none; gap:.15rem;
+  background:#080808;
+  border:1.5px solid rgba(255,255,255,.28);
+  border-radius:14px;
+  pointer-events:none;
+  gap:.15rem;
+  box-shadow: 0 4px 28px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.06);
 }
 .sq-btn-upload-plus-icon {
   font-size:2.4rem; font-weight:100; color:#fff; line-height:1;
@@ -465,6 +449,33 @@ div[data-testid="stButton"] button.tf-active{
   font-family:'Space Mono',monospace;
   font-size:.5rem; letter-spacing:.16em;
   text-transform:uppercase; color:rgba(255,255,255,.72);
+}
+/* Pull the real button UP to cover the overlay exactly */
+.sq-btn-upload div[data-testid="stButton"] {
+  margin-top:-5.4rem!important;
+}
+.sq-btn-upload div[data-testid="stButton"] > button {
+  background:transparent!important;
+  border:1.5px solid transparent!important;
+  color:transparent!important;
+  box-shadow:none!important;
+}
+.sq-btn-upload div[data-testid="stButton"] > button:hover ~ .sq-btn-upload-plus,
+.sq-btn-upload:hover .sq-btn-upload-plus {
+  border-color:rgba(255,255,255,.6)!important;
+  background:#141414!important;
+}
+.sq-btn-upload div[data-testid="stButton"] > button:hover {
+  background:transparent!important;
+  border-color:transparent!important;
+  transform:translateY(-3px) scale(1.035)!important;
+  box-shadow:none!important;
+}
+/* Hover state on the wrapper to light up the visual tile */
+.sq-btn-upload:hover .sq-btn-upload-plus {
+  border-color:rgba(255,255,255,.6);
+  background:#141414;
+  box-shadow: 0 0 0 1px rgba(255,255,255,.1), 0 0 36px rgba(255,255,255,.07), 0 10px 30px rgba(0,0,0,.85);
 }
 
 /* ── Simulate Portfolio: dark with live SVG chart ────────── */
