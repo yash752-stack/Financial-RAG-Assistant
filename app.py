@@ -825,7 +825,7 @@ class HybridRetriever:
         if rerank:
             try:
                 from sentence_transformers import CrossEncoder
-                if self._ce is None: self._ce = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-2-v2")
+                if self._ce is None: self._ce = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
                 sc = self._ce.predict([(query, self.chunks[i]) for i in cands]).tolist()
                 cands = sorted(cands, key=lambda i: sc[cands.index(i)], reverse=True)
             except: pass
@@ -1530,34 +1530,77 @@ ce.textContent='1/'+N;startPB();restart();
 # ② UNIVERSAL FILE TEXT EXTRACTOR  — PDF / XLSX / XLS / CSV / DOCX / TXT
 # ─────────────────────────────────────────────────────────────────────────────
 def extract_text_from_file(f) -> str:
-    """Extract plain text from any supported file type."""
+    """Legacy wrapper — extracts full text from any supported file."""
+    import io as _io
+    raw  = f.read(); name = f.name.lower()
+    f.seek(0)  # reset so _extract_page_aware can re-read
+    blocks = _extract_page_aware(f)
+    return " ".join(b["text"] for b in blocks) if blocks else ""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ③ INGEST — semantic chunking · rich metadata · BGE embeddings
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Financial-aware section detector used during ingestion
+_FIN_SECTION_PATTERNS = [
+    (r"income statement|profit.{0,10}loss|revenue|net income|gross profit|ebitda|operating income|COGS",
+     "Income Statement"),
+    (r"balance sheet|total assets|liabilities|shareholders.{0,8}equity|book value|working capital",
+     "Balance Sheet"),
+    (r"cash flow|operating activities|investing activities|financing activities|capex|free cash flow",
+     "Cash Flow"),
+    (r"\bEPS\b|earnings per share|diluted|basic eps|per share",               "Per Share"),
+    (r"P/E|price.{0,6}earnings|ROE|ROA|ROCE|debt.{0,6}equity|current ratio|quick ratio|gross margin|net margin",
+     "Ratios"),
+    (r"risk factor|material risk|litigation|regulatory|compliance|contingent", "Risk Factors"),
+    (r"segment|business unit|geography|product line|divisional",               "Segments"),
+    (r"guidance|outlook|forward.looking|forecast|target|next quarter",         "Outlook & Guidance"),
+    (r"audit|auditor|opinion|going concern|material weakness",                 "Audit"),
+    (r"dividend|buyback|share repurchase|capital return|payout",               "Capital Allocation"),
+]
+
+def _infer_section(text: str) -> str:
+    """Fast pattern-match to label a chunk's financial section."""
+    t = text[:800].lower()
+    for pattern, label in _FIN_SECTION_PATTERNS:
+        if re.search(pattern, t, re.IGNORECASE):
+            return label
+    return "General"
+
+def _extract_page_aware(f) -> list[dict]:
+    """
+    Extract text per-page (PDF) or per-sheet/row (Excel/CSV).
+    Returns list of {"text": str, "page": int, "source": str}.
+    """
     name = f.name.lower()
     raw  = f.read()
+    pages = []
 
     if name.endswith(".pdf"):
         from pypdf import PdfReader
         reader = PdfReader(io.BytesIO(raw))
-        return " ".join(pg.extract_text() or "" for pg in reader.pages)
+        for i, pg in enumerate(reader.pages):
+            t = pg.extract_text() or ""
+            if t.strip():
+                pages.append({"text": t, "page": i + 1, "source": f.name})
 
-    if name.endswith((".xlsx", ".xls")):
+    elif name.endswith((".xlsx", ".xls")):
         try:
             dfs = pd.read_excel(io.BytesIO(raw), sheet_name=None, dtype=str)
-            parts = []
-            for sheet, df in dfs.items():
-                parts.append(f"=== Sheet: {sheet} ===")
-                parts.append(df.fillna("").to_string(index=False))
-            return "\n".join(parts)
+            for sheet_i, (sheet, df) in enumerate(dfs.items()):
+                text = f"=== Sheet: {sheet} ===\n" + df.fillna("").to_string(index=False)
+                pages.append({"text": text, "page": sheet_i + 1, "source": f"{f.name}[{sheet}]"})
         except Exception as e:
-            return f"[Excel parse error: {e}]"
+            pages.append({"text": f"[Excel parse error: {e}]", "page": 1, "source": f.name})
 
-    if name.endswith(".csv"):
+    elif name.endswith(".csv"):
         try:
             df = pd.read_csv(io.BytesIO(raw), dtype=str)
-            return df.fillna("").to_string(index=False)
+            pages.append({"text": df.fillna("").to_string(index=False), "page": 1, "source": f.name})
         except Exception as e:
-            return f"[CSV parse error: {e}]"
+            pages.append({"text": f"[CSV parse error: {e}]", "page": 1, "source": f.name})
 
-    if name.endswith(".docx"):
+    elif name.endswith(".docx"):
         try:
             import zipfile, xml.etree.ElementTree as ET
             z   = zipfile.ZipFile(io.BytesIO(raw))
@@ -1566,73 +1609,108 @@ def extract_text_from_file(f) -> str:
             W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
             paras = []
             for para in tree.iter(f"{W}p"):
-                texts = [t.text or "" for t in para.iter(f"{W}t")]
-                line  = "".join(texts).strip()
+                line = "".join(t.text or "" for t in para.iter(f"{W}t")).strip()
                 if line: paras.append(line)
-            return "\n".join(paras)
+            pages.append({"text": "\n".join(paras), "page": 1, "source": f.name})
         except Exception as e:
-            return f"[DOCX parse error: {e}]"
+            pages.append({"text": f"[DOCX parse error: {e}]", "page": 1, "source": f.name})
+    else:
+        for enc in ("utf-8", "latin-1", "cp1252"):
+            try:
+                pages.append({"text": raw.decode(enc), "page": 1, "source": f.name}); break
+            except: pass
+        else:
+            pages.append({"text": raw.decode("utf-8", errors="ignore"), "page": 1, "source": f.name})
 
-    # TXT / plain fallback
-    for enc in ("utf-8", "latin-1", "cp1252"):
-        try:
-            return raw.decode(enc)
-        except: pass
-    return raw.decode("utf-8", errors="ignore")
+    return pages
 
-# ─────────────────────────────────────────────────────────────────────────────
-# ③ INGEST — multi-format + auto analytics on completion
-# ─────────────────────────────────────────────────────────────────────────────
 def ingest_documents(files):
     from chromadb import EphemeralClient
     from chromadb.config import Settings
     from sentence_transformers import SentenceTransformer
     from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    # ── Smarter financial-aware splitter ────────────────────────────────
+    # 512 chars (~128 tokens) keeps each chunk focused on a single metric/table row.
+    # Overlap of 64 chars preserves cross-sentence number context.
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=512,
+        chunk_overlap=64,
+        separators=["\n\n", "\n", ". ", "! ", "? ", "; ", ", ", " ", ""],
+        length_function=len,
+    )
 
+    # ── Embedding model: BGE-large is MTEB #1 for retrieval ─────────────
     @st.cache_resource
     def load_model():
-        # Finance-specific model trained on SEC filings, earnings reports, financial news
-        # Falls back to general model if download fails (e.g. no internet)
         try:
-            return SentenceTransformer("yiyanghkust/finbert-pretrain")
+            # BGE-large: top retrieval model, requires "passage:" / "query:" prefixes
+            m = SentenceTransformer("BAAI/bge-large-en-v1.5")
+            m._bge = True
+            return m
         except Exception:
-            return SentenceTransformer("all-MiniLM-L6-v2")
+            try:
+                # Finance-specific fallback
+                m2 = SentenceTransformer("yiyanghkust/finbert-pretrain")
+                m2._bge = False
+                return m2
+            except Exception:
+                m3 = SentenceTransformer("all-MiniLM-L6-v2")
+                m3._bge = False
+                return m3
 
     model  = load_model()
     client = EphemeralClient(settings=Settings(anonymized_telemetry=False))
     try:   client.delete_collection("financials")
     except: pass
-    col = client.create_collection("financials", metadata={"hnsw:space":"cosine"})
+    col = client.create_collection("financials", metadata={"hnsw:space": "cosine"})
 
     all_chunks, all_ids, all_meta, fnames, full_texts = [], [], [], [], []
     prog = st.progress(0, text="Reading files…")
+    is_bge = getattr(model, "_bge", False)
 
     for i, f in enumerate(files):
-        text   = extract_text_from_file(f)   # ← universal extractor
-        chunks = splitter.split_text(text)
+        prog.progress((i + 0.1) / len(files), text=f"Parsing {f.name}…")
+        page_blocks = _extract_page_aware(f)
+        combined    = " ".join(b["text"] for b in page_blocks)
         fnames.append(f.name)
-        full_texts.append(text)
-        for j, chunk in enumerate(chunks):
-            all_chunks.append(chunk)
-            all_ids.append(f"{f.name}_chunk_{j}")
-            all_meta.append({"filename":f.name,"chunk":j})
-        prog.progress((i+1)/len(files), text=f"Processed {f.name}")
+        full_texts.append(combined)
+
+        for block in page_blocks:
+            raw_chunks = splitter.split_text(block["text"])
+            for j, chunk in enumerate(raw_chunks):
+                section = _infer_section(chunk)
+                # BGE requires "passage:" prefix for documents during indexing
+                embed_text = f"passage: {chunk}" if is_bge else chunk
+                all_chunks.append(chunk)          # store original (without prefix) for display
+                all_ids.append(f"{f.name}_p{block['page']}_c{j}")
+                all_meta.append({
+                    "filename":    f.name,
+                    "page":        block["page"],
+                    "chunk":       j,
+                    "section":     section,        # ← financial section tag
+                    "source":      block["source"],
+                    "_embed_text": embed_text,     # ← prefix-aware text for embedding
+                })
+
+        prog.progress((i + 1) / len(files), text=f"Processed {f.name}")
     prog.empty()
 
     if all_chunks:
-        with st.spinner(f"Embedding {len(all_chunks)} chunks…"):
-            embs = model.encode(all_chunks, normalize_embeddings=True).tolist()
-            col.add(documents=all_chunks, embeddings=embs, ids=all_ids, metadatas=all_meta)
+        with st.spinner(f"Embedding {len(all_chunks)} chunks with {'BGE-large' if is_bge else 'FinBERT'}…"):
+            # Embed with appropriate prefixes
+            embed_texts = [m["_embed_text"] for m in all_meta]
+            embs = model.encode(embed_texts, normalize_embeddings=True,
+                                batch_size=32, show_progress_bar=False).tolist()
+            # Strip internal key before storing in ChromaDB
+            clean_meta = [{k: v for k, v in m.items() if k != "_embed_text"} for m in all_meta]
+            col.add(documents=all_chunks, embeddings=embs, ids=all_ids, metadatas=clean_meta)
 
     combined_text = " ".join(full_texts)
-
-    # ③  AUTO-GENERATE ANALYTICS immediately after embedding
     with st.spinner("Auto-generating analytics…"):
         auto_metrics = extract_metrics(combined_text)
 
-    st.session_state.vectorstore    = {"collection":col,"model":model}
+    st.session_state.vectorstore    = {"collection": col, "model": model, "is_bge": is_bge}
     st.session_state.uploaded_docs  = len(files)
     st.session_state.chunk_count    = len(all_chunks)
     st.session_state.file_names     = fnames
@@ -2776,6 +2854,50 @@ _SECTION_PATTERNS = [
     (r"macroeconomic|market condition|industry trend",           "Market & Industry"),
 ]
 
+_QUERY_EXPANSIONS: dict[str, list[str]] = {
+    r"\beps\b|earnings per share": [
+        "diluted EPS", "basic EPS", "earnings per share diluted",
+        "diluted earnings per share", "EPS diluted", "net income per share"],
+    r"revenue|total revenue|net sales": [
+        "total revenue", "net sales", "revenue from operations",
+        "gross revenue", "top line", "turnover"],
+    r"net income|net profit|profit after tax|PAT": [
+        "net income", "net profit", "profit after tax", "PAT",
+        "net earnings", "bottom line"],
+    r"gross margin|gross profit": [
+        "gross profit", "gross margin", "gross profit margin",
+        "cost of revenue", "COGS", "cost of goods sold"],
+    r"ebitda": [
+        "EBITDA", "earnings before interest tax depreciation",
+        "operating EBITDA", "adjusted EBITDA"],
+    r"free cash flow|FCF": [
+        "free cash flow", "FCF", "operating cash flow minus capex",
+        "cash from operations", "capital expenditure"],
+    r"debt|borrowing|leverage": [
+        "total debt", "long-term debt", "borrowings", "net debt",
+        "debt-to-equity", "leverage ratio"],
+    r"dividend|DPS|payout": [
+        "dividend per share", "DPS", "dividend payout",
+        "interim dividend", "final dividend"],
+    r"ROE|return on equity": [
+        "return on equity", "ROE", "return on net worth"],
+    r"ROA|return on assets": [
+        "return on assets", "ROA", "return on total assets"],
+}
+
+def _expand_query(q: str) -> str:
+    """
+    Append financial synonym variants to the query for better BM25 recall.
+    Returns an augmented query string used only for embedding — not shown to user.
+    """
+    additions = []
+    for pattern, terms in _QUERY_EXPANSIONS.items():
+        if re.search(pattern, q, re.IGNORECASE):
+            additions.extend(t for t in terms if t.lower() not in q.lower())
+    if additions:
+        return q + " " + " ".join(additions[:6])   # cap expansions to avoid noise
+    return q
+
 def guess_section(text: str) -> str:
     """Infer probable document section from chunk text."""
     t = text[:600].lower()
@@ -2803,7 +2925,11 @@ def render_source_panel(sources: list[dict]) -> None:
             chunk_text = src.get("chunk_full") or src.get("preview","")
             section    = guess_section(chunk_text)
             chunk_idx  = src.get("chunk_idx", "")
-            page_est   = f"Chunk #{chunk_idx}" if chunk_idx != "" else f"Chunk ~{i}"
+            page_num   = src.get("page", "")
+            page_est   = (f"p.{page_num} · Chunk #{chunk_idx}" if page_num and chunk_idx != ""
+                          else f"p.{page_num}" if page_num
+                          else f"Chunk #{chunk_idx}" if chunk_idx != ""
+                          else f"Chunk ~{i}")
             fname      = _ht.escape(src.get("filename","Unknown"))
             chunk_disp = _ht.escape(chunk_text[:500] + ("…" if len(chunk_text) > 500 else ""))
 
@@ -3501,10 +3627,12 @@ with _search_col:
         hits = []
         if st.session_state.vectorstore:
             try:
-                vs    = st.session_state.vectorstore
-                q_emb = vs["model"].encode([_raw_q], normalize_embeddings=True).tolist()
-                res   = vs["collection"].query(query_embeddings=q_emb, n_results=5,
-                                               include=["documents","metadatas","distances"])
+                vs      = st.session_state.vectorstore
+                is_bge  = vs.get("is_bge", False)
+                eq      = f"query: {_raw_q}" if is_bge else _raw_q
+                q_emb   = vs["model"].encode([eq], normalize_embeddings=True).tolist()
+                res     = vs["collection"].query(query_embeddings=q_emb, n_results=5,
+                                                 include=["documents","metadatas","distances"])
                 for chunk, meta, dist in zip(res["documents"][0], res["metadatas"][0], res["distances"][0]):
                     hits.append({"filename": meta["filename"],
                                  "score":    round(1 - dist/2, 3),
@@ -4459,25 +4587,67 @@ if q:
                 f"MARKET MOOD: Fear & Greed = {fng_val} ({fng_label})"
             ).strip()
 
-            # ── Document retrieval (richer source metadata) ───────────────
+            # ── Document retrieval — BGE prefix + section metadata + query expansion ──
             doc_context = ""; sources_data = []
             if st.session_state.vectorstore:
-                vs    = st.session_state.vectorstore
-                q_emb = vs["model"].encode([q], normalize_embeddings=True).tolist()
-                res   = vs["collection"].query(query_embeddings=q_emb, n_results=5,
-                                               include=["documents","metadatas","distances"])
+                vs     = st.session_state.vectorstore
+                model  = vs["model"]
+                is_bge = vs.get("is_bge", False)
+
+                # BGE requires "query:" prefix for retrieval queries
+                # Also expand numeric/financial queries with synonyms for better BM25 recall
+                expanded_q = _expand_query(q)
+                embed_q    = f"query: {expanded_q}" if is_bge else expanded_q
+                q_emb      = model.encode([embed_q], normalize_embeddings=True).tolist()
+
+                # Fetch top-20 candidates for reranker to work with
+                res = vs["collection"].query(
+                    query_embeddings=q_emb, n_results=min(20, vs["collection"].count()),
+                    include=["documents", "metadatas", "distances"],
+                )
                 cks, mts, dts = res["documents"][0], res["metadatas"][0], res["distances"][0]
-                doc_context  = "\n---\n".join(f"[{m['filename']}]\n{c}" for c, m in zip(cks, mts))
+
+                # Annotate each candidate with its section
+                candidates = []
+                for c, m, d in zip(cks, mts, dts):
+                    section = m.get("section") or guess_section(c)
+                    candidates.append({
+                        "chunk":    c,
+                        "meta":     m,
+                        "dist":     d,
+                        "score":    round(1 - d / 2, 3),
+                        "section":  section,
+                        "page":     m.get("page", ""),
+                    })
+
+                # ── Cross-encoder rerank top-20 → keep top-6 ──────────────────
+                try:
+                    from sentence_transformers import CrossEncoder
+                    _ce_model = "cross-encoder/ms-marco-MiniLM-L-6-v2"   # L-6 > L-2 accuracy
+                    ce = CrossEncoder(_ce_model)
+                    ce_scores = ce.predict([(q, cand["chunk"]) for cand in candidates]).tolist()
+                    for cand, sc in zip(candidates, ce_scores):
+                        cand["ce_score"] = sc
+                    candidates.sort(key=lambda x: x.get("ce_score", 0), reverse=True)
+                except Exception:
+                    candidates.sort(key=lambda x: x["score"], reverse=True)
+
+                top = candidates[:6]
+                doc_context = "\n---\n".join(
+                    f"[{c['meta']['filename']} · {c['section']} · p{c['page']}]\n{c['chunk']}"
+                    for c in top
+                )
                 sources_data = [
                     {
-                        "filename":   m["filename"],
-                        "score":      round(1 - d/2, 3),
-                        "preview":    c[:220],
-                        "chunk_full": c,                          # full chunk for evidence panel
-                        "chunk_idx":  m.get("chunk", ""),         # chunk number for page approximation
-                        "section":    guess_section(c),           # inferred section label
+                        "filename":   c["meta"]["filename"],
+                        "score":      c["score"],
+                        "preview":    c["chunk"][:220],
+                        "chunk_full": c["chunk"],
+                        "chunk_idx":  c["meta"].get("chunk", ""),
+                        "section":    c["section"],
+                        "page":       c["page"],
                     }
-                    for c, m, d in zip(cks, mts, dts)
+                    for c in top
                 ]
 
             # ── Branch: Analyst Mode vs Chat Mode ────────────────────────
@@ -4499,21 +4669,43 @@ if q:
                     "sources": sources_data, "analyst_mode": True, "question": q,
                 })
             else:
-                # Chat Mode: normal conversational answer
-                user_msg = (f"{live_context}\n\n=== DOCUMENT CONTEXT ===\n{doc_context}\n\nQuestion: {q}"
-                            if doc_context else f"{live_context}\n\nQuestion: {q}")
+                # Chat Mode: precision financial extraction prompt
+                if doc_context:
+                    user_msg = (
+                        f"{live_context}\n\n"
+                        f"=== DOCUMENT CONTEXT ===\n{doc_context}\n\n"
+                        f"Question: {q}"
+                    )
+                    sys_prompt = (
+                        "You are an expert financial analyst with access to real-time market data "
+                        "and uploaded financial documents (annual reports, earnings releases, SEC filings).\n\n"
+                        "CRITICAL RULES for document questions:\n"
+                        "1. Extract the EXACT value from the document context. Quote the number verbatim.\n"
+                        "2. If the context has multiple years, return the MOST RECENT value first, then prior years.\n"
+                        "3. Always cite which document section and page the number came from.\n"
+                        "4. If the value is NOT found in the provided context, say exactly: "
+                        "\"NOT FOUND in the provided document context.\" — never fabricate a number.\n"
+                        "5. For percentage changes, show both absolute value and YoY/QoQ delta.\n"
+                        "6. For live market questions (price, rates, indices), use the live data block.\n"
+                        "7. Be concise but complete. Use tables for multi-metric answers."
+                    )
+                else:
+                    user_msg = f"{live_context}\n\nQuestion: {q}"
+                    sys_prompt = (
+                        "You are an expert financial analyst with real-time market data access. "
+                        "You have live prices for stocks, gold, silver, oil, crypto, and FX rates. "
+                        "Use live data for all market questions. Be concise and precise. "
+                        "Never fabricate numbers."
+                    )
                 resp = oai.chat.completions.create(
                     model="llama-3.3-70b-versatile",
                     messages=[
-                        {"role":"system","content":(
-                            "You are an expert financial analyst with real-time data access. "
-                            "You have live prices for stocks, gold, silver, oil, crypto, and FX rates. "
-                            "Use live data for market questions. For document questions, cite specific numbers. "
-                            "Be concise, precise, never fabricate numbers.")},
-                        *[{"role":m["role"],"content":m["content"]} for m in st.session_state.messages[:-1]],
-                        {"role":"user","content":user_msg},
+                        {"role": "system", "content": sys_prompt},
+                        *[{"role": m["role"], "content": m["content"]}
+                          for m in st.session_state.messages[:-1]],
+                        {"role": "user", "content": user_msg},
                     ],
-                    temperature=0.15, max_tokens=1500,
+                    temperature=0.08, max_tokens=1500,
                 )
                 answer = resp.choices[0].message.content
                 st.session_state.messages.append({
