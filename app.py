@@ -426,18 +426,20 @@ div[data-testid="stButton"] button.tf-active{
 }
 
 /* ── Upload: matte-black, big white +  ─────────────────── */
-@keyframes blink-border {
-  0%,100%{ opacity:.45; } 50%{ opacity:.9; }
+.sq-btn-upload {
+  position:relative;
+  display:grid;       /* grid stacking: overlay + button occupy same cell */
+  grid-template-columns:1fr;
 }
-.sq-btn-upload { position:relative; }
+.sq-btn-upload > div {
+  grid-area:1/1;       /* all direct children in the same cell */
+}
 .sq-btn-upload div[data-testid="stButton"] > button {
   background:#080808!important;
   border:1.5px solid rgba(255,255,255,.28)!important;
-  color:#ffffff!important;
+  color:transparent!important;    /* hide Streamlit button text — overlay draws it */
   box-shadow: 0 4px 28px rgba(0,0,0,.8),
               inset 0 1px 0 rgba(255,255,255,.06)!important;
-  font-size:.6rem!important;
-  letter-spacing:.14em!important;
 }
 .sq-btn-upload div[data-testid="stButton"] > button:hover {
   background:#141414!important;
@@ -447,23 +449,22 @@ div[data-testid="stButton"] button.tf-active{
               0 0 36px rgba(255,255,255,.07),
               0 10px 30px rgba(0,0,0,.85)!important;
 }
-/* Oversized + rendered as a pseudo overlay via the wrapper */
+/* Overlay: big + and label, sits above button via z-index, passes clicks through */
 .sq-btn-upload-plus {
-  position:absolute; top:0; left:0; width:100%; height:5.4rem;
+  position:relative; z-index:5;
   display:flex; flex-direction:column;
   align-items:center; justify-content:center;
-  pointer-events:none; z-index:10;
+  height:5.4rem; width:100%;
+  pointer-events:none; gap:.15rem;
 }
 .sq-btn-upload-plus-icon {
-  font-size:2rem; font-weight:100; color:#fff;
-  line-height:1; margin-bottom:.1rem;
-  font-family:'Helvetica Neue',sans-serif;
+  font-size:2.4rem; font-weight:100; color:#fff; line-height:1;
+  font-family:'Helvetica Neue',Arial,sans-serif;
 }
 .sq-btn-upload-plus-label {
   font-family:'Space Mono',monospace;
-  font-size:.52rem; letter-spacing:.18em;
-  text-transform:uppercase; color:rgba(255,255,255,.75);
-  margin-top:.12rem;
+  font-size:.5rem; letter-spacing:.16em;
+  text-transform:uppercase; color:rgba(255,255,255,.72);
 }
 
 /* ── Simulate Portfolio: dark with live SVG chart ────────── */
@@ -1621,11 +1622,7 @@ _FIN_SECTION_PATTERNS = [
 ]
 
 def _extract_chunk_keywords(text: str, max_kw: int = 8) -> str:
-    """
-    Extract top financial keywords from a chunk for metadata tagging.
-    Uses a simple frequency-weighted approach — no external deps.
-    """
-    # Financial stop-words to ignore
+    """Extract top financial keywords from a chunk for metadata tagging."""
     _stops = {"the","and","of","in","to","a","is","are","was","were","for","as","on","at",
                "by","an","be","with","or","from","this","that","its","their","has","have",
                "been","which","year","fiscal","ended","per","total","net","gross","basic"}
@@ -1638,7 +1635,7 @@ def _extract_chunk_keywords(text: str, max_kw: int = 8) -> str:
     top = sorted(freq, key=lambda k: freq[k], reverse=True)[:max_kw]
     return " ".join(top)
 
-
+def _infer_section(text: str) -> str:
     """Fast pattern-match to label a chunk's financial section."""
     t = text[:800].lower()
     for pattern, label in _FIN_SECTION_PATTERNS:
@@ -3432,7 +3429,18 @@ def ai_market_analysis(symbols_data: list[dict], groq_api_key: str, context: str
         )
         return resp.choices[0].message.content.strip()
     except Exception as e:
-        return f"Analysis unavailable: {e}"
+        err = str(e)
+        # Parse rate-limit errors into a clean, actionable message
+        if "rate_limit_exceeded" in err or "429" in err or "Rate limit" in err:
+            # Try to extract retry time from the error message
+            retry_match = re.search(r"try again in (\d+m[\d.]*s|[\d.]+s)", err, re.IGNORECASE)
+            retry_str   = retry_match.group(1) if retry_match else "a few minutes"
+            return (
+                f"⏱ Groq rate limit reached — the free tier has a daily token cap.\n"
+                f"Analysis will be available again in ~{retry_str}.\n\n"
+                f"💡 To remove limits: upgrade at console.groq.com/settings/billing"
+            )
+        return f"⚠ Analysis unavailable: {err[:120]}"
 
 def _compute_symbol_stats(df: pd.DataFrame, sym: str) -> dict:
     """Compute stats from a 1Y OHLCV DataFrame (legacy, kept for portfolio use)."""
@@ -3687,10 +3695,8 @@ with st.sidebar:
 # ─────────────────────────────────────────────────────────────────────────────
 # TOP ACTION BAR  — [＋ Upload]  [Simulate Portfolio]  [Search]
 # ─────────────────────────────────────────────────────────────────────────────
-import random as _random
-_bull_bear = _random.choice(["🐂", "🐻"])
 
-# SVG stock chart — two lines (purple + green), tiled 2× for seamless scroll
+# Inline SVG chart watermark for portfolio button (base64 data URI)
 _CHART_SVG = (
     "data:image/svg+xml,"
     "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 520 64' preserveAspectRatio='none'%3E"
@@ -3706,17 +3712,18 @@ _CHART_SVG = (
 _btn_upload, _btn_portfolio, _search_col = st.columns([1.4, 2.5, 6.1], gap="small")
 
 with _btn_upload:
-    # Matte-black tile — overlay div renders the large white + independently of Streamlit button text
+    # Grid-stack: overlay div + button occupy the same grid cell.
+    # The overlay has pointer-events:none so clicks pass through to the button.
     st.markdown(
-        '<div class="sq-btn-upload" style="position:relative;">'
+        '<div class="sq-btn-upload">'
         '<div class="sq-btn-upload-plus">'
-        '<div class="sq-btn-upload-plus-icon">+</div>'
-        '<div class="sq-btn-upload-plus-label">Upload Document</div>'
+        '<span class="sq-btn-upload-plus-icon">+</span>'
+        '<span class="sq-btn-upload-plus-label">Upload Document</span>'
         '</div>',
         unsafe_allow_html=True,
     )
     if st.button(
-        "\u200b",          # zero-width space — button text invisible, overlay shows instead
+        "\u200b",
         key="top_upload_btn",
         use_container_width=True,
         help="Upload PDF · Excel · CSV · DOCX · TXT",
@@ -3730,7 +3737,6 @@ with _btn_portfolio:
     _pf_open = st.session_state.show_portfolio
     _pf_sub  = f"{_n_pf} Holdings" if _n_pf else "AI Assistant"
     _pf_cls  = "sq-btn-simulate pf-open" if _pf_open else "sq-btn-simulate"
-    # Portfolio tile: dark bg + scrolling SVG chart watermark + vignette overlay
     st.markdown(
         f'<div class="{_pf_cls}">'
         f'<div class="sq-btn-simulate-bg"></div>'
@@ -3739,7 +3745,7 @@ with _btn_portfolio:
         unsafe_allow_html=True,
     )
     if st.button(
-        f"{_bull_bear}  Simulate Portfolio\n{_pf_sub}",
+        f"Simulate Portfolio\n{_pf_sub}",
         key="top_portfolio_btn",
         use_container_width=True,
         help="Build & AI-simulate your global stock portfolio",
@@ -3747,6 +3753,8 @@ with _btn_portfolio:
         st.session_state.show_portfolio = not _pf_open
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
+
+
 
 with _search_col:
     # Inline global search
@@ -4895,10 +4903,20 @@ if q:
                     "sources": sources_data, "analyst_mode": False,
                 })
 
-            st.rerun()  # re-render so new messages appear in the chat panel above
+            st.rerun()
 
         except Exception as e:
-            st.error(f"Error: {e}")
+            err = str(e)
+            if "rate_limit_exceeded" in err or "429" in err or "Rate limit" in err:
+                retry_match = re.search(r"try again in (\d+m[\d.]*s|[\d.]+s)", err, re.IGNORECASE)
+                retry_str   = retry_match.group(1) if retry_match else "a few minutes"
+                st.warning(
+                    f"⏱ **Groq rate limit reached** — daily token cap hit on the free tier.  \n"
+                    f"Analysis available again in ~**{retry_str}**.  \n"
+                    f"💡 Upgrade at [console.groq.com/settings/billing](https://console.groq.com/settings/billing)"
+                )
+            else:
+                st.error(f"Error: {err[:200]}")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # FOOTER
