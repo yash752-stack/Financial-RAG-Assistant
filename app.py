@@ -870,40 +870,140 @@ def _retrieval_cache_get(q: str) -> dict | None:
 def _retrieval_cache_put(q: str, result: dict) -> None:
     key = _cache_key(q)
     if len(_RETRIEVAL_CACHE) >= _CACHE_MAXSIZE:
-        # Evict oldest entry (insertion-ordered dict in Python 3.7+)
         _RETRIEVAL_CACHE.pop(next(iter(_RETRIEVAL_CACHE)))
     _RETRIEVAL_CACHE[key] = result
 
+# ── Retrieval quality monitoring log ────────────────────────────────────────
+# Logs every live retrieval attempt with query, retrieved sections, CE scores,
+# and (when available) ground-truth keyword hit.  Used in Eval tab dashboard.
+_RETRIEVAL_LOG: list[dict] = []
+_LOG_MAXSIZE = 200
+
+def log_retrieval(
+    query: str,
+    retrieved: list[dict],       # list of {section, ce_score, score, page}
+    keyword_hits: int = 0,       # how many expected keywords appeared in top chunks
+    keyword_total: int = 0,
+) -> None:
+    """Append one retrieval event to the in-memory log."""
+    if len(_RETRIEVAL_LOG) >= _LOG_MAXSIZE:
+        _RETRIEVAL_LOG.pop(0)
+    avg_ce = (sum(c.get("ce_score", 0) for c in retrieved) / len(retrieved)
+              if retrieved else 0.0)
+    top_ce = max((c.get("ce_score", -99) for c in retrieved), default=-99)
+    _RETRIEVAL_LOG.append({
+        "ts":           _dt.datetime.now().strftime("%H:%M:%S"),
+        "query":        query[:80],
+        "n_chunks":     len(retrieved),
+        "sections":     list({c.get("section","?") for c in retrieved}),
+        "avg_ce_score": round(avg_ce, 2),
+        "top_ce_score": round(top_ce, 2),
+        "kw_hits":      keyword_hits,
+        "kw_total":     keyword_total,
+        "recall":       round(keyword_hits / keyword_total, 3) if keyword_total else None,
+    })
+
+def compute_retrieval_stats() -> dict:
+    """Aggregate Recall@K, MRR, avg CE score from the retrieval log."""
+    if not _RETRIEVAL_LOG:
+        return {}
+    log = _RETRIEVAL_LOG
+    avg_ce   = sum(e["avg_ce_score"]  for e in log) / len(log)
+    top_ce   = sum(e["top_ce_score"]  for e in log) / len(log)
+    # Recall@K: fraction of logged retrievals where ≥1 keyword was hit
+    eval_log = [e for e in log if e["kw_total"]]
+    recall   = (sum(1 for e in eval_log if e["kw_hits"] > 0) / len(eval_log)
+                if eval_log else None)
+    # Mean avg CE across all queries (proxy for retrieval confidence)
+    return {
+        "n_queries":    len(log),
+        "avg_ce":       round(avg_ce, 2),
+        "top_ce":       round(top_ce, 2),
+        "recall_at_k":  round(recall * 100, 1) if recall is not None else None,
+        "eval_samples": len(eval_log),
+    }
+
 class HybridRetriever:
+    """
+    Two-stage hybrid retriever:
+      Stage 1 — BM25 keyword + dense cosine, fused with Reciprocal Rank Fusion (RRF)
+      Stage 2 — Cross-encoder reranker filters low-confidence candidates
+    RRF formula:  score(d) = Σ 1 / (k + rank_i(d))   [k=60 is standard]
+    This is more robust than linear weighting because it is rank-based, not
+    score-magnitude-based, so BM25 and cosine scales don't need normalisation.
+    """
+    _K = 60   # RRF constant — higher = flatter rank weighting
+
     def __init__(self, chunks, embeddings):
-        self.chunks = chunks; self.embeddings = embeddings; self._bm25 = None; self._ce = None
+        self.chunks = chunks
+        self.embeddings = embeddings
+        self._bm25 = None
+        self._ce   = None
         try:
             from rank_bm25 import BM25Okapi
             self._bm25 = BM25Okapi([_tokenize(c) for c in chunks])
         except: pass
+
     def _cos(self, a, b):
-        d = sum(x*y for x,y in zip(a,b))
-        na = math.sqrt(sum(x*x for x in a)); nb = math.sqrt(sum(x*x for x in b))
-        return d/(na*nb+1e-9)
-    def retrieve(self, query, qe, n=8, bw=0.35, rerank=True):
+        d  = sum(x*y for x,y in zip(a,b))
+        na = math.sqrt(sum(x*x for x in a))
+        nb = math.sqrt(sum(x*x for x in b))
+        return d / (na * nb + 1e-9)
+
+    def _rrf(self, *ranked_lists: list[int]) -> dict[int, float]:
+        """Compute RRF scores from multiple ranked index lists."""
+        scores: dict[int, float] = {}
+        for ranked in ranked_lists:
+            for rank, idx in enumerate(ranked):
+                scores[idx] = scores.get(idx, 0.0) + 1.0 / (self._K + rank + 1)
+        return scores
+
+    def retrieve(self, query: str, qe: list, n: int = 8,
+                 bw: float = 0.35, rerank: bool = True,
+                 ce_threshold: float = -5.0) -> list[dict]:
         N = len(self.chunks)
-        dense = [self._cos(qe, e) for e in self.embeddings]
+
+        # ── Dense ranking ────────────────────────────────────────────────
+        dense_scores = [self._cos(qe, e) for e in self.embeddings]
+        dense_ranked = sorted(range(N), key=lambda i: dense_scores[i], reverse=True)
+
+        # ── BM25 ranking ─────────────────────────────────────────────────
         if self._bm25:
-            br = self._bm25.get_scores(_tokenize(query)); bm = max(br) or 1.0
-            bn = [s/bm for s in br]
+            bm25_raw    = self._bm25.get_scores(_tokenize(query))
+            bm25_ranked = sorted(range(N), key=lambda i: bm25_raw[i], reverse=True)
         else:
-            bn = [0.0]*N
-        hyb = [(1-bw)*d+bw*b for d,b in zip(dense,bn)]
-        cands = sorted(range(N), key=lambda i: hyb[i], reverse=True)[:max(16,n)]
+            bm25_ranked = dense_ranked   # fallback: use dense twice → same result
+
+        # ── RRF fusion ───────────────────────────────────────────────────
+        rrf_scores = self._rrf(dense_ranked, bm25_ranked)
+        cands = sorted(rrf_scores.keys(), key=lambda i: rrf_scores[i], reverse=True)[:max(20, n)]
+
+        # ── Cross-encoder reranking + threshold filter ───────────────────
         if rerank:
             try:
                 from sentence_transformers import CrossEncoder
-                if self._ce is None: self._ce = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
-                sc = self._ce.predict([(query, self.chunks[i]) for i in cands]).tolist()
-                cands = sorted(cands, key=lambda i: sc[cands.index(i)], reverse=True)
+                if self._ce is None:
+                    self._ce = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+                ce_scores_list = self._ce.predict(
+                    [(query, self.chunks[i]) for i in cands]
+                ).tolist()
+                # Filter out candidates below CE threshold (irrelevant chunks)
+                scored = [(idx, sc) for idx, sc in zip(cands, ce_scores_list)
+                          if sc >= ce_threshold]
+                scored.sort(key=lambda x: x[1], reverse=True)
+                cands = [idx for idx, _ in scored] if scored else cands
             except: pass
-        return [{"idx":i,"chunk":self.chunks[i],"score":hyb[i],"bm25":bn[i],"dense":dense[i]}
-                for i in cands[:n]]
+
+        return [
+            {
+                "idx":   i,
+                "chunk": self.chunks[i],
+                "score": rrf_scores.get(i, 0.0),
+                "bm25":  bm25_raw[i] if self._bm25 else 0.0,
+                "dense": dense_scores[i],
+            }
+            for i in cands[:n]
+        ]
 
 VELVET = {"bg":"#07060C","card":"#0D0B12","card2":"#120E1A","border":"rgba(139,58,139,0.25)",
           "accent":"#C084C8","green":"#4ade80","red":"#f87171","gold":"#F0C040",
@@ -1316,45 +1416,249 @@ def render_analytics_tab(vectorstore, groq_api_key, doc_full_text="", auto_metri
 
     # ── 4: Eval Benchmark ────────────────────────────────────────────────────
     with sub_tabs[4]:
-        st.markdown('<div style="font-family:Space Mono,monospace;font-size:.54rem;letter-spacing:.18em;'
-                    'text-transform:uppercase;color:#C084C8;margin-bottom:.8rem;">'
-                    'FinanceBench-Style QA Accuracy Evaluation</div>', unsafe_allow_html=True)
-        if st.button("▶  Run Benchmark"):
+        _hdr = ('<div style="font-family:Space Mono,monospace;font-size:.54rem;letter-spacing:.18em;'
+                'text-transform:uppercase;color:#C084C8;margin-bottom:.8rem;">')
+
+        # ── Live monitoring strip ─────────────────────────────────────────
+        stats = compute_retrieval_stats()
+        if stats:
+            s_ce  = stats["avg_ce"]
+            s_top = stats["top_ce"]
+            s_n   = stats["n_queries"]
+            s_r   = stats.get("recall_at_k")
+            ce_c  = VELVET["green"] if s_top > 0 else (VELVET["gold"] if s_top > -3 else VELVET["red"])
+            st.markdown(
+                f'<div style="background:{VELVET["card2"]};border:1px solid rgba(139,58,139,.28);'
+                f'border-radius:10px;padding:.75rem 1rem;margin-bottom:1rem;'
+                f'display:flex;gap:1.5rem;flex-wrap:wrap;">'
+                f'<div><div style="font-family:Space Mono,monospace;font-size:.46rem;letter-spacing:.12em;'
+                f'text-transform:uppercase;color:{VELVET["ghost"]};">Queries logged</div>'
+                f'<div style="font-family:Space Mono,monospace;font-size:.92rem;color:{VELVET["text"]};">{s_n}</div></div>'
+                f'<div><div style="font-family:Space Mono,monospace;font-size:.46rem;letter-spacing:.12em;'
+                f'text-transform:uppercase;color:{VELVET["ghost"]};">Avg CE score</div>'
+                f'<div style="font-family:Space Mono,monospace;font-size:.92rem;color:{ce_c};">{s_ce:.2f}</div></div>'
+                f'<div><div style="font-family:Space Mono,monospace;font-size:.46rem;letter-spacing:.12em;'
+                f'text-transform:uppercase;color:{VELVET["ghost"]};">Top-1 CE score</div>'
+                f'<div style="font-family:Space Mono,monospace;font-size:.92rem;color:{ce_c};">{s_top:.2f}</div></div>'
+                + (f'<div><div style="font-family:Space Mono,monospace;font-size:.46rem;letter-spacing:.12em;'
+                   f'text-transform:uppercase;color:{VELVET["ghost"]};">Recall@6 (eval)</div>'
+                   f'<div style="font-family:Space Mono,monospace;font-size:.92rem;'
+                   f'color:{VELVET["green"] if s_r and s_r>=70 else (VELVET["gold"] if s_r and s_r>=40 else VELVET["red"])};">'
+                   f'{s_r:.1f}%</div></div>' if s_r is not None else '') +
+                f'<div style="font-family:Space Mono,monospace;font-size:.46rem;color:{VELVET["ghost"]};'
+                f'align-self:flex-end;">CE score > 0 = relevant · > 5 = highly relevant · < -4 = filtered out</div>'
+                f'</div>', unsafe_allow_html=True)
+
+            # Per-query log table
+            with st.expander("📋 Retrieval log (last 50 queries)"):
+                log_rows = [{
+                    "Time":     e["ts"],
+                    "Query":    e["query"][:55]+"…" if len(e["query"])>55 else e["query"],
+                    "Chunks":   e["n_chunks"],
+                    "Sections": ", ".join(e["sections"][:3]),
+                    "Avg CE":   e["avg_ce_score"],
+                    "Top CE":   e["top_ce_score"],
+                    "Recall":   f'{e["kw_hits"]}/{e["kw_total"]}' if e["kw_total"] else "—",
+                } for e in reversed(_RETRIEVAL_LOG[-50:])]
+                if log_rows:
+                    st.dataframe(pd.DataFrame(log_rows),
+                                 use_container_width=True, hide_index=True)
+
+        st.markdown(_hdr + "FinanceBench-Style QA Accuracy Evaluation</div>",
+                    unsafe_allow_html=True)
+
+        # ── Custom Q&A input ─────────────────────────────────────────────
+        with st.expander("➕ Add custom test question"):
+            cq_col1, cq_col2 = st.columns([3, 1])
+            with cq_col1:
+                new_q = st.text_input("Question", placeholder="e.g. What was operating income in FY24?",
+                                      key="eval_new_q", label_visibility="collapsed")
+                new_kw = st.text_input("Expected keywords (comma-separated)",
+                                       placeholder="operating income, million, FY24",
+                                       key="eval_new_kw", label_visibility="collapsed")
+            with cq_col2:
+                new_cat = st.selectbox("Category",
+                    ["Income Statement","Balance Sheet","Cash Flow","Per Share","Ratios",
+                     "Risk Factors","Segments","Outlook & Guidance","Other"],
+                    key="eval_new_cat", label_visibility="collapsed")
+                if st.button("Add question", key="eval_add_btn", use_container_width=True):
+                    if new_q.strip():
+                        kws = [k.strip() for k in new_kw.split(",") if k.strip()]
+                        if "custom_eval_qs" not in st.session_state:
+                            st.session_state.custom_eval_qs = []
+                        st.session_state.custom_eval_qs.append({
+                            "id":               f"custom_{len(st.session_state.custom_eval_qs)+1:03d}",
+                            "question":         new_q.strip(),
+                            "expected_keywords": kws or [""],
+                            "category":         new_cat,
+                        })
+                        st.success(f"Added: {new_q[:50]}")
+                        st.rerun()
+
+        # Merge standard + custom questions
+        _custom_qs = st.session_state.get("custom_eval_qs", [])
+        _all_qs    = EVAL_QUESTIONS + _custom_qs
+        st.markdown(
+            f'<div style="font-family:Space Mono,monospace;font-size:.5rem;color:{VELVET["ghost"]};">'
+            f'{len(EVAL_QUESTIONS)} standard + {len(_custom_qs)} custom = {len(_all_qs)} total questions</div>',
+            unsafe_allow_html=True)
+
+        if _custom_qs:
+            with st.expander(f"📝 Custom questions ({len(_custom_qs)})"):
+                for cq in _custom_qs:
+                    st.markdown(
+                        f'<div style="font-family:Space Mono,monospace;font-size:.56rem;'
+                        f'color:#C084C8;margin:.2rem 0;">{cq["id"]} · {cq["category"]} · '
+                        f'{cq["question"][:70]}</div>', unsafe_allow_html=True)
+                if st.button("🗑 Clear custom questions", key="eval_clear_custom"):
+                    st.session_state.custom_eval_qs = []
+                    st.rerun()
+
+        col_run, col_clear = st.columns([3, 1])
+        with col_run:
+            run_btn = st.button("▶  Run Full Pipeline Benchmark", use_container_width=True)
+        with col_clear:
+            if st.button("🗑 Clear log", use_container_width=True):
+                _RETRIEVAL_LOG.clear()
+                st.rerun()
+
+        if run_btn:
             if not vectorstore or not groq_api_key:
-                st.error("Need documents and API key.")
+                st.error("Need uploaded documents and a Groq API key.")
             else:
-                er = []; prog = st.progress(0, text="Evaluating…")
-                for i, eq in enumerate(EVAL_QUESTIONS):
+                er   = []
+                prog = st.progress(0, text="Evaluating…")
+                vs   = vectorstore
+                is_bge = vs.get("is_bge", False)
+                from openai import OpenAI as _OAI
+                _oai = _OAI(api_key=groq_api_key, base_url="https://api.groq.com/openai/v1")
+
+                for i, eq in enumerate(_all_qs):
                     try:
-                        from openai import OpenAI
-                        oai = OpenAI(api_key=groq_api_key, base_url="https://api.groq.com/openai/v1")
-                        vs = vectorstore
-                        qe = vs["model"].encode([eq["question"]], normalize_embeddings=True).tolist()
-                        res = vs["collection"].query(query_embeddings=qe, n_results=4,
-                                                     include=["documents","metadatas","distances"])
-                        ctx = "\n---\n".join(res["documents"][0])
-                        resp = oai.chat.completions.create(
+                        # ── Full pipeline: expand → embed → RRF → CE rerank ──
+                        expanded  = _expand_query(eq["question"])
+                        embed_q   = f"query: {expanded}" if is_bge else expanded
+                        qe        = vs["model"].encode([embed_q], normalize_embeddings=True).tolist()
+                        n_coll    = vs["collection"].count()
+                        res       = vs["collection"].query(
+                            query_embeddings=qe,
+                            n_results=min(20, n_coll),
+                            include=["documents","metadatas","distances"],
+                        )
+                        cks_e = res["documents"][0]
+
+                        # RRF local re-score
+                        dense_s = [round(1 - d/2, 4) for d in res["distances"][0]]
+                        try:
+                            from rank_bm25 import BM25Okapi
+                            _b = BM25Okapi([_tokenize(c) for c in cks_e])
+                            _br = _b.get_scores(_tokenize(expanded))
+                            _bm = max(_br) or 1.0
+                            bm25_s = [s/_bm for s in _br]
+                        except Exception:
+                            bm25_s = [0.0]*len(cks_e)
+                        _K2 = 60
+                        rrf_e: dict[int, float] = {}
+                        for _rl in (
+                            sorted(range(len(cks_e)), key=lambda x: dense_s[x], reverse=True),
+                            sorted(range(len(cks_e)), key=lambda x: bm25_s[x],  reverse=True),
+                        ):
+                            for _ri, _ridx in enumerate(_rl):
+                                rrf_e[_ridx] = rrf_e.get(_ridx, 0.0) + 1.0/(_K2+_ri+1)
+                        cands_e = sorted(rrf_e, key=lambda x: rrf_e[x], reverse=True)[:6]
+
+                        # CE rerank
+                        try:
+                            _ce_key = "_cross_encoder_instance"
+                            if _ce_key not in st.session_state:
+                                from sentence_transformers import CrossEncoder
+                                st.session_state[_ce_key] = CrossEncoder(
+                                    "cross-encoder/ms-marco-MiniLM-L-6-v2")
+                            _ce = st.session_state[_ce_key]
+                            _ce_s = _ce.predict([(eq["question"], cks_e[j]) for j in cands_e]).tolist()
+                            cands_e = [j for _, j in sorted(zip(_ce_s, cands_e), reverse=True)]
+                        except Exception:
+                            pass
+
+                        ctx = "\n---\n".join(cks_e[j] for j in cands_e[:6])
+
+                        # Score keyword recall against retrieved context directly
+                        kw_hits = sum(1 for kw in eq["expected_keywords"]
+                                      if kw.lower() in ctx.lower())
+
+                        # Generate answer
+                        resp_e = _oai.chat.completions.create(
                             model="llama-3.3-70b-versatile",
-                            messages=[{"role":"system","content":"Answer concisely using only the provided context."},
-                                      {"role":"user","content":f"Context:\n{ctx}\n\nQuestion: {eq['question']}"}],
-                            temperature=0.05, max_tokens=400)
-                        ans = resp.choices[0].message.content; sc = score_answer(ans, eq["expected_keywords"])
-                        er.append({"question":eq["question"],"category":eq["category"],"answer":ans,"score":sc})
+                            messages=[
+                                {"role":"system","content":
+                                    "Answer concisely using only the provided document context. "
+                                    "Quote exact numbers. Say NOT FOUND if the answer isn't present."},
+                                {"role":"user","content":f"Context:\n{ctx}\n\nQuestion: {eq['question']}"},
+                            ],
+                            temperature=0.05, max_tokens=400,
+                        )
+                        ans = resp_e.choices[0].message.content
+                        sc  = score_answer(ans, eq["expected_keywords"])
+
+                        # Log to monitoring
+                        log_retrieval(
+                            query=eq["question"],
+                            retrieved=[{"section": res["metadatas"][0][j].get("section","?"),
+                                        "ce_score": 0, "score": rrf_e.get(j, 0)}
+                                       for j in cands_e[:6]],
+                            keyword_hits=kw_hits,
+                            keyword_total=len(eq["expected_keywords"]),
+                        )
+                        er.append({
+                            "question": eq["question"], "category": eq.get("category","—"),
+                            "answer": ans, "score": sc,
+                            "ctx_recall": round(kw_hits/len(eq["expected_keywords"])*100
+                                                if eq["expected_keywords"] else 0, 1),
+                        })
                     except Exception as exc:
-                        er.append({"question":eq["question"],"category":eq["category"],
-                                   "answer":f"Error:{exc}","score":{"recall":0,"hits":0,"total":0,"score_pct":0}})
-                    prog.progress((i+1)/len(EVAL_QUESTIONS), text=f"Q{i+1}/{len(EVAL_QUESTIONS)}")
-                prog.empty(); render_eval_dashboard(er)
-                with st.expander("📋 Full answers"):
+                        er.append({"question":eq["question"],"category":eq.get("category","—"),
+                                   "answer":f"Error: {str(exc)[:120]}",
+                                   "score":{"recall":0,"hits":0,"total":0,"score_pct":0},
+                                   "ctx_recall":0})
+                    prog.progress((i+1)/len(_all_qs),
+                                  text=f"Q{i+1}/{len(_all_qs)} · {eq['question'][:40]}…")
+
+                prog.empty()
+                render_eval_dashboard(er)
+
+                # Retrieval context recall (separate from LLM answer recall)
+                ctx_recalls = [r.get("ctx_recall", 0) for r in er]
+                avg_ctx = sum(ctx_recalls) / len(ctx_recalls) if ctx_recalls else 0
+                ctx_c = VELVET["green"] if avg_ctx>=70 else (VELVET["gold"] if avg_ctx>=40 else VELVET["red"])
+                st.markdown(
+                    f'<div style="background:{VELVET["card2"]};border:1px solid rgba(139,58,139,.2);'
+                    f'border-radius:8px;padding:.7rem 1rem;margin:.6rem 0;">'
+                    f'<div style="font-family:Space Mono,monospace;font-size:.5rem;letter-spacing:.12em;'
+                    f'text-transform:uppercase;color:{VELVET["ghost"]};">Context Recall@6 '
+                    f'(keywords found in retrieved chunks, before LLM)</div>'
+                    f'<div style="font-family:Space Mono,monospace;font-size:1.4rem;color:{ctx_c};">'
+                    f'{avg_ctx:.1f}%</div>'
+                    f'<div style="font-family:Space Mono,monospace;font-size:.46rem;color:{VELVET["ghost"]};">'
+                    f'This measures retrieval quality independently of LLM answer quality</div>'
+                    f'</div>', unsafe_allow_html=True)
+
+                with st.expander("📋 Full answers + context recall"):
                     for r in er:
-                        st.markdown(f'<div style="background:{VELVET["card2"]};border:1px solid rgba(139,58,139,.2);'
-                                    f'border-radius:8px;padding:.7rem .9rem;margin-bottom:.5rem;">'
-                                    f'<div style="font-family:Space Mono,monospace;font-size:.58rem;'
-                                    f'color:#C084C8;margin-bottom:.3rem;">{r["question"]}</div>'
-                                    f'<div style="font-size:.8rem;color:#9A8AAA;">{r["answer"][:500]}</div>'
-                                    f'<div style="font-family:Space Mono,monospace;font-size:.52rem;'
-                                    f'color:#4A3858;margin-top:.3rem;">score:{r["score"]["score_pct"]}%</div>'
-                                    f'</div>', unsafe_allow_html=True)
+                        ctx_c2 = (VELVET["green"] if r.get("ctx_recall",0)>=70
+                                  else (VELVET["gold"] if r.get("ctx_recall",0)>=40
+                                        else VELVET["red"]))
+                        st.markdown(
+                            f'<div style="background:{VELVET["card2"]};border:1px solid rgba(139,58,139,.2);'
+                            f'border-radius:8px;padding:.7rem .9rem;margin-bottom:.5rem;">'
+                            f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+                            f'<div style="font-family:Space Mono,monospace;font-size:.56rem;color:#C084C8;">'
+                            f'{r["category"]} · {r["question"][:70]}</div>'
+                            f'<div style="font-family:Space Mono,monospace;font-size:.54rem;'
+                            f'color:{ctx_c2};">ctx:{r.get("ctx_recall",0):.0f}% · '
+                            f'ans:{r["score"]["score_pct"]:.0f}%</div></div>'
+                            f'<div style="font-size:.78rem;color:#9A8AAA;margin-top:.3rem;'
+                            f'line-height:1.5;">{r["answer"][:500]}</div>'
+                            f'</div>', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DATA FETCH HELPERS
@@ -1745,26 +2049,34 @@ def ingest_documents(files):
         length_function=len,
     )
 
-    # ── Embedding model: BGE-large is MTEB #1 for retrieval ─────────────
+    # ── Embedding model priority chain ──────────────────────────────────
+    # 1. BGE-large-en-v1.5  — MTEB #1, requires passage:/query: prefixes
+    # 2. all-mpnet-base-v2  — strong generic model, ~3× better than MiniLM
+    # 3. FinBERT-pretrain    — finance-domain vocabulary, good for SEC filings
+    # 4. all-MiniLM-L6-v2   — smallest/fastest, last resort
     @st.cache_resource
     def load_model():
-        try:
-            # BGE-large: top retrieval model, requires "passage:" / "query:" prefixes
-            m = SentenceTransformer("BAAI/bge-large-en-v1.5")
-            m._bge = True
-            return m
-        except Exception:
+        for model_id, bge_flag, label in [
+            ("BAAI/bge-large-en-v1.5",      True,  "BGE-large"),
+            ("sentence-transformers/all-mpnet-base-v2", False, "MPNet"),
+            ("yiyanghkust/finbert-pretrain", False, "FinBERT"),
+            ("all-MiniLM-L6-v2",            False, "MiniLM"),
+        ]:
             try:
-                # Finance-specific fallback
-                m2 = SentenceTransformer("yiyanghkust/finbert-pretrain")
-                m2._bge = False
-                return m2
+                m = SentenceTransformer(model_id)
+                m._bge   = bge_flag
+                m._label = label
+                return m
             except Exception:
-                m3 = SentenceTransformer("all-MiniLM-L6-v2")
-                m3._bge = False
-                return m3
+                continue
+        # absolute fallback — should never reach here
+        m = SentenceTransformer("all-MiniLM-L6-v2")
+        m._bge = False; m._label = "MiniLM"
+        return m
 
     model  = load_model()
+    is_bge = getattr(model, "_bge",   False)
+    _mlbl  = getattr(model, "_label", "Embeddings")
     client = EphemeralClient(settings=Settings(anonymized_telemetry=False))
     try:   client.delete_collection("financials")
     except: pass
@@ -1794,16 +2106,26 @@ def ingest_documents(files):
             for j, chunk in enumerate(raw_chunks):
                 section  = _infer_section(chunk)
                 keywords = _extract_chunk_keywords(chunk)
+
+                # ── Section header injection ─────────────────────────────
+                # Prepend the inferred section label to the chunk text so the
+                # embedding captures it as context, and BM25 can keyword-match it.
+                # E.g. "[Income Statement] Revenue for FY24 was ₹2,43,020 Cr..."
+                chunk_with_header = (f"[{section}] {chunk}"
+                                     if section != "General" else chunk)
+
                 # BGE requires "passage:" prefix for documents during indexing
-                embed_text = f"passage: {chunk}" if is_bge else chunk
-                all_chunks.append(chunk)
+                embed_text = f"passage: {chunk_with_header}" if is_bge else chunk_with_header
+
+                all_chunks.append(chunk)          # store clean (no prefix) for display
                 all_ids.append(f"{f.name}_p{block['page']}_c{j}")
                 all_meta.append({
                     "filename":    f.name,
+                    "doc_title":   f.name.rsplit(".", 1)[0].replace("_", " ").title(),
                     "page":        block["page"],
                     "chunk":       j,
                     "section":     section,
-                    "keywords":    keywords,     # ← top financial terms for BM25 boost
+                    "keywords":    keywords,
                     "source":      block["source"],
                     "_embed_text": embed_text,
                 })
@@ -1812,12 +2134,10 @@ def ingest_documents(files):
     prog.empty()
 
     if all_chunks:
-        with st.spinner(f"Embedding {len(all_chunks)} chunks with {'BGE-large' if is_bge else 'FinBERT'}…"):
-            # Embed with appropriate prefixes
+        with st.spinner(f"Embedding {len(all_chunks)} chunks · {_mlbl}…"):
             embed_texts = [m["_embed_text"] for m in all_meta]
             embs = model.encode(embed_texts, normalize_embeddings=True,
                                 batch_size=32, show_progress_bar=False).tolist()
-            # Strip internal key before storing in ChromaDB
             clean_meta = [{k: v for k, v in m.items() if k != "_embed_text"} for m in all_meta]
             col.add(documents=all_chunks, embeddings=embs, ids=all_ids, metadatas=clean_meta)
 
@@ -1825,7 +2145,8 @@ def ingest_documents(files):
     with st.spinner("Auto-generating analytics…"):
         auto_metrics = extract_metrics(combined_text)
 
-    st.session_state.vectorstore    = {"collection": col, "model": model, "is_bge": is_bge}
+    st.session_state.vectorstore    = {"collection": col, "model": model,
+                                       "is_bge": is_bge, "model_label": _mlbl}
     st.session_state.uploaded_docs  = len(files)
     st.session_state.chunk_count    = len(all_chunks)
     st.session_state.file_names     = fnames
@@ -3002,15 +3323,29 @@ _QUERY_EXPANSIONS: dict[str, list[str]] = {
 
 def _expand_query(q: str) -> str:
     """
-    Append financial synonym variants to the query for better BM25 recall.
-    Returns an augmented query string used only for embedding — not shown to user.
+    Two-stage financial query expansion:
+    1. NER-style entity detection — identifies company names, ticker symbols,
+       and fiscal periods to anchor the query context.
+    2. Synonym expansion — appends canonical financial term variants so BM25
+       can recall chunks that use different phrasing for the same metric.
+    The expanded string is used only for embedding/BM25 — never shown to the user.
     """
-    additions = []
+    additions: list[str] = []
+
+    # ── Stage 1: fiscal period anchoring ────────────────────────────────
+    # If the query mentions a year or quarter, make it explicit in the expansion
+    yr_match = re.search(r"\b(20\d{2}|FY\d{2,4}|Q[1-4][\s\-]?20\d{2})\b", q, re.IGNORECASE)
+    if yr_match:
+        yr = yr_match.group(1)
+        additions.append(f"fiscal year {yr} annual results")
+
+    # ── Stage 2: financial synonym expansion ────────────────────────────
     for pattern, terms in _QUERY_EXPANSIONS.items():
         if re.search(pattern, q, re.IGNORECASE):
             additions.extend(t for t in terms if t.lower() not in q.lower())
+
     if additions:
-        return q + " " + " ".join(additions[:6])   # cap expansions to avoid noise
+        return q + " " + " ".join(additions[:8])
     return q
 
 def guess_section(text: str) -> str:
@@ -3947,36 +4282,107 @@ if st.session_state.auto_generated:
             st.info("Ingest documents first.")
 
     with _atabs[4]:
+        stats2 = compute_retrieval_stats()
+        if stats2:
+            s2_ce  = stats2["avg_ce"]
+            s2_top = stats2["top_ce"]
+            s2_n   = stats2["n_queries"]
+            s2_r   = stats2.get("recall_at_k")
+            _ce_c2 = VELVET["green"] if s2_top>0 else (VELVET["gold"] if s2_top>-3 else VELVET["red"])
+            st.markdown(
+                f'<div style="background:{VELVET["card2"]};border:1px solid rgba(139,58,139,.28);'
+                f'border-radius:10px;padding:.75rem 1rem;margin-bottom:1rem;'
+                f'display:flex;gap:1.5rem;flex-wrap:wrap;">'
+                f'<div><div style="font-family:Space Mono,monospace;font-size:.46rem;letter-spacing:.12em;'
+                f'text-transform:uppercase;color:{VELVET["ghost"]};">Queries logged</div>'
+                f'<div style="font-family:Space Mono,monospace;font-size:.9rem;color:{VELVET["text"]};">{s2_n}</div></div>'
+                f'<div><div style="font-family:Space Mono,monospace;font-size:.46rem;letter-spacing:.12em;'
+                f'text-transform:uppercase;color:{VELVET["ghost"]};">Avg CE</div>'
+                f'<div style="font-family:Space Mono,monospace;font-size:.9rem;color:{_ce_c2};">{s2_ce:.2f}</div></div>'
+                f'<div><div style="font-family:Space Mono,monospace;font-size:.46rem;letter-spacing:.12em;'
+                f'text-transform:uppercase;color:{VELVET["ghost"]};">Top-1 CE</div>'
+                f'<div style="font-family:Space Mono,monospace;font-size:.9rem;color:{_ce_c2};">{s2_top:.2f}</div></div>'
+                + (f'<div><div style="font-family:Space Mono,monospace;font-size:.46rem;letter-spacing:.12em;'
+                   f'text-transform:uppercase;color:{VELVET["ghost"]};">Recall@6</div>'
+                   f'<div style="font-family:Space Mono,monospace;font-size:.9rem;'
+                   f'color:{VELVET["green"] if s2_r and s2_r>=70 else (VELVET["gold"] if s2_r and s2_r>=40 else VELVET["red"])};">'
+                   f'{s2_r:.1f}%</div></div>' if s2_r is not None else '') +
+                f'</div>', unsafe_allow_html=True)
+            with st.expander("📋 Retrieval log"):
+                log_rows2 = [{"Time":e["ts"],"Query":e["query"][:50],
+                               "Chunks":e["n_chunks"],"Avg CE":e["avg_ce_score"],
+                               "Top CE":e["top_ce_score"]}
+                              for e in reversed(_RETRIEVAL_LOG[-30:])]
+                if log_rows2:
+                    st.dataframe(pd.DataFrame(log_rows2), use_container_width=True, hide_index=True)
+
         st.markdown('<div style="font-family:Space Mono,monospace;font-size:.54rem;letter-spacing:.18em;'
                     'text-transform:uppercase;color:#C084C8;margin-bottom:.8rem;">'
                     'FinanceBench-Style QA Accuracy Evaluation</div>', unsafe_allow_html=True)
-        if st.button("▶  Run Benchmark", key="bench2"):
+
+        _custom_qs2 = st.session_state.get("custom_eval_qs", [])
+        _all_qs2    = EVAL_QUESTIONS + _custom_qs2
+        st.caption(f"{len(EVAL_QUESTIONS)} standard + {len(_custom_qs2)} custom = {len(_all_qs2)} questions")
+
+        if st.button("▶  Run Full Pipeline Benchmark", key="bench2"):
             if not st.session_state.vectorstore or not GROQ_API_KEY:
                 st.error("Need documents and API key.")
             else:
                 er2 = []; prog2 = st.progress(0, text="Evaluating…")
-                for i, eq in enumerate(EVAL_QUESTIONS):
+                vs2 = st.session_state.vectorstore
+                is_bge2 = vs2.get("is_bge", False)
+                from openai import OpenAI as _OAI2
+                _oai2 = _OAI2(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
+                for i, eq in enumerate(_all_qs2):
                     try:
-                        from openai import OpenAI as _OAI
-                        _oai2 = _OAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
-                        vs2 = st.session_state.vectorstore
-                        qe3 = vs2["model"].encode([eq["question"]], normalize_embeddings=True).tolist()
-                        res3 = vs2["collection"].query(query_embeddings=qe3, n_results=4,
-                                                      include=["documents","metadatas","distances"])
-                        ctx3 = "\n---\n".join(res3["documents"][0])
+                        expanded2 = _expand_query(eq["question"])
+                        embed_q2  = f"query: {expanded2}" if is_bge2 else expanded2
+                        qe3 = vs2["model"].encode([embed_q2], normalize_embeddings=True).tolist()
+                        res3 = vs2["collection"].query(query_embeddings=qe3,
+                                                       n_results=min(20, vs2["collection"].count()),
+                                                       include=["documents","metadatas","distances"])
+                        cks3 = res3["documents"][0]
+                        ds3  = [round(1-d/2,4) for d in res3["distances"][0]]
+                        try:
+                            from rank_bm25 import BM25Okapi
+                            _b3  = BM25Okapi([_tokenize(c) for c in cks3])
+                            _br3 = _b3.get_scores(_tokenize(expanded2))
+                            _bm3 = max(_br3) or 1.0
+                            bs3  = [s/_bm3 for s in _br3]
+                        except: bs3 = [0.0]*len(cks3)
+                        rrf3: dict[int,float] = {}
+                        for _rl3 in (sorted(range(len(cks3)),key=lambda x:ds3[x],reverse=True),
+                                     sorted(range(len(cks3)),key=lambda x:bs3[x],reverse=True)):
+                            for _ri3,_ridx3 in enumerate(_rl3):
+                                rrf3[_ridx3]=rrf3.get(_ridx3,0.0)+1.0/(60+_ri3+1)
+                        cands3 = sorted(rrf3, key=lambda x:rrf3[x], reverse=True)[:6]
+                        ctx3 = "\n---\n".join(cks3[j] for j in cands3)
+                        kw3  = sum(1 for kw in eq["expected_keywords"] if kw.lower() in ctx3.lower())
                         resp3 = _oai2.chat.completions.create(
                             model="llama-3.3-70b-versatile",
-                            messages=[{"role":"system","content":"Answer concisely using only the context."},
+                            messages=[{"role":"system","content":
+                                          "Answer concisely using only the context. Say NOT FOUND if absent."},
                                       {"role":"user","content":f"Context:\n{ctx3}\n\nQuestion: {eq['question']}"}],
                             temperature=0.05, max_tokens=400)
                         ans3 = resp3.choices[0].message.content
                         sc3  = score_answer(ans3, eq["expected_keywords"])
-                        er2.append({"question":eq["question"],"category":eq["category"],"answer":ans3,"score":sc3})
+                        log_retrieval(query=eq["question"],
+                                      retrieved=[{"section":res3["metadatas"][0][j].get("section","?"),
+                                                  "ce_score":0,"score":rrf3.get(j,0)} for j in cands3],
+                                      keyword_hits=kw3, keyword_total=len(eq["expected_keywords"]))
+                        er2.append({"question":eq["question"],"category":eq.get("category","—"),
+                                    "answer":ans3,"score":sc3,
+                                    "ctx_recall":round(kw3/len(eq["expected_keywords"])*100
+                                                       if eq["expected_keywords"] else 0,1)})
                     except Exception as exc:
-                        er2.append({"question":eq["question"],"category":eq["category"],
-                                    "answer":f"Error:{exc}","score":{"recall":0,"hits":0,"total":0,"score_pct":0}})
-                    prog2.progress((i+1)/len(EVAL_QUESTIONS))
-                prog2.empty(); render_eval_dashboard(er2)
+                        er2.append({"question":eq["question"],"category":eq.get("category","—"),
+                                    "answer":f"Error:{str(exc)[:100]}",
+                                    "score":{"recall":0,"hits":0,"total":0,"score_pct":0},"ctx_recall":0})
+                    prog2.progress((i+1)/len(_all_qs2))
+                prog2.empty()
+                render_eval_dashboard(er2)
+                avg_ctx2 = sum(r.get("ctx_recall",0) for r in er2)/len(er2) if er2 else 0
+                st.caption(f"Context Recall@6: {avg_ctx2:.1f}% (keyword recall in retrieved chunks)")
 
     st.markdown("<hr style='border-color:rgba(139,58,139,.1);margin:.6rem 0 1rem;'>",
                 unsafe_allow_html=True)
@@ -4164,16 +4570,25 @@ st.markdown("""
 chunks = st.session_state.chunk_count
 docs   = st.session_state.uploaded_docs
 msgs   = len(st.session_state.messages) // 2
+_vs    = st.session_state.vectorstore
+_mlbl_disp = _vs.get("model_label", "FinBERT") if _vs else "FinBERT"
+
+# Pipeline quality badge: show which components are active
+_pipe_components = ["RRF", "CE Rerank", "BGE" if (_vs and _vs.get("is_bge")) else _mlbl_disp]
+_stats_now = compute_retrieval_stats()
+_avg_ce_disp = f" · CE avg {_stats_now['avg_ce']:+.1f}" if _stats_now else ""
+
 st.markdown(f"""
 <div class="stat-strip">
   <div class="stat-cell"><div class="stat-lbl">Embeddings</div>
-    <div class="stat-val-mono">FinBERT · Finance</div></div>
+    <div class="stat-val-mono">{_mlbl_disp} · Finance</div></div>
   <div class="stat-cell"><div class="stat-lbl">Chunks Indexed</div>
     <div class="stat-val {'active' if chunks else ''}">{chunks if chunks else '—'}</div></div>
   <div class="stat-cell"><div class="stat-lbl">Documents</div>
     <div class="stat-val {'active' if docs else ''}">{docs if docs else '—'}</div></div>
-  <div class="stat-cell"><div class="stat-lbl">Exchanges</div>
-    <div class="stat-val {'active' if msgs else ''}">{msgs if msgs else '—'}</div></div>
+  <div class="stat-cell"><div class="stat-lbl">Pipeline</div>
+    <div class="stat-val-mono" style="color:#4ade80;font-size:.62rem;">
+      {'  ·  '.join(_pipe_components)}{_avg_ce_disp}</div></div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -4759,8 +5174,7 @@ if q:
                     embed_q    = f"query: {expanded_q}" if is_bge else expanded_q
                     q_emb      = model.encode([embed_q], normalize_embeddings=True).tolist()
 
-                    # 3. Pre-retrieval section filter: if question mentions a known section,
-                    #    restrict candidates to that section for sharper precision
+                    # 3. Pre-retrieval section filter
                     q_lower = q.lower()
                     pre_section = None
                     _section_hints = {
@@ -4775,9 +5189,10 @@ if q:
                         if re.search(pat, q_lower, re.IGNORECASE):
                             pre_section = sec; break
 
-                    # 4. Fetch top-20 candidates (with optional where-filter)
-                    _where = {"section": {"$eq": pre_section}} if pre_section else None
+                    _where  = {"section": {"$eq": pre_section}} if pre_section else None
                     _n_coll = vs["collection"].count()
+
+                    # 4. Dense retrieval (ChromaDB ANN)
                     try:
                         res = vs["collection"].query(
                             query_embeddings=q_emb,
@@ -4785,7 +5200,6 @@ if q:
                             where=_where,
                             include=["documents", "metadatas", "distances"],
                         )
-                        # Fallback: if section filter returns < 5 results, retry without filter
                         if _where and len(res["documents"][0]) < 5:
                             res = vs["collection"].query(
                                 query_embeddings=q_emb,
@@ -4800,26 +5214,49 @@ if q:
                         )
 
                     cks, mts, dts = res["documents"][0], res["metadatas"][0], res["distances"][0]
+                    dense_scores  = [round(1 - d / 2, 4) for d in dts]
 
-                    # 5. Annotate + post-retrieval score boost for section-matched chunks
+                    # 5. BM25 re-score same candidates for RRF
+                    try:
+                        from rank_bm25 import BM25Okapi
+                        _bm25_local = BM25Okapi([_tokenize(c) for c in cks])
+                        bm25_raw    = _bm25_local.get_scores(_tokenize(expanded_q))
+                        bm25_max    = max(bm25_raw) or 1.0
+                        bm25_norm   = [s / bm25_max for s in bm25_raw]
+                    except Exception:
+                        bm25_norm = [0.0] * len(cks)
+
+                    # 6. RRF fusion — rank-based, scale-invariant
+                    _K = 60
+                    dense_rank = sorted(range(len(cks)), key=lambda i: dense_scores[i],  reverse=True)
+                    bm25_rank  = sorted(range(len(cks)), key=lambda i: bm25_norm[i],     reverse=True)
+                    rrf: dict[int, float] = {}
+                    for ranked in (dense_rank, bm25_rank):
+                        for rank, idx in enumerate(ranked):
+                            rrf[idx] = rrf.get(idx, 0.0) + 1.0 / (_K + rank + 1)
+
+                    # 7. Build candidate list with section metadata + post-score boost
                     candidates = []
-                    for c, m, d in zip(cks, mts, dts):
-                        section = m.get("section") or guess_section(c)
-                        base_score = round(1 - d / 2, 3)
-                        # Boost chunks whose section matches the inferred query section
-                        boost = 0.04 if (pre_section and section == pre_section) else 0.0
+                    for i, (c, m, d) in enumerate(zip(cks, mts, dts)):
+                        section    = m.get("section") or guess_section(c)
+                        boost      = 0.04 if (pre_section and section == pre_section) else 0.0
+                        doc_title  = m.get("doc_title", m.get("filename", ""))
                         candidates.append({
-                            "chunk":   c, "meta": m, "dist": d,
-                            "score":   min(1.0, base_score + boost),
-                            "section": section, "page": m.get("page", ""),
+                            "chunk":     c, "meta": m, "dist": d,
+                            "score":     min(1.0, rrf.get(i, 0.0) + boost),
+                            "rrf_raw":   rrf.get(i, 0.0),
+                            "section":   section,
+                            "doc_title": doc_title,
+                            "page":      m.get("page", ""),
                         })
 
-                    # 6. Cross-encoder rerank top-20 → top-6
-                    #    Reuse persistent CE instance to avoid reload overhead
+                    # 8. Cross-encoder rerank + relevance threshold filter
+                    #    CE scores are logits; threshold -5.0 ≈ "probably irrelevant"
+                    CE_THRESHOLD = -4.0
                     try:
-                        from sentence_transformers import CrossEncoder
                         _ce_key = "_cross_encoder_instance"
                         if _ce_key not in st.session_state:
+                            from sentence_transformers import CrossEncoder
                             st.session_state[_ce_key] = CrossEncoder(
                                 "cross-encoder/ms-marco-MiniLM-L-6-v2"
                             )
@@ -4827,19 +5264,24 @@ if q:
                         ce_scores = ce.predict([(q, c["chunk"]) for c in candidates]).tolist()
                         for cand, sc in zip(candidates, ce_scores):
                             cand["ce_score"] = sc
-                        candidates.sort(key=lambda x: x.get("ce_score", 0), reverse=True)
+                        # Sort by CE score, then filter out below-threshold chunks
+                        candidates.sort(key=lambda x: x.get("ce_score", -99), reverse=True)
+                        above = [c for c in candidates if c.get("ce_score", -99) >= CE_THRESHOLD]
+                        candidates = above if len(above) >= 3 else candidates  # always keep ≥3
                     except Exception:
                         candidates.sort(key=lambda x: x["score"], reverse=True)
 
                     top = candidates[:6]
                     doc_context = "\n---\n".join(
-                        f"[{c['meta']['filename']} · {c['section']} · p{c['page']}]\n{c['chunk']}"
+                        f"[{c['doc_title']} · {c['section']} · p{c['page']}]\n{c['chunk']}"
                         for c in top
                     )
                     sources_data = [
                         {
                             "filename":   c["meta"]["filename"],
-                            "score":      c["score"],
+                            "doc_title":  c["doc_title"],
+                            "score":      round(c["score"], 3),
+                            "ce_score":   round(c.get("ce_score", 0), 2),
                             "preview":    c["chunk"][:220],
                             "chunk_full": c["chunk"],
                             "chunk_idx":  c["meta"].get("chunk", ""),
@@ -4848,8 +5290,18 @@ if q:
                         }
                         for c in top
                     ]
-                    # 7. Store in semantic cache for future repeated queries
                     _retrieval_cache_put(q, {"doc_context": doc_context, "sources_data": sources_data})
+
+                    # ── Retrieval monitoring log ──────────────────────────
+                    log_retrieval(
+                        query=q,
+                        retrieved=[{
+                            "section":  s.get("section","?"),
+                            "ce_score": s.get("ce_score", 0),
+                            "score":    s.get("score", 0),
+                            "page":     s.get("page",""),
+                        } for s in sources_data],
+                    )
 
             # ── Branch: Analyst Mode vs Chat Mode ────────────────────────
             if st.session_state.analyst_mode:
