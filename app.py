@@ -406,63 +406,104 @@ div[data-testid="stButton"] button.tf-active{
 }
 
 /* ═══════════════════════════════════════════════════════
-   TOP ACTION BUTTONS — two crisp square tiles
+   TOP ACTION BUTTONS
    ═══════════════════════════════════════════════════════ */
-@keyframes pulse-ring{
-  0%  {box-shadow:0 0 0 0 rgba(240,31,146,.45), 0 4px 18px rgba(0,0,0,.6);}
-  65% {box-shadow:0 0 0 8px rgba(240,31,146,0), 0 4px 18px rgba(0,0,0,.6);}
-  100%{box-shadow:0 0 0 0 rgba(240,31,146,0), 0 4px 18px rgba(0,0,0,.6);}
-}
-/* Shared square tile */
+
+/* ── Shared tile base ── */
 .sq-btn-upload div[data-testid="stButton"] > button,
-.sq-btn-simulate div[data-testid="stButton"] > button{
-  width:100%!important;
-  height:5.2rem!important;
-  border-radius:12px!important;
-  padding:.6rem .4rem!important;
+.sq-btn-simulate div[data-testid="stButton"] > button {
+  width:100%!important; height:5.4rem!important;
+  border-radius:14px!important; padding:0!important;
   font-family:'Space Mono',monospace!important;
-  font-size:.58rem!important;
-  letter-spacing:.1em!important;
-  text-transform:uppercase!important;
-  line-height:1.5!important;
-  transition:transform .22s cubic-bezier(.34,1.56,.64,1),
-             box-shadow .22s ease,
-             background .18s ease!important;
-  display:flex!important;flex-direction:column!important;
-  align-items:center!important;justify-content:center!important;
-  white-space:pre-line!important;
+  font-size:.56rem!important; letter-spacing:.1em!important;
+  text-transform:uppercase!important; line-height:1.6!important;
+  transition: transform .24s cubic-bezier(.34,1.56,.64,1),
+              box-shadow .22s ease, border-color .18s ease!important;
+  display:flex!important; flex-direction:column!important;
+  align-items:center!important; justify-content:center!important;
+  white-space:pre-line!important; position:relative!important;
+  overflow:hidden!important;
 }
-/* Upload — jet black with white + */
-.sq-btn-upload div[data-testid="stButton"] > button{
-  background:#0a0a0a!important;
-  border:1.5px solid rgba(255,255,255,.18)!important;
-  color:#fff!important;
-  animation:pulse-ring 2.8s ease-in-out infinite!important;
+
+/* ── Upload: matte-black, big white +  ─────────────────── */
+@keyframes blink-border {
+  0%,100%{ opacity:.45; } 50%{ opacity:.9; }
 }
-.sq-btn-upload div[data-testid="stButton"] > button:hover{
-  background:#111!important;
-  border-color:rgba(255,255,255,.42)!important;
-  transform:translateY(-3px) scale(1.04)!important;
-  animation:none!important;
-  box-shadow:0 0 28px rgba(255,255,255,.12),0 8px 24px rgba(0,0,0,.7)!important;
+.sq-btn-upload { position:relative; }
+.sq-btn-upload div[data-testid="stButton"] > button {
+  background:#080808!important;
+  border:1.5px solid rgba(255,255,255,.28)!important;
+  color:#ffffff!important;
+  box-shadow: 0 4px 28px rgba(0,0,0,.8),
+              inset 0 1px 0 rgba(255,255,255,.06)!important;
+  font-size:.6rem!important;
+  letter-spacing:.14em!important;
 }
-/* Simulate Portfolio — velvet purple */
-.sq-btn-simulate div[data-testid="stButton"] > button{
-  background:linear-gradient(145deg,rgba(80,30,100,.85),rgba(45,15,65,.95))!important;
-  border:1.5px solid rgba(192,132,200,.35)!important;
+.sq-btn-upload div[data-testid="stButton"] > button:hover {
+  background:#141414!important;
+  border-color:rgba(255,255,255,.6)!important;
+  transform:translateY(-3px) scale(1.035)!important;
+  box-shadow: 0 0 0 1px rgba(255,255,255,.12),
+              0 0 36px rgba(255,255,255,.07),
+              0 10px 30px rgba(0,0,0,.85)!important;
+}
+/* Oversized + rendered as a pseudo overlay via the wrapper */
+.sq-btn-upload-plus {
+  position:absolute; top:0; left:0; width:100%; height:5.4rem;
+  display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  pointer-events:none; z-index:10;
+}
+.sq-btn-upload-plus-icon {
+  font-size:2rem; font-weight:100; color:#fff;
+  line-height:1; margin-bottom:.1rem;
+  font-family:'Helvetica Neue',sans-serif;
+}
+.sq-btn-upload-plus-label {
+  font-family:'Space Mono',monospace;
+  font-size:.52rem; letter-spacing:.18em;
+  text-transform:uppercase; color:rgba(255,255,255,.75);
+  margin-top:.12rem;
+}
+
+/* ── Simulate Portfolio: dark with live SVG chart ────────── */
+@keyframes chart-scroll { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
+.sq-btn-simulate { position:relative; border-radius:14px; overflow:hidden; }
+.sq-btn-simulate-bg {
+  position:absolute; inset:0; border-radius:14px; z-index:0;
+  background:linear-gradient(160deg,#0a0520 0%,#0e0630 50%,#08021a 100%);
+  pointer-events:none;
+}
+.sq-btn-simulate-chart {
+  position:absolute; bottom:0; left:0;
+  width:200%; height:52%; z-index:1;
+  animation: chart-scroll 9s linear infinite;
+  pointer-events:none; opacity:.9;
+}
+.sq-btn-simulate-vignette {
+  position:absolute; inset:0; z-index:2; border-radius:14px;
+  background:linear-gradient(180deg,rgba(8,2,26,.7) 0%,transparent 55%,rgba(8,2,26,.45) 100%);
+  pointer-events:none;
+}
+.sq-btn-simulate div[data-testid="stButton"] > button {
+  background:transparent!important;
+  border:1.5px solid rgba(147,90,180,.38)!important;
   color:#C084C8!important;
-  box-shadow:0 4px 20px rgba(107,45,107,.3)!important;
+  position:relative!important; z-index:3!important;
+  box-shadow: 0 4px 24px rgba(70,15,100,.5),
+              inset 0 1px 0 rgba(192,132,200,.1)!important;
+  font-size:.58rem!important;
 }
-.sq-btn-simulate div[data-testid="stButton"] > button:hover{
-  background:linear-gradient(145deg,rgba(120,50,140,.9),rgba(70,25,95,.98))!important;
-  border-color:rgba(192,132,200,.7)!important;
-  color:#EDE8F5!important;
-  transform:translateY(-3px) scale(1.04)!important;
-  box-shadow:0 0 28px rgba(192,132,200,.35),0 8px 24px rgba(0,0,0,.6)!important;
-}
-.sq-btn-simulate.pf-open div[data-testid="stButton"] > button{
+.sq-btn-simulate div[data-testid="stButton"] > button:hover {
   border-color:rgba(192,132,200,.75)!important;
-  box-shadow:0 0 22px rgba(192,132,200,.3),inset 0 0 0 1px rgba(192,132,200,.15)!important;
+  color:#EDE8F5!important;
+  transform:translateY(-3px) scale(1.035)!important;
+  box-shadow:0 0 32px rgba(147,90,180,.38),0 10px 28px rgba(0,0,0,.7)!important;
+}
+.sq-btn-simulate.pf-open div[data-testid="stButton"] > button {
+  border-color:rgba(192,132,200,.85)!important;
+  color:#EDE8F5!important;
+  box-shadow:0 0 22px rgba(192,132,200,.3),inset 0 0 0 1px rgba(192,132,200,.18)!important;
 }
 .upload-panel{
   background:linear-gradient(135deg,rgba(107,45,107,.14) 0%,rgba(13,11,18,.97) 100%);
@@ -800,6 +841,26 @@ def fmt_val(val: float, unit: str) -> str:
 
 def _tokenize(text: str) -> list[str]:
     return re.findall(r"[a-z0-9]+", text.lower())
+
+# ── Semantic retrieval cache ─────────────────────────────────────────────────
+# Caches (query_text → {doc_context, sources_data}) so repeated / semantically
+# identical questions skip re-embedding and re-ranking entirely.
+_RETRIEVAL_CACHE: dict[str, dict] = {}
+_CACHE_MAXSIZE = 64   # keep last 64 unique queries in memory
+
+def _cache_key(q: str) -> str:
+    """Normalise query to a stable cache key (lower, collapsed whitespace)."""
+    return re.sub(r"\s+", " ", q.strip().lower())
+
+def _retrieval_cache_get(q: str) -> dict | None:
+    return _RETRIEVAL_CACHE.get(_cache_key(q))
+
+def _retrieval_cache_put(q: str, result: dict) -> None:
+    key = _cache_key(q)
+    if len(_RETRIEVAL_CACHE) >= _CACHE_MAXSIZE:
+        # Evict oldest entry (insertion-ordered dict in Python 3.7+)
+        _RETRIEVAL_CACHE.pop(next(iter(_RETRIEVAL_CACHE)))
+    _RETRIEVAL_CACHE[key] = result
 
 class HybridRetriever:
     def __init__(self, chunks, embeddings):
@@ -1559,7 +1620,25 @@ _FIN_SECTION_PATTERNS = [
     (r"dividend|buyback|share repurchase|capital return|payout",               "Capital Allocation"),
 ]
 
-def _infer_section(text: str) -> str:
+def _extract_chunk_keywords(text: str, max_kw: int = 8) -> str:
+    """
+    Extract top financial keywords from a chunk for metadata tagging.
+    Uses a simple frequency-weighted approach — no external deps.
+    """
+    # Financial stop-words to ignore
+    _stops = {"the","and","of","in","to","a","is","are","was","were","for","as","on","at",
+               "by","an","be","with","or","from","this","that","its","their","has","have",
+               "been","which","year","fiscal","ended","per","total","net","gross","basic"}
+    tokens = re.findall(r"[a-zA-Z][a-zA-Z0-9\-\.\/]{2,}", text)
+    freq: dict[str, int] = {}
+    for tok in tokens:
+        t = tok.lower()
+        if t not in _stops and len(t) >= 3:
+            freq[t] = freq.get(t, 0) + 1
+    top = sorted(freq, key=lambda k: freq[k], reverse=True)[:max_kw]
+    return " ".join(top)
+
+
     """Fast pattern-match to label a chunk's financial section."""
     t = text[:800].lower()
     for pattern, label in _FIN_SECTION_PATTERNS:
@@ -1580,9 +1659,27 @@ def _extract_page_aware(f) -> list[dict]:
         from pypdf import PdfReader
         reader = PdfReader(io.BytesIO(raw))
         for i, pg in enumerate(reader.pages):
-            t = pg.extract_text() or ""
-            if t.strip():
-                pages.append({"text": t, "page": i + 1, "source": f.name})
+            # extract_text with layout mode better preserves table columns
+            try:
+                t = pg.extract_text(extraction_mode="layout") or ""
+            except Exception:
+                t = pg.extract_text() or ""
+            if not t.strip():
+                continue
+            # Light markdown-ification: detect all-caps lines as section headings
+            lines_out = []
+            for line in t.splitlines():
+                stripped = line.strip()
+                if not stripped:
+                    lines_out.append("")
+                    continue
+                # Heuristic: all-caps line of 4–80 chars → treat as heading
+                if (stripped.isupper() and 4 <= len(stripped) <= 80
+                        and not any(c.isdigit() for c in stripped[:3])):
+                    lines_out.append(f"\n## {stripped}")
+                else:
+                    lines_out.append(stripped)
+            pages.append({"text": "\n".join(lines_out), "page": i + 1, "source": f.name})
 
     elif name.endswith((".xlsx", ".xls")):
         try:
@@ -1663,7 +1760,15 @@ def ingest_documents(files):
     client = EphemeralClient(settings=Settings(anonymized_telemetry=False))
     try:   client.delete_collection("financials")
     except: pass
-    col = client.create_collection("financials", metadata={"hnsw:space": "cosine"})
+    col = client.create_collection(
+        "financials",
+        metadata={
+            "hnsw:space":            "cosine",
+            "hnsw:M":                32,      # default 16 → 32: denser graph = better recall
+            "hnsw:construction_ef":  200,     # default 100 → 200: richer build = higher recall
+            "hnsw:search_ef":        100,     # default 10 → 100: wider beam search at query time
+        },
+    )
 
     all_chunks, all_ids, all_meta, fnames, full_texts = [], [], [], [], []
     prog = st.progress(0, text="Reading files…")
@@ -1679,18 +1784,20 @@ def ingest_documents(files):
         for block in page_blocks:
             raw_chunks = splitter.split_text(block["text"])
             for j, chunk in enumerate(raw_chunks):
-                section = _infer_section(chunk)
+                section  = _infer_section(chunk)
+                keywords = _extract_chunk_keywords(chunk)
                 # BGE requires "passage:" prefix for documents during indexing
                 embed_text = f"passage: {chunk}" if is_bge else chunk
-                all_chunks.append(chunk)          # store original (without prefix) for display
+                all_chunks.append(chunk)
                 all_ids.append(f"{f.name}_p{block['page']}_c{j}")
                 all_meta.append({
                     "filename":    f.name,
                     "page":        block["page"],
                     "chunk":       j,
-                    "section":     section,        # ← financial section tag
+                    "section":     section,
+                    "keywords":    keywords,     # ← top financial terms for BM25 boost
                     "source":      block["source"],
-                    "_embed_text": embed_text,     # ← prefix-aware text for embedding
+                    "_embed_text": embed_text,
                 })
 
         prog.progress((i + 1) / len(files), text=f"Processed {f.name}")
@@ -3581,14 +3688,35 @@ with st.sidebar:
 # TOP ACTION BAR  — [＋ Upload]  [Simulate Portfolio]  [Search]
 # ─────────────────────────────────────────────────────────────────────────────
 import random as _random
-_bull_bear = _random.choice(["🐂", "🐻"])   # fresh choice each session
+_bull_bear = _random.choice(["🐂", "🐻"])
 
-_btn_upload, _btn_portfolio, _search_col = st.columns([1.5, 2.4, 6.1], gap="small")
+# SVG stock chart — two lines (purple + green), tiled 2× for seamless scroll
+_CHART_SVG = (
+    "data:image/svg+xml,"
+    "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 520 64' preserveAspectRatio='none'%3E"
+    "%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E"
+    "%3Cstop offset='0' stop-color='%23a855f7' stop-opacity='.18'/%3E"
+    "%3Cstop offset='1' stop-color='%23a855f7' stop-opacity='0'/%3E"
+    "%3C/linearGradient%3E%3C/defs%3E"
+    "%3Cpolyline points='0,60 24,52 48,56 72,42 96,46 120,30 144,34 168,20 192,26 216,14 240,18 264,8 288,14 312,4 336,11 360,22 384,16 408,28 432,20 456,32 480,24 520,30' fill='url(%23g)' stroke='%23a855f7' stroke-width='2'/%3E"
+    "%3Cpolyline points='0,62 24,58 48,60 72,50 96,54 120,42 144,46 168,34 192,38 216,28 240,32 264,22 288,26 312,16 336,20 360,32 384,26 408,38 432,32 456,44 480,36 520,42' fill='none' stroke='%234ade80' stroke-width='1' stroke-dasharray='4 3' opacity='.5'/%3E"
+    "%3C/svg%3E"
+)
+
+_btn_upload, _btn_portfolio, _search_col = st.columns([1.4, 2.5, 6.1], gap="small")
 
 with _btn_upload:
-    st.markdown('<div class="sq-btn-upload">', unsafe_allow_html=True)
+    # Matte-black tile — overlay div renders the large white + independently of Streamlit button text
+    st.markdown(
+        '<div class="sq-btn-upload" style="position:relative;">'
+        '<div class="sq-btn-upload-plus">'
+        '<div class="sq-btn-upload-plus-icon">+</div>'
+        '<div class="sq-btn-upload-plus-label">Upload Document</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
     if st.button(
-        "＋\n\nUpload\nDocument",
+        "\u200b",          # zero-width space — button text invisible, overlay shows instead
         key="top_upload_btn",
         use_container_width=True,
         help="Upload PDF · Excel · CSV · DOCX · TXT",
@@ -3600,11 +3728,18 @@ with _btn_upload:
 with _btn_portfolio:
     _n_pf    = len(st.session_state.portfolio)
     _pf_open = st.session_state.show_portfolio
-    _pf_sub  = f"({_n_pf} Holdings)" if _n_pf else "AI Assistant"
+    _pf_sub  = f"{_n_pf} Holdings" if _n_pf else "AI Assistant"
     _pf_cls  = "sq-btn-simulate pf-open" if _pf_open else "sq-btn-simulate"
-    st.markdown(f'<div class="{_pf_cls}">', unsafe_allow_html=True)
+    # Portfolio tile: dark bg + scrolling SVG chart watermark + vignette overlay
+    st.markdown(
+        f'<div class="{_pf_cls}">'
+        f'<div class="sq-btn-simulate-bg"></div>'
+        f'<img class="sq-btn-simulate-chart" src="{_CHART_SVG}" alt="" aria-hidden="true"/>'
+        f'<div class="sq-btn-simulate-vignette"></div>',
+        unsafe_allow_html=True,
+    )
     if st.button(
-        f"{_bull_bear}\n\nSimulate Portfolio\n{_pf_sub}",
+        f"{_bull_bear}  Simulate Portfolio\n{_pf_sub}",
         key="top_portfolio_btn",
         use_container_width=True,
         help="Build & AI-simulate your global stock portfolio",
@@ -4587,68 +4722,115 @@ if q:
                 f"MARKET MOOD: Fear & Greed = {fng_val} ({fng_label})"
             ).strip()
 
-            # ── Document retrieval — BGE prefix + section metadata + query expansion ──
+            # ── Document retrieval ─────────────────────────────────────────
             doc_context = ""; sources_data = []
             if st.session_state.vectorstore:
                 vs     = st.session_state.vectorstore
                 model  = vs["model"]
                 is_bge = vs.get("is_bge", False)
 
-                # BGE requires "query:" prefix for retrieval queries
-                # Also expand numeric/financial queries with synonyms for better BM25 recall
-                expanded_q = _expand_query(q)
-                embed_q    = f"query: {expanded_q}" if is_bge else expanded_q
-                q_emb      = model.encode([embed_q], normalize_embeddings=True).tolist()
+                # 1. Semantic cache — skip re-embedding for repeated queries
+                _cached = _retrieval_cache_get(q)
+                if _cached:
+                    doc_context  = _cached["doc_context"]
+                    sources_data = _cached["sources_data"]
+                else:
+                    # 2. Query expansion + BGE prefix
+                    expanded_q = _expand_query(q)
+                    embed_q    = f"query: {expanded_q}" if is_bge else expanded_q
+                    q_emb      = model.encode([embed_q], normalize_embeddings=True).tolist()
 
-                # Fetch top-20 candidates for reranker to work with
-                res = vs["collection"].query(
-                    query_embeddings=q_emb, n_results=min(20, vs["collection"].count()),
-                    include=["documents", "metadatas", "distances"],
-                )
-                cks, mts, dts = res["documents"][0], res["metadatas"][0], res["distances"][0]
-
-                # Annotate each candidate with its section
-                candidates = []
-                for c, m, d in zip(cks, mts, dts):
-                    section = m.get("section") or guess_section(c)
-                    candidates.append({
-                        "chunk":    c,
-                        "meta":     m,
-                        "dist":     d,
-                        "score":    round(1 - d / 2, 3),
-                        "section":  section,
-                        "page":     m.get("page", ""),
-                    })
-
-                # ── Cross-encoder rerank top-20 → keep top-6 ──────────────────
-                try:
-                    from sentence_transformers import CrossEncoder
-                    _ce_model = "cross-encoder/ms-marco-MiniLM-L-6-v2"   # L-6 > L-2 accuracy
-                    ce = CrossEncoder(_ce_model)
-                    ce_scores = ce.predict([(q, cand["chunk"]) for cand in candidates]).tolist()
-                    for cand, sc in zip(candidates, ce_scores):
-                        cand["ce_score"] = sc
-                    candidates.sort(key=lambda x: x.get("ce_score", 0), reverse=True)
-                except Exception:
-                    candidates.sort(key=lambda x: x["score"], reverse=True)
-
-                top = candidates[:6]
-                doc_context = "\n---\n".join(
-                    f"[{c['meta']['filename']} · {c['section']} · p{c['page']}]\n{c['chunk']}"
-                    for c in top
-                )
-                sources_data = [
-                    {
-                        "filename":   c["meta"]["filename"],
-                        "score":      c["score"],
-                        "preview":    c["chunk"][:220],
-                        "chunk_full": c["chunk"],
-                        "chunk_idx":  c["meta"].get("chunk", ""),
-                        "section":    c["section"],
-                        "page":       c["page"],
+                    # 3. Pre-retrieval section filter: if question mentions a known section,
+                    #    restrict candidates to that section for sharper precision
+                    q_lower = q.lower()
+                    pre_section = None
+                    _section_hints = {
+                        "Income Statement": r"revenue|net income|gross profit|ebitda|operating income",
+                        "Balance Sheet":    r"balance sheet|assets|liabilities|equity|debt|borrowing",
+                        "Cash Flow":        r"cash flow|capex|free cash|operating cash",
+                        "Per Share":        r"\beps\b|earnings per share|diluted|dividend per share",
+                        "Ratios":           r"ratio|margin|roe|roa|roce|p/e|current ratio",
+                        "Risk Factors":     r"risk|litigation|regulatory|compliance",
                     }
-                    for c in top
-                ]
+                    for sec, pat in _section_hints.items():
+                        if re.search(pat, q_lower, re.IGNORECASE):
+                            pre_section = sec; break
+
+                    # 4. Fetch top-20 candidates (with optional where-filter)
+                    _where = {"section": {"$eq": pre_section}} if pre_section else None
+                    _n_coll = vs["collection"].count()
+                    try:
+                        res = vs["collection"].query(
+                            query_embeddings=q_emb,
+                            n_results=min(20, _n_coll),
+                            where=_where,
+                            include=["documents", "metadatas", "distances"],
+                        )
+                        # Fallback: if section filter returns < 5 results, retry without filter
+                        if _where and len(res["documents"][0]) < 5:
+                            res = vs["collection"].query(
+                                query_embeddings=q_emb,
+                                n_results=min(20, _n_coll),
+                                include=["documents", "metadatas", "distances"],
+                            )
+                    except Exception:
+                        res = vs["collection"].query(
+                            query_embeddings=q_emb,
+                            n_results=min(20, _n_coll),
+                            include=["documents", "metadatas", "distances"],
+                        )
+
+                    cks, mts, dts = res["documents"][0], res["metadatas"][0], res["distances"][0]
+
+                    # 5. Annotate + post-retrieval score boost for section-matched chunks
+                    candidates = []
+                    for c, m, d in zip(cks, mts, dts):
+                        section = m.get("section") or guess_section(c)
+                        base_score = round(1 - d / 2, 3)
+                        # Boost chunks whose section matches the inferred query section
+                        boost = 0.04 if (pre_section and section == pre_section) else 0.0
+                        candidates.append({
+                            "chunk":   c, "meta": m, "dist": d,
+                            "score":   min(1.0, base_score + boost),
+                            "section": section, "page": m.get("page", ""),
+                        })
+
+                    # 6. Cross-encoder rerank top-20 → top-6
+                    #    Reuse persistent CE instance to avoid reload overhead
+                    try:
+                        from sentence_transformers import CrossEncoder
+                        _ce_key = "_cross_encoder_instance"
+                        if _ce_key not in st.session_state:
+                            st.session_state[_ce_key] = CrossEncoder(
+                                "cross-encoder/ms-marco-MiniLM-L-6-v2"
+                            )
+                        ce = st.session_state[_ce_key]
+                        ce_scores = ce.predict([(q, c["chunk"]) for c in candidates]).tolist()
+                        for cand, sc in zip(candidates, ce_scores):
+                            cand["ce_score"] = sc
+                        candidates.sort(key=lambda x: x.get("ce_score", 0), reverse=True)
+                    except Exception:
+                        candidates.sort(key=lambda x: x["score"], reverse=True)
+
+                    top = candidates[:6]
+                    doc_context = "\n---\n".join(
+                        f"[{c['meta']['filename']} · {c['section']} · p{c['page']}]\n{c['chunk']}"
+                        for c in top
+                    )
+                    sources_data = [
+                        {
+                            "filename":   c["meta"]["filename"],
+                            "score":      c["score"],
+                            "preview":    c["chunk"][:220],
+                            "chunk_full": c["chunk"],
+                            "chunk_idx":  c["meta"].get("chunk", ""),
+                            "section":    c["section"],
+                            "page":       c["page"],
+                        }
+                        for c in top
+                    ]
+                    # 7. Store in semantic cache for future repeated queries
+                    _retrieval_cache_put(q, {"doc_context": doc_context, "sources_data": sources_data})
 
             # ── Branch: Analyst Mode vs Chat Mode ────────────────────────
             if st.session_state.analyst_mode:
