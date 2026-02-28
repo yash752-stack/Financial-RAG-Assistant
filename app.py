@@ -406,116 +406,190 @@ div[data-testid="stButton"] button.tf-active{
 }
 
 /* ═══════════════════════════════════════════════════════
-   TOP ACTION BUTTONS
+   TOP ACTION BAR  — square upload · cycling simulate · search
+   All three live on a single row. Upload is a true square tile.
+   Simulate cycles cherry-red ↔ bright-green every 3 seconds.
    ═══════════════════════════════════════════════════════ */
 
-/* ── Shared tile base — only for simulate (upload uses overlay approach) ── */
-.sq-btn-simulate div[data-testid="stButton"] > button {
-  width:100%!important; height:5.4rem!important;
-  border-radius:14px!important; padding:0!important;
-  font-family:'Space Mono',monospace!important;
-  font-size:.56rem!important; letter-spacing:.1em!important;
-  text-transform:uppercase!important; line-height:1.6!important;
-  transition: transform .24s cubic-bezier(.34,1.56,.64,1),
-              box-shadow .22s ease, border-color .18s ease!important;
-  display:flex!important; flex-direction:column!important;
-  align-items:center!important; justify-content:center!important;
-  white-space:pre-line!important; position:relative!important;
-  overflow:hidden!important;
+/* ── ACTION ROW: force all three columns onto one visual line ── */
+div[data-testid="stHorizontalBlock"]:has(.sq-btn-upload) {
+  align-items: center !important;
 }
 
-/* ── Upload: matte-black, big white +  ─────────────────── */
+/* ══════════════════════════════════════════════════════════
+   UPLOAD BUTTON — true square, sharp corners, giant +
+   ══════════════════════════════════════════════════════════ */
 .sq-btn-upload {
-  position:relative;
-  display:block;
+  position: relative;
+  display: block;
 }
-/* The overlay sits in normal flow first, then the button is pulled UP over it */
+/* Visual tile: renders first in normal flow */
 .sq-btn-upload-plus {
-  display:flex; flex-direction:column;
-  align-items:center; justify-content:center;
-  height:5.4rem; width:100%;
-  background:#080808;
-  border:1.5px solid rgba(255,255,255,.28);
-  border-radius:14px;
-  pointer-events:none;
-  gap:.15rem;
-  box-shadow: 0 4px 28px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.06);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 1 / 1;       /* ← true square */
+  min-height: 4.8rem;
+  max-height: 5.2rem;
+  background: #080808;
+  border: 2px solid rgba(255,255,255,.32);
+  border-radius: 4px;         /* ← sharp corners */
+  pointer-events: none;
+  gap: 0.1rem;
+  box-shadow: 0 4px 28px rgba(0,0,0,.85),
+              inset 0 1px 0 rgba(255,255,255,.07);
+  transition: border-color .18s ease, background .18s ease, box-shadow .22s ease;
 }
 .sq-btn-upload-plus-icon {
-  font-size:2.4rem; font-weight:100; color:#fff; line-height:1;
-  font-family:'Helvetica Neue',Arial,sans-serif;
+  font-size: 2.8rem;
+  font-weight: 200;
+  color: #ffffff;
+  line-height: 1;
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+  letter-spacing: -0.04em;
 }
 .sq-btn-upload-plus-label {
-  font-family:'Space Mono',monospace;
-  font-size:.5rem; letter-spacing:.16em;
-  text-transform:uppercase; color:rgba(255,255,255,.72);
+  font-family: 'Space Mono', monospace;
+  font-size: .46rem;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.65);
 }
-/* Pull the real button UP to cover the overlay exactly */
+/* Invisible button pulled UP to cover the visual tile */
 .sq-btn-upload div[data-testid="stButton"] {
-  margin-top:-5.4rem!important;
+  margin-top: -5.2rem !important;
 }
 .sq-btn-upload div[data-testid="stButton"] > button {
-  background:transparent!important;
-  border:1.5px solid transparent!important;
-  color:transparent!important;
-  box-shadow:none!important;
+  width: 100% !important;
+  aspect-ratio: 1 / 1 !important;
+  min-height: 4.8rem !important;
+  background: transparent !important;
+  border: 2px solid transparent !important;
+  border-radius: 4px !important;
+  color: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  transition: transform .2s cubic-bezier(.34,1.56,.64,1) !important;
 }
-.sq-btn-upload div[data-testid="stButton"] > button:hover ~ .sq-btn-upload-plus,
 .sq-btn-upload:hover .sq-btn-upload-plus {
-  border-color:rgba(255,255,255,.6)!important;
-  background:#141414!important;
+  border-color: rgba(255,255,255,.75);
+  background: #141414;
+  box-shadow: 0 0 0 1px rgba(255,255,255,.12),
+              0 0 40px rgba(255,255,255,.08),
+              0 12px 32px rgba(0,0,0,.9);
 }
-.sq-btn-upload div[data-testid="stButton"] > button:hover {
-  background:transparent!important;
-  border-color:transparent!important;
-  transform:translateY(-3px) scale(1.035)!important;
-  box-shadow:none!important;
-}
-/* Hover state on the wrapper to light up the visual tile */
-.sq-btn-upload:hover .sq-btn-upload-plus {
-  border-color:rgba(255,255,255,.6);
-  background:#141414;
-  box-shadow: 0 0 0 1px rgba(255,255,255,.1), 0 0 36px rgba(255,255,255,.07), 0 10px 30px rgba(0,0,0,.85);
+.sq-btn-upload:hover div[data-testid="stButton"] > button {
+  transform: translateY(-2px) scale(1.03) !important;
 }
 
-/* ── Simulate Portfolio: dark with live SVG chart ────────── */
-@keyframes chart-scroll { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
-.sq-btn-simulate { position:relative; border-radius:14px; overflow:hidden; }
+/* ══════════════════════════════════════════════════════════
+   SIMULATE PORTFOLIO — cherry-red ↔ bright-green color cycle
+   Cycles: border, glow, text every 3s with smooth cross-fade
+   ══════════════════════════════════════════════════════════ */
+
+/* Keyframes for the color cycle */
+@keyframes sim-border-cycle {
+  0%,  45% { border-color: rgba(220,38,38,.72) !important; }   /* cherry red */
+  50%, 95% { border-color: rgba(34,197,94,.72) !important; }   /* bright green */
+  100%     { border-color: rgba(220,38,38,.72) !important; }
+}
+@keyframes sim-color-cycle {
+  0%,  45% { color: #ff6b6b !important; }   /* soft cherry */
+  50%, 95% { color: #4ade80 !important; }   /* bright green */
+  100%     { color: #ff6b6b !important; }
+}
+@keyframes sim-glow-cycle {
+  0%,  45% {
+    box-shadow: 0 4px 24px rgba(220,38,38,.35),
+                inset 0 1px 0 rgba(255,80,80,.1) !important;
+  }
+  50%, 95% {
+    box-shadow: 0 4px 24px rgba(34,197,94,.35),
+                inset 0 1px 0 rgba(80,255,140,.1) !important;
+  }
+  100% {
+    box-shadow: 0 4px 24px rgba(220,38,38,.35),
+                inset 0 1px 0 rgba(255,80,80,.1) !important;
+  }
+}
+@keyframes sim-bg-cycle {
+  0%,  45% { background: linear-gradient(160deg,#1a0505 0%,#2a0808 50%,#120202 100%) !important; }
+  50%, 95% { background: linear-gradient(160deg,#021a08 0%,#042a10 50%,#01120a 100%) !important; }
+  100%     { background: linear-gradient(160deg,#1a0505 0%,#2a0808 50%,#120202 100%) !important; }
+}
+
+.sq-btn-simulate {
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+}
 .sq-btn-simulate-bg {
-  position:absolute; inset:0; border-radius:14px; z-index:0;
-  background:linear-gradient(160deg,#0a0520 0%,#0e0630 50%,#08021a 100%);
-  pointer-events:none;
+  position: absolute; inset: 0;
+  border-radius: 10px; z-index: 0;
+  pointer-events: none;
+  animation: sim-bg-cycle 6s ease-in-out infinite;
 }
 .sq-btn-simulate-chart {
-  position:absolute; bottom:0; left:0;
-  width:200%; height:52%; z-index:1;
+  position: absolute; bottom: 0; left: 0;
+  width: 200%; height: 52%; z-index: 1;
   animation: chart-scroll 9s linear infinite;
-  pointer-events:none; opacity:.9;
+  pointer-events: none; opacity: .55;
 }
 .sq-btn-simulate-vignette {
-  position:absolute; inset:0; z-index:2; border-radius:14px;
-  background:linear-gradient(180deg,rgba(8,2,26,.7) 0%,transparent 55%,rgba(8,2,26,.45) 100%);
-  pointer-events:none;
+  position: absolute; inset: 0; z-index: 2;
+  border-radius: 10px;
+  background: linear-gradient(180deg,rgba(0,0,0,.55) 0%,transparent 55%,rgba(0,0,0,.35) 100%);
+  pointer-events: none;
 }
+@keyframes chart-scroll { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
+
+/* The actual Streamlit button over the layers */
 .sq-btn-simulate div[data-testid="stButton"] > button {
-  background:transparent!important;
-  border:1.5px solid rgba(147,90,180,.38)!important;
-  color:#C084C8!important;
-  position:relative!important; z-index:3!important;
-  box-shadow: 0 4px 24px rgba(70,15,100,.5),
-              inset 0 1px 0 rgba(192,132,200,.1)!important;
-  font-size:.58rem!important;
+  width: 100% !important;
+  height: 4.8rem !important;
+  background: transparent !important;
+  border-width: 1.5px !important;
+  border-style: solid !important;
+  border-radius: 10px !important;
+  padding: 0 !important;
+  position: relative !important;
+  z-index: 3 !important;
+  font-family: 'Space Mono', monospace !important;
+  font-size: .6rem !important;
+  letter-spacing: .14em !important;
+  text-transform: uppercase !important;
+  line-height: 1.55 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  white-space: pre-line !important;
+  overflow: hidden !important;
+  transition: transform .22s cubic-bezier(.34,1.56,.64,1) !important;
+  /* Color animations */
+  animation: sim-border-cycle 6s ease-in-out infinite,
+             sim-color-cycle  6s ease-in-out infinite,
+             sim-glow-cycle   6s ease-in-out infinite !important;
 }
 .sq-btn-simulate div[data-testid="stButton"] > button:hover {
-  border-color:rgba(192,132,200,.75)!important;
-  color:#EDE8F5!important;
-  transform:translateY(-3px) scale(1.035)!important;
-  box-shadow:0 0 32px rgba(147,90,180,.38),0 10px 28px rgba(0,0,0,.7)!important;
+  transform: translateY(-3px) scale(1.03) !important;
+  filter: brightness(1.25) !important;
 }
 .sq-btn-simulate.pf-open div[data-testid="stButton"] > button {
-  border-color:rgba(192,132,200,.85)!important;
-  color:#EDE8F5!important;
-  box-shadow:0 0 22px rgba(192,132,200,.3),inset 0 0 0 1px rgba(192,132,200,.18)!important;
+  filter: brightness(1.3) !important;
+  transform: translateY(-1px) !important;
+}
+
+/* ══════════════════════════════════════════════════════════
+   SEARCH BAR — same row, vertically centred
+   ══════════════════════════════════════════════════════════ */
+div[data-testid="stTextInput"] input {
+  height: 4.8rem !important;
+  border-radius: 10px !important;
+  font-family: 'Space Mono', monospace !important;
+  font-size: .75rem !important;
 }
 .upload-panel{
   background:linear-gradient(135deg,rgba(107,45,107,.14) 0%,rgba(13,11,18,.97) 100%);
@@ -4334,29 +4408,35 @@ with st.sidebar:
 # TOP ACTION BAR  — [＋ Upload]  [Simulate Portfolio]  [Search]
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Inline SVG chart watermark for portfolio button (base64 data URI)
+# Inline SVG chart watermark — two lines, one red one green, matching the cycle theme
 _CHART_SVG = (
     "data:image/svg+xml,"
     "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 520 64' preserveAspectRatio='none'%3E"
-    "%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E"
-    "%3Cstop offset='0' stop-color='%23a855f7' stop-opacity='.18'/%3E"
-    "%3Cstop offset='1' stop-color='%23a855f7' stop-opacity='0'/%3E"
-    "%3C/linearGradient%3E%3C/defs%3E"
-    "%3Cpolyline points='0,60 24,52 48,56 72,42 96,46 120,30 144,34 168,20 192,26 216,14 240,18 264,8 288,14 312,4 336,11 360,22 384,16 408,28 432,20 456,32 480,24 520,30' fill='url(%23g)' stroke='%23a855f7' stroke-width='2'/%3E"
-    "%3Cpolyline points='0,62 24,58 48,60 72,50 96,54 120,42 144,46 168,34 192,38 216,28 240,32 264,22 288,26 312,16 336,20 360,32 384,26 408,38 432,32 456,44 480,36 520,42' fill='none' stroke='%234ade80' stroke-width='1' stroke-dasharray='4 3' opacity='.5'/%3E"
+    "%3Cdefs%3E"
+    "%3ClinearGradient id='rg' x1='0' y1='0' x2='0' y2='1'%3E"
+    "%3Cstop offset='0' stop-color='%23dc2626' stop-opacity='.22'/%3E"
+    "%3Cstop offset='1' stop-color='%23dc2626' stop-opacity='0'/%3E"
+    "%3C/linearGradient%3E"
+    "%3ClinearGradient id='gg' x1='0' y1='0' x2='0' y2='1'%3E"
+    "%3Cstop offset='0' stop-color='%2322c55e' stop-opacity='.22'/%3E"
+    "%3Cstop offset='1' stop-color='%2322c55e' stop-opacity='0'/%3E"
+    "%3C/linearGradient%3E"
+    "%3C/defs%3E"
+    "%3Cpolyline points='0,58 30,48 60,52 90,36 120,42 150,22 180,28 210,12 240,18 270,6 300,12 330,2 360,9 390,20 420,14 450,26 480,18 520,28'"
+    " fill='url(%23rg)' stroke='%23dc2626' stroke-width='1.8'/%3E"
+    "%3Cpolyline points='0,62 30,54 60,58 90,46 120,50 150,36 180,40 210,28 240,32 270,20 300,24 330,14 360,20 390,32 420,24 450,36 480,28 520,38'"
+    " fill='url(%23gg)' stroke='%2322c55e' stroke-width='1.4' stroke-dasharray='5 3' opacity='.7'/%3E"
     "%3C/svg%3E"
 )
 
-_btn_upload, _btn_portfolio, _search_col = st.columns([1.4, 2.5, 6.1], gap="small")
+_btn_upload, _btn_portfolio, _search_col = st.columns([1, 2.4, 6.6], gap="small")
 
 with _btn_upload:
-    # Grid-stack: overlay div + button occupy the same grid cell.
-    # The overlay has pointer-events:none so clicks pass through to the button.
     st.markdown(
         '<div class="sq-btn-upload">'
         '<div class="sq-btn-upload-plus">'
         '<span class="sq-btn-upload-plus-icon">+</span>'
-        '<span class="sq-btn-upload-plus-label">Upload Document</span>'
+        '<span class="sq-btn-upload-plus-label">Upload</span>'
         '</div>',
         unsafe_allow_html=True,
     )
