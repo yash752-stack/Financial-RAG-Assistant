@@ -65,6 +65,12 @@ for _k, _v in [
     # Portfolio: selected holding for instant AI analysis
     ("_pf_selected_holding", ""),
     ("_pf_holding_ai",       {}),   # {sym: {tf: text}}
+    # Price alerts: {sym: {"above": None, "below": None}}
+    ("price_alerts",         {}),
+    # Alert notification log
+    ("alert_log",            []),
+    # Theme
+    ("app_theme",            "Royal Velvet"),
 ]:
     if _k not in st.session_state:
         st.session_state[_k] = _v
@@ -85,9 +91,21 @@ st.markdown("""
   .stat-strip{grid-template-columns:repeat(2,1fr)!important}}
 @media(max-width:767px){[data-testid="block-container"]{padding:0 .5rem!important;max-width:100%!important}
   .stat-strip{grid-template-columns:repeat(2,1fr)!important}
-  .rag-header h1{font-size:2rem!important}.rag-header{padding:1.2rem 1rem!important}}
+  .rag-header h1{font-size:2rem!important}.rag-header{padding:1.2rem 1rem!important}
+  /* Stack holding cards to 1-col on mobile */
+  .holding-card{margin-bottom:.6rem!important}
+  /* Touch-friendly buttons */
+  div[data-testid="stButton"] > button{min-height:44px!important}
+  /* Hide 3rd+ index cards on small screens */
+  .mood-indices > div:nth-child(n+3){display:none!important}
+  /* Portfolio panel full-width */
+  div[data-testid="stHorizontalBlock"]:has(.portfolio-panel){flex-direction:column!important}
+}
 @media(max-width:479px){.stat-strip{grid-template-columns:1fr!important}
-  .rag-header h1{font-size:1.6rem!important}}
+  .rag-header h1{font-size:1.6rem!important}
+  /* Single column holdings grid on very small screens */
+  div[data-testid="stHorizontalBlock"]:has(.holding-card){flex-direction:column!important}
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -1746,7 +1764,7 @@ def render_analytics_tab(vectorstore, groq_api_key, doc_full_text="", auto_metri
                     '</div>', unsafe_allow_html=True)
         return
 
-    sub_tabs = st.tabs(["📊 Metrics Dashboard","📈 Doc vs Market","📋 Templates","🔍 Hybrid Search","🧪 Eval Benchmark"])
+    sub_tabs = st.tabs(["📊 Metrics","📈 Doc vs Market","📋 Templates","🔍 Hybrid Search","🧪 Eval","📑 Compare Docs","⬇ Export"])
 
     # ── 0: Metrics ───────────────────────────────────────────────────────────
     with sub_tabs[0]:
@@ -2025,6 +2043,22 @@ def render_analytics_tab(vectorstore, groq_api_key, doc_full_text="", auto_metri
                     _run_eval_benchmark(_custom_qs, vectorstore, groq_api_key, use_expected_answer=True)
             else:
                 st.info("Add questions above, then run the benchmark.")
+
+    # ── 5: Document Comparison ────────────────────────────────────────────────
+    with sub_tabs[5]:
+        render_document_comparison(
+            file_names   = st.session_state.get("file_names", []),
+            auto_metrics = auto_metrics or [],
+        )
+
+    # ── 6: Export ────────────────────────────────────────────────────────────
+    with sub_tabs[6]:
+        _exp_summary = portfolio_summary(st.session_state.portfolio) if st.session_state.portfolio else {"holdings":[],"total_value":0,"total_cost":0,"total_pnl":0,"total_pnl_pct":0}
+        render_export_panel(
+            summary      = _exp_summary,
+            metrics      = auto_metrics or [],
+            doc_full_text= doc_full_text or "",
+        )
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DATA FETCH HELPERS
@@ -2921,6 +2955,781 @@ def portfolio_summary(portfolio: dict) -> dict:
 _ALLOC_COLORS = ["#C084C8","#60a5fa","#4ade80","#F0C040","#fb923c",
                  "#f87171","#34d399","#a78bfa","#38bdf8","#fbbf24"]
 
+# ═══════════════════════════════════════════════════════════════════════════
+#  NEW FEATURE LIBRARY  v8
+#  1. Centralised Groq call with exponential back-off + retry UI
+#  2. Portfolio risk analytics  (beta, VaR, Sharpe, diversification)
+#  3. Price alert engine
+#  4. Document comparison
+#  5. Export / CSV download
+#  6. Theme system
+#  7. Keyboard shortcuts injector
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ─── 1. CENTRALISED GROQ CALLER WITH RETRY ──────────────────────────────────
+
+def _parse_retry_secs(err_str: str) -> float:
+    """Extract 'try again in Xs' from Groq rate-limit error text."""
+    m = re.search(r"try again in\s+(?:(\d+)m)?[\s]*([\d.]+)s", err_str, re.IGNORECASE)
+    if m:
+        mins = int(m.group(1) or 0)
+        secs = float(m.group(2) or 0)
+        return mins * 60 + secs
+    m2 = re.search(r"([\d.]+)\s*second", err_str, re.IGNORECASE)
+    return float(m2.group(1)) if m2 else 60.0
+
+def groq_call(
+    api_key:     str,
+    messages:    list[dict],
+    system:      str  = "",
+    model:       str  = "llama-3.3-70b-versatile",
+    temperature: float = 0.15,
+    max_tokens:  int   = 600,
+    site_key:    str   = "default",
+    show_spinner:bool  = False,
+) -> str:
+    """
+    Single entry-point for ALL Groq LLM calls.
+    • Exponential back-off with jitter on 429/rate_limit (up to 3 retries)
+    • Returns descriptive error strings on failure (never raises)
+    • Tracks per-site last-error timestamps in session state
+    """
+    if not api_key:
+        return "⚠ No API key — add your Groq key in the sidebar."
+    from openai import OpenAI
+    oai = OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
+
+    full_messages = []
+    if system:
+        full_messages.append({"role": "system", "content": system})
+    full_messages.extend(messages)
+
+    for attempt in range(3):
+        try:
+            resp = oai.chat.completions.create(
+                model=model,
+                messages=full_messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            # Clear error flag on success
+            st.session_state["_groq_last_err"].pop(site_key, None)
+            return resp.choices[0].message.content.strip()
+
+        except Exception as e:
+            err = str(e)
+            is_rate = "rate_limit_exceeded" in err or "429" in err or "Rate limit" in err
+            is_overload = "overloaded" in err.lower() or "503" in err or "502" in err
+
+            if is_rate or is_overload:
+                wait = _parse_retry_secs(err) if is_rate else 5.0
+                # Jitter to avoid thundering herd
+                wait = wait * (1 + 0.1 * attempt) + (attempt * 2)
+                st.session_state["_groq_last_err"][site_key] = {
+                    "ts":    _dt.datetime.utcnow().isoformat(),
+                    "wait":  wait,
+                    "msg":   err[:200],
+                    "type":  "rate_limit" if is_rate else "overload",
+                }
+                if attempt < 2:
+                    _tm.sleep(min(wait, 8))   # wait up to 8s before retry in-request
+                    continue
+                retry_min = max(1, int(wait / 60))
+                return (
+                    f"⏱ Groq {'rate limit' if is_rate else 'overload'} — "
+                    f"retry in ~{retry_min} min.\n"
+                    f"💡 Upgrade at console.groq.com/settings/billing to remove limits."
+                )
+            # Non-retryable errors
+            return f"⚠ API error: {err[:200]}"
+    return "⚠ Max retries exceeded — Groq API unavailable right now."
+
+
+# ─── 2. PORTFOLIO RISK ANALYTICS ────────────────────────────────────────────
+
+_SPY_BETA_CACHE: dict = {}   # {sym: beta_float}
+
+def _fetch_beta(sym: str) -> float:
+    """Compute 1-year rolling beta against SPY for a single symbol."""
+    global _SPY_BETA_CACHE
+    if sym in _SPY_BETA_CACHE:
+        return _SPY_BETA_CACHE[sym]
+    try:
+        spy_df  = fetch_stock_history_1y("SPY")
+        sym_df  = fetch_stock_history_1y(sym)
+        if spy_df.empty or sym_df.empty or len(spy_df) < 60:
+            return 1.0
+        spy_r  = spy_df["close"].pct_change().dropna()
+        sym_r  = sym_df["close"].pct_change().dropna()
+        # Align on date index
+        common = spy_r.index.intersection(sym_r.index)
+        if len(common) < 30:
+            return 1.0
+        spy_r = spy_r.loc[common].values
+        sym_r = sym_r.loc[common].values
+        cov    = float(np.cov(sym_r, spy_r)[0, 1])
+        var_m  = float(np.var(spy_r))
+        beta   = round(cov / var_m, 3) if var_m else 1.0
+        _SPY_BETA_CACHE[sym] = beta
+        return beta
+    except Exception:
+        return 1.0
+
+def calculate_portfolio_beta(summary: dict) -> float:
+    """Weighted-average beta across all holdings."""
+    total_val = summary["total_value"] or 1.0
+    beta = 0.0
+    for h in summary["holdings"]:
+        w = h["mkt_val"] / total_val
+        beta += w * _fetch_beta(h["sym"])
+    return round(beta, 3)
+
+def calculate_var(summary: dict, confidence: float = 0.95) -> float:
+    """
+    Parametric VaR (1-day) using per-holding annualised vol from compute_technicals.
+    Falls back to 1.5% daily vol if history unavailable.
+    VaR = portfolio_value × z × daily_vol  (weighted average vol, simplified)
+    """
+    z_map = {0.90: 1.282, 0.95: 1.645, 0.99: 2.326}
+    z = z_map.get(confidence, 1.645)
+    total_val = summary["total_value"] or 1.0
+    weighted_vol = 0.0
+    for h in summary["holdings"]:
+        w = h["mkt_val"] / total_val
+        try:
+            df  = fetch_stock_history_1y(h["sym"])
+            tec = compute_technicals(df)
+            ann_vol = tec.get("vol_annual", 30.0) / 100.0
+        except Exception:
+            ann_vol = 0.30
+        daily_vol = ann_vol / (252 ** 0.5)
+        weighted_vol += w * daily_vol
+    return round(total_val * z * weighted_vol, 2)
+
+def calculate_sharpe_ratio(summary: dict, risk_free: float = 0.053) -> float:
+    """
+    Simplified Sharpe using 1-year return and annualised vol.
+    risk_free defaults to ~5.3% (US 10Y approx).
+    """
+    total_val  = summary["total_value"] or 1.0
+    total_cost = summary["total_cost"]  or 1.0
+    ann_return = (total_val / total_cost - 1.0)   # approximate annual return
+
+    # Weighted portfolio vol
+    weighted_vol = 0.0
+    for h in summary["holdings"]:
+        w = h["mkt_val"] / total_val
+        try:
+            df  = fetch_stock_history_1y(h["sym"])
+            tec = compute_technicals(df)
+            weighted_vol += w * (tec.get("vol_annual", 30.0) / 100.0)
+        except Exception:
+            weighted_vol += w * 0.30
+
+    if weighted_vol < 0.001:
+        return 0.0
+    return round((ann_return - risk_free) / weighted_vol, 3)
+
+def calculate_diversification(summary: dict) -> int:
+    """
+    Diversification score 0–100 based on:
+    • Holdings count (0–30 pts)
+    • Sector spread (0–40 pts)
+    • Concentration: 1 - HHI of weights (0–30 pts)
+    """
+    holdings = summary["holdings"]
+    n = len(holdings)
+    if n == 0:
+        return 0
+
+    # Holdings count score
+    count_score = min(30, n * 4)
+
+    # Sector inference from exchange label
+    def _infer_sector(sym: str) -> str:
+        s = sym.upper()
+        if s.endswith("-USD") or s.endswith("-BTC"):  return "Crypto"
+        if s.endswith(".NS") or s.endswith(".BO"):     return "India"
+        if s.endswith(".KS"):                          return "Korea"
+        if s.endswith(".HK"):                          return "HK"
+        if s.endswith(".L"):                           return "UK"
+        if s.endswith(".AX"):                          return "Australia"
+        if s in {"AAPL","MSFT","NVDA","GOOGL","META","AMZN","TSLA"}: return "US_Tech"
+        if s in {"JPM","GS","V","MA","BAC","WFC"}:    return "US_Finance"
+        return "US_Other"
+
+    sectors = set(_infer_sector(h["sym"]) for h in holdings)
+    sector_score = min(40, len(sectors) * 8)
+
+    # HHI concentration
+    total = summary["total_value"] or 1.0
+    hhi = sum((h["mkt_val"] / total) ** 2 for h in holdings)
+    concentration_score = int((1 - hhi) * 30)
+
+    return min(100, count_score + sector_score + concentration_score)
+
+def render_portfolio_analytics(summary: dict, groq_api_key: str) -> None:
+    """
+    Full risk analytics dashboard: Beta, VaR(95/99), Sharpe, Diversification,
+    correlation heatmap, top-risk contributor, AI risk commentary.
+    """
+    if not summary["holdings"]:
+        return
+
+    V = VELVET
+
+    st.markdown(
+        f'<div style="font-family:Space Mono,monospace;font-size:.54rem;letter-spacing:.18em;'
+        f'text-transform:uppercase;color:#C084C8;margin:.8rem 0 .5rem;">◈ Portfolio Risk Analytics</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ── Metric cards row ─────────────────────────────────────────────────
+    with st.spinner("Computing risk metrics (fetching 1Y history)…"):
+        p_beta  = calculate_portfolio_beta(summary)
+        var_95  = calculate_var(summary, 0.95)
+        var_99  = calculate_var(summary, 0.99)
+        sharpe  = calculate_sharpe_ratio(summary)
+        divers  = calculate_diversification(summary)
+
+    def _risk_card(label, val, note, color):
+        st.markdown(
+            f'<div style="background:{V["card2"]};border:1px solid {V["border"]};'
+            f'border-top:2px solid {color};border-radius:8px;padding:.65rem .8rem;">'
+            f'<div style="font-family:Space Mono,monospace;font-size:.44rem;letter-spacing:.15em;'
+            f'text-transform:uppercase;color:#4A3858;">{label}</div>'
+            f'<div style="font-family:Cormorant Garamond,serif;font-size:1.45rem;font-weight:300;'
+            f'color:{color};line-height:1.1;">{val}</div>'
+            f'<div style="font-family:Space Mono,monospace;font-size:.44rem;color:#4A3858;">{note}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    r1, r2, r3, r4, r5 = st.columns(5)
+    with r1: _risk_card("Portfolio Beta", f"{p_beta:.2f}",
+        "vs S&P 500" + (" · Aggressive" if p_beta>1.2 else " · Defensive" if p_beta<0.8 else " · Market-neutral"),
+        "#f87171" if p_beta>1.3 else ("#4ade80" if p_beta<0.8 else "#F0C040"))
+    with r2: _risk_card("VaR 95% (1-day)", f"-${var_95:,.0f}",
+        "Max daily loss (95% conf.)",
+        "#F0C040")
+    with r3: _risk_card("VaR 99% (1-day)", f"-${var_99:,.0f}",
+        "Max daily loss (99% conf.)",
+        "#f87171")
+    with r4: _risk_card("Sharpe Ratio", f"{sharpe:.2f}",
+        "Risk-adj. return (rf=5.3%)" + (" · Excellent" if sharpe>1.5 else " · Good" if sharpe>0.8 else " · Poor" if sharpe<0 else " · Moderate"),
+        "#4ade80" if sharpe>1 else ("#F0C040" if sharpe>0 else "#f87171"))
+    with r5:
+        d_col = "#4ade80" if divers>=70 else ("#F0C040" if divers>=40 else "#f87171")
+        _risk_card("Diversification", f"{divers}%", "", d_col)
+
+    # Diversification progress bar
+    st.markdown(
+        f'<div style="margin:.5rem 0 .8rem;">'
+        f'<div style="height:6px;background:rgba(107,45,107,.15);border-radius:3px;overflow:hidden;">'
+        f'<div style="height:100%;width:{divers}%;background:linear-gradient(90deg,'
+        f'{"#f87171" if divers<40 else "#F0C040" if divers<70 else "#4ade80"},'
+        f'{"#F0C040" if divers<70 else "#4ade80"});border-radius:3px;'
+        f'transition:width .6s ease;"></div></div>'
+        f'<div style="font-family:Space Mono,monospace;font-size:.44rem;color:#4A3858;margin-top:.2rem;">'
+        f'Diversification score {divers}/100 — '
+        f'{"Well diversified" if divers>=70 else "Moderately diversified" if divers>=40 else "Concentrated — consider adding more sectors"}'
+        f'</div></div>',
+        unsafe_allow_html=True,
+    )
+
+    # ── Per-holding risk contribution table ─────────────────────────────
+    st.markdown(
+        f'<div style="font-family:Space Mono,monospace;font-size:.48rem;letter-spacing:.15em;'
+        f'text-transform:uppercase;color:#4A3858;margin:.6rem 0 .3rem;">Risk Contribution per Holding</div>',
+        unsafe_allow_html=True,
+    )
+    total_val = summary["total_value"] or 1.0
+    risk_rows_html = ""
+    risk_data = []
+    for h in summary["holdings"]:
+        try:
+            df   = fetch_stock_history_1y(h["sym"])
+            tec  = compute_technicals(df)
+            vol  = tec.get("vol_annual", 30.0)
+            beta = _fetch_beta(h["sym"])
+        except Exception:
+            vol, beta = 30.0, 1.0
+        w = h["mkt_val"] / total_val
+        daily_vol = vol / 100 / (252 ** 0.5)
+        holding_var = round(h["mkt_val"] * 1.645 * daily_vol, 2)
+        risk_data.append({"sym": h["sym"], "w": w, "vol": vol, "beta": beta, "var95": holding_var})
+
+    for rd in sorted(risk_data, key=lambda x: x["var95"], reverse=True):
+        bar_w = min(100, rd["var95"] / max(r["var95"] for r in risk_data) * 100) if risk_data else 0
+        b_col = "#f87171" if rd["beta"]>1.2 else ("#4ade80" if rd["beta"]<0.8 else "#F0C040")
+        risk_rows_html += (
+            f'<div style="display:flex;align-items:center;gap:.6rem;padding:.3rem 0;'
+            f'border-bottom:1px solid rgba(107,45,107,.08);">'
+            f'<div style="font-family:Space Mono,monospace;font-size:.56rem;color:#C084C8;width:5.5rem;">{rd["sym"][:10]}</div>'
+            f'<div style="flex:1;">'
+            f'  <div style="height:4px;background:rgba(107,45,107,.12);border-radius:2px;overflow:hidden;">'
+            f'  <div style="height:100%;width:{bar_w:.0f}%;background:linear-gradient(90deg,#C084C8,#f87171);border-radius:2px;"></div></div>'
+            f'</div>'
+            f'<div style="font-family:Space Mono,monospace;font-size:.5rem;color:#9A8AAA;width:4rem;text-align:right;">β {rd["beta"]:.2f}</div>'
+            f'<div style="font-family:Space Mono,monospace;font-size:.5rem;color:#9A8AAA;width:4rem;text-align:right;">{rd["vol"]:.1f}% vol</div>'
+            f'<div style="font-family:Space Mono,monospace;font-size:.5rem;color:#f87171;width:5.5rem;text-align:right;">VaR -${rd["var95"]:,.0f}</div>'
+            f'</div>'
+        )
+    st.markdown(f'<div style="margin-bottom:.8rem;">{risk_rows_html}</div>', unsafe_allow_html=True)
+
+    # ── AI Risk Commentary ───────────────────────────────────────────────
+    if groq_api_key and st.button("🤖  Generate AI Risk Assessment", key="pf_risk_ai_btn"):
+        top3 = sorted(risk_data, key=lambda x: x["var95"], reverse=True)[:3]
+        top3_str = ", ".join(f'{r["sym"]}(b={r["beta"]:.2f},vol={r["vol"]:.0f}%)' for r in top3)
+        risk_prompt = (
+            f"Portfolio: ${total_val:,.0f} across {len(summary['holdings'])} holdings.\n"
+            f"Beta={p_beta:.2f}, Sharpe={sharpe:.2f}, VaR95=-${var_95:,.0f}/day, VaR99=-${var_99:,.0f}/day\n"
+            f"Diversification={divers}/100\n"
+            f"Top risk contributors: {top3_str}\n\n"
+            f"Give a concise risk assessment (<=200 words): key risks, hedging suggestions, position sizing recommendations."
+        )
+        with st.spinner("Generating AI risk assessment…"):
+            ai_risk = groq_call(
+                api_key=groq_api_key,
+                messages=[{"role":"user","content":risk_prompt}],
+                system="You are a portfolio risk manager. Be direct and quantitative.",
+                max_tokens=400, site_key="pf_risk"
+            )
+        st.markdown(
+            f'<div style="background:{V["card2"]};border:1px solid rgba(139,58,139,.3);'
+            f'border-left:3px solid #C084C8;border-radius:0 8px 8px 0;'
+            f'padding:.8rem 1rem;margin:.6rem 0;font-family:Syne,sans-serif;'
+            f'font-size:.82rem;color:#C8B8D8;line-height:1.75;">{ai_risk}</div>',
+            unsafe_allow_html=True,
+        )
+
+
+# ─── 3. PRICE ALERT ENGINE ───────────────────────────────────────────────────
+
+def check_price_alerts() -> list[dict]:
+    """
+    Check all configured price alerts against current prices.
+    Returns list of newly-triggered alerts.
+    Mutates st.session_state.price_alerts to clear triggered ones.
+    """
+    alerts = st.session_state.price_alerts
+    if not alerts:
+        return []
+    triggered = []
+    for sym, cfg in list(alerts.items()):
+        try:
+            info  = fetch_quote(sym)
+            if not info:
+                continue
+            price = info["price"]
+            ts    = _dt.datetime.utcnow().strftime("%H:%M UTC")
+            if cfg.get("above") is not None and price >= cfg["above"]:
+                triggered.append({"sym":sym,"type":"above","price":price,
+                                   "target":cfg["above"],"ts":ts})
+                alerts[sym]["above"] = None   # one-shot: clear after trigger
+            if cfg.get("below") is not None and price <= cfg["below"]:
+                triggered.append({"sym":sym,"type":"below","price":price,
+                                   "target":cfg["below"],"ts":ts})
+                alerts[sym]["below"] = None
+        except Exception:
+            pass
+    # Prune empty alert configs
+    st.session_state.price_alerts = {
+        s: c for s, c in alerts.items()
+        if c.get("above") is not None or c.get("below") is not None
+    }
+    # Append to log
+    if triggered:
+        log = st.session_state.alert_log
+        log.extend(triggered)
+        st.session_state.alert_log = log[-50:]   # keep last 50
+    return triggered
+
+def render_alerts_panel(portfolio: dict) -> None:
+    """Alert configuration and notification log UI inside portfolio panel."""
+    V = VELVET
+
+    # ── Run check ────────────────────────────────────────────────────────
+    newly = check_price_alerts()
+    if newly:
+        for a in newly:
+            dir_sym = "▲" if a["type"]=="above" else "▼"
+            col = "#4ade80" if a["type"]=="above" else "#f87171"
+            st.markdown(
+                f'<div style="background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.3);'
+                f'border-radius:8px;padding:.5rem .9rem;margin-bottom:.3rem;'
+                f'font-family:Space Mono,monospace;font-size:.6rem;">'
+                f'🔔 <span style="color:{col};">{dir_sym} {a["sym"]} hit ${a["price"]:,.2f}</span>'
+                f' (target ${a["target"]:,.2f}) · {a["ts"]}</div>',
+                unsafe_allow_html=True,
+            )
+
+    st.markdown(
+        f'<div style="font-family:Space Mono,monospace;font-size:.52rem;letter-spacing:.18em;'
+        f'text-transform:uppercase;color:{V["ghost"]};margin:.5rem 0 .4rem;">◈ Price Alerts</div>',
+        unsafe_allow_html=True,
+    )
+
+    syms = sorted(portfolio.keys()) if portfolio else []
+    if not syms:
+        st.caption("Add holdings first to set price alerts.")
+        return
+
+    al_col1, al_col2, al_col3, al_col4 = st.columns([2, 1.5, 1.5, 1])
+    with al_col1:
+        al_sym = st.selectbox("Symbol", syms, key="al_sym", label_visibility="collapsed")
+    with al_col2:
+        al_above = st.number_input("Alert above $", value=0.0, step=0.01, min_value=0.0,
+                                   key="al_above", label_visibility="collapsed",
+                                   help="Notify when price rises above this value")
+    with al_col3:
+        al_below = st.number_input("Alert below $", value=0.0, step=0.01, min_value=0.0,
+                                   key="al_below", label_visibility="collapsed",
+                                   help="Notify when price falls below this value")
+    with al_col4:
+        if st.button("Set Alert", key="al_set_btn", use_container_width=True):
+            if al_sym:
+                cfg = st.session_state.price_alerts.get(al_sym, {})
+                if al_above > 0: cfg["above"] = al_above
+                if al_below > 0: cfg["below"] = al_below
+                if cfg:
+                    st.session_state.price_alerts[al_sym] = cfg
+                    st.success(f"Alert set for {al_sym}")
+                    st.rerun()
+
+    # Active alerts table
+    active = st.session_state.price_alerts
+    if active:
+        rows_html = ""
+        for sym, cfg in active.items():
+            try:
+                curr = fetch_quote(sym)
+                curr_p = f"${curr['price']:,.2f}" if curr else "—"
+            except Exception:
+                curr_p = "—"
+            above_s = f"▲ ${cfg['above']:,.2f}" if cfg.get("above") else "—"
+            below_s = f"▼ ${cfg['below']:,.2f}" if cfg.get("below") else "—"
+            rows_html += (
+                f'<tr>'
+                f'<td style="font-family:Space Mono,monospace;font-size:.58rem;color:#C084C8;'
+                f'padding:.3rem .6rem;border:1px solid rgba(107,45,107,.2);">{sym}</td>'
+                f'<td style="font-family:Space Mono,monospace;font-size:.58rem;color:#9A8AAA;'
+                f'padding:.3rem .6rem;border:1px solid rgba(107,45,107,.2);">{curr_p}</td>'
+                f'<td style="font-family:Space Mono,monospace;font-size:.58rem;color:#4ade80;'
+                f'padding:.3rem .6rem;border:1px solid rgba(107,45,107,.2);">{above_s}</td>'
+                f'<td style="font-family:Space Mono,monospace;font-size:.58rem;color:#f87171;'
+                f'padding:.3rem .6rem;border:1px solid rgba(107,45,107,.2);">{below_s}</td>'
+                f'</tr>'
+            )
+        st.markdown(
+            f'<table style="width:100%;border-collapse:collapse;margin:.4rem 0 .6rem;">'
+            f'<thead><tr>'
+            f'<th style="background:rgba(107,45,107,.18);padding:.3rem .6rem;font-family:Space Mono,monospace;'
+            f'font-size:.44rem;text-transform:uppercase;color:#4A3858;text-align:left;border:1px solid rgba(107,45,107,.2);">Symbol</th>'
+            f'<th style="background:rgba(107,45,107,.18);padding:.3rem .6rem;font-family:Space Mono,monospace;'
+            f'font-size:.44rem;text-transform:uppercase;color:#4A3858;border:1px solid rgba(107,45,107,.2);">Current</th>'
+            f'<th style="background:rgba(107,45,107,.18);padding:.3rem .6rem;font-family:Space Mono,monospace;'
+            f'font-size:.44rem;text-transform:uppercase;color:#4A3858;border:1px solid rgba(107,45,107,.2);">Above</th>'
+            f'<th style="background:rgba(107,45,107,.18);padding:.3rem .6rem;font-family:Space Mono,monospace;'
+            f'font-size:.44rem;text-transform:uppercase;color:#4A3858;border:1px solid rgba(107,45,107,.2);">Below</th>'
+            f'</tr></thead><tbody>{rows_html}</tbody></table>',
+            unsafe_allow_html=True,
+        )
+        if st.button("🗑 Clear all alerts", key="al_clear_all"):
+            st.session_state.price_alerts = {}
+            st.rerun()
+
+    # Alert log
+    log = st.session_state.alert_log
+    if log:
+        with st.expander(f"📋 Alert history ({len(log)})"):
+            for a in reversed(log[-20:]):
+                dir_s = "▲ Hit above" if a["type"]=="above" else "▼ Hit below"
+                col   = "#4ade80" if a["type"]=="above" else "#f87171"
+                st.markdown(
+                    f'<div style="font-family:Space Mono,monospace;font-size:.54rem;'
+                    f'color:{col};padding:.15rem 0;">'
+                    f'{a["ts"]} · {a["sym"]} {dir_s} ${a["price"]:,.2f} (target ${a["target"]:,.2f})</div>',
+                    unsafe_allow_html=True,
+                )
+
+
+# ─── 4. DOCUMENT COMPARISON ─────────────────────────────────────────────────
+
+def render_document_comparison(file_names: list[str], auto_metrics: list[dict]) -> None:
+    """Side-by-side metric comparison between two uploaded documents."""
+    V = VELVET
+
+    if len(file_names) < 2:
+        st.info("Upload at least 2 documents to use the comparison tool.")
+        return
+
+    dc1, dc2 = st.columns(2)
+    with dc1:
+        doc1 = st.selectbox("Document A", file_names, key="dc_doc1")
+    with dc2:
+        doc2 = st.selectbox("Document B", [f for f in file_names if f != doc1],
+                             key="dc_doc2")
+    if not doc1 or not doc2:
+        return
+
+    # Build metric dicts per document from auto_metrics
+    def _metrics_for(fname: str) -> dict[str, dict]:
+        """Return {label: {value, unit}} for a specific doc."""
+        result: dict[str, dict] = {}
+        for m in auto_metrics:
+            if m.get("source") == fname or m.get("filename") == fname:
+                result[m["label"]] = {"value": m["value"], "unit": m["unit"]}
+        # If source field not present, try label-level dedup from all metrics
+        if not result:
+            for m in auto_metrics:
+                if m["label"] not in result:
+                    result[m["label"]] = {"value": m["value"], "unit": m["unit"]}
+        return result
+
+    m1 = _metrics_for(doc1)
+    m2 = _metrics_for(doc2)
+    all_labels = sorted(set(m1) | set(m2))
+
+    if not all_labels:
+        st.warning("No metrics extracted from the selected documents. Try Templates tab for LLM extraction.")
+        return
+
+    comparison = []
+    for lbl in all_labels:
+        v1 = m1.get(lbl)
+        v2 = m2.get(lbl)
+        v1_str = fmt_val(v1["value"], v1["unit"]) if v1 else "—"
+        v2_str = fmt_val(v2["value"], v2["unit"]) if v2 else "—"
+        if v1 and v2 and v1["value"] and v2["value"]:
+            try:
+                chg = (v2["value"] / v1["value"] - 1) * 100
+                chg_str = f"{chg:+.1f}%"
+                chg_color = "#4ade80" if chg >= 0 else "#f87171"
+            except Exception:
+                chg_str, chg_color = "—", "#9A8AAA"
+        else:
+            chg_str, chg_color = "—", "#9A8AAA"
+        comparison.append({"label": lbl, "v1": v1_str, "v2": v2_str,
+                            "chg": chg_str, "chg_color": chg_color})
+
+    # Render as styled HTML table
+    rows_html = ""
+    for row in comparison:
+        rows_html += (
+            f'<tr>'
+            f'<td style="font-family:Space Mono,monospace;font-size:.58rem;color:#C084C8;'
+            f'padding:.35rem .7rem;border:1px solid rgba(107,45,107,.2);">{row["label"]}</td>'
+            f'<td style="font-family:Space Mono,monospace;font-size:.62rem;color:#EDE8F5;'
+            f'padding:.35rem .7rem;border:1px solid rgba(107,45,107,.2);text-align:right;">{row["v1"]}</td>'
+            f'<td style="font-family:Space Mono,monospace;font-size:.62rem;color:#EDE8F5;'
+            f'padding:.35rem .7rem;border:1px solid rgba(107,45,107,.2);text-align:right;">{row["v2"]}</td>'
+            f'<td style="font-family:Space Mono,monospace;font-size:.6rem;color:{row["chg_color"]};'
+            f'padding:.35rem .7rem;border:1px solid rgba(107,45,107,.2);text-align:right;">{row["chg"]}</td>'
+            f'</tr>'
+        )
+    short1 = doc1[:28] + "…" if len(doc1) > 28 else doc1
+    short2 = doc2[:28] + "…" if len(doc2) > 28 else doc2
+    st.markdown(
+        f'<table style="width:100%;border-collapse:collapse;margin:.5rem 0;">'
+        f'<thead><tr>'
+        f'<th style="background:rgba(107,45,107,.22);padding:.35rem .7rem;font-family:Space Mono,monospace;'
+        f'font-size:.46rem;text-transform:uppercase;color:#4A3858;text-align:left;border:1px solid rgba(107,45,107,.2);">Metric</th>'
+        f'<th style="background:rgba(107,45,107,.22);padding:.35rem .7rem;font-family:Space Mono,monospace;'
+        f'font-size:.46rem;text-transform:uppercase;color:#4ade80;border:1px solid rgba(107,45,107,.2);text-align:right;">{short1}</th>'
+        f'<th style="background:rgba(107,45,107,.22);padding:.35rem .7rem;font-family:Space Mono,monospace;'
+        f'font-size:.46rem;text-transform:uppercase;color:#60a5fa;border:1px solid rgba(107,45,107,.2);text-align:right;">{short2}</th>'
+        f'<th style="background:rgba(107,45,107,.22);padding:.35rem .7rem;font-family:Space Mono,monospace;'
+        f'font-size:.46rem;text-transform:uppercase;color:#F0C040;border:1px solid rgba(107,45,107,.2);text-align:right;">Change</th>'
+        f'</tr></thead><tbody>{rows_html}</tbody></table>',
+        unsafe_allow_html=True,
+    )
+
+    # CSV download
+    if comparison:
+        csv_rows = [f"Metric,{doc1},{doc2},Change"]
+        for row in comparison:
+            csv_rows.append(f'{row["label"]},{row["v1"]},{row["v2"]},{row["chg"]}')
+        csv_str = "\n".join(csv_rows)
+        st.download_button(
+            "⬇ Download comparison CSV",
+            data=csv_str,
+            file_name="document_comparison.csv",
+            mime="text/csv",
+            key="dc_download",
+        )
+
+
+# ─── 5. EXPORT / CSV DOWNLOAD ────────────────────────────────────────────────
+
+def export_portfolio_csv(summary: dict) -> str:
+    """Generate CSV string for portfolio holdings."""
+    lines = ["Symbol,Name,Shares,Avg Cost,Current Price,Market Value,P&L,P&L %,Weight %,Today %"]
+    for h in summary["holdings"]:
+        lines.append(
+            f'{h["sym"]},{h["short_name"].replace(",","")},{h["shares"]:,.4g},'
+            f'{h["avg_cost"]:,.2f},{h["price"]:,.2f},{h["mkt_val"]:,.2f},'
+            f'{h["pnl"]:+,.2f},{h["pnl_pct"]:+.2f},{h["weight"]:.1f},{h["pct"]:+.2f}'
+        )
+    lines.append("")
+    lines.append(f'Total Value,,,,,{summary["total_value"]:,.2f},{summary["total_pnl"]:+,.2f},{summary["total_pnl_pct"]:+.2f},,')
+    return "\n".join(lines)
+
+def export_metrics_csv(metrics: list[dict]) -> str:
+    """Generate CSV string for extracted document metrics."""
+    lines = ["Metric,Value,Unit,Category,Raw Text"]
+    for m in metrics:
+        raw = m.get("raw", "").replace(",", ";").replace("\n", " ")[:80]
+        lines.append(
+            f'{m["label"]},{fmt_val(m["value"],m["unit"])},{m["unit"]},{m["category"]},{raw}'
+        )
+    return "\n".join(lines)
+
+def render_export_panel(summary: dict, metrics: list[dict], doc_full_text: str) -> None:
+    """Export section: portfolio CSV, metrics CSV, raw text."""
+    V = VELVET
+    st.markdown(
+        f'<div style="font-family:Space Mono,monospace;font-size:.52rem;letter-spacing:.18em;'
+        f'text-transform:uppercase;color:{V["ghost"]};margin:.5rem 0 .4rem;">◈ Export & Reports</div>',
+        unsafe_allow_html=True,
+    )
+
+    exp_cols = st.columns(3)
+
+    with exp_cols[0]:
+        if summary["holdings"]:
+            csv_pf = export_portfolio_csv(summary)
+            st.download_button(
+                "⬇ Portfolio CSV",
+                data=csv_pf,
+                file_name=f"portfolio_{_dt.datetime.utcnow().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                use_container_width=True,
+                key="exp_pf_csv",
+            )
+        else:
+            st.button("⬇ Portfolio CSV", disabled=True, use_container_width=True, key="exp_pf_csv_dis")
+
+    with exp_cols[1]:
+        if metrics:
+            csv_m = export_metrics_csv(metrics)
+            st.download_button(
+                "⬇ Metrics CSV",
+                data=csv_m,
+                file_name=f"metrics_{_dt.datetime.utcnow().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                use_container_width=True,
+                key="exp_met_csv",
+            )
+        else:
+            st.button("⬇ Metrics CSV", disabled=True, use_container_width=True, key="exp_met_csv_dis")
+
+    with exp_cols[2]:
+        if doc_full_text:
+            st.download_button(
+                "⬇ Raw Document Text",
+                data=doc_full_text,
+                file_name=f"extracted_text_{_dt.datetime.utcnow().strftime('%Y%m%d')}.txt",
+                mime="text/plain",
+                use_container_width=True,
+                key="exp_raw_txt",
+            )
+        else:
+            st.button("⬇ Raw Document Text", disabled=True, use_container_width=True, key="exp_raw_txt_dis")
+
+
+# ─── 6. THEME SYSTEM ────────────────────────────────────────────────────────
+
+_THEMES: dict[str, dict] = {
+    "Royal Velvet": {
+        "primary":    "#6B2D6B",
+        "accent":     "#C084C8",
+        "bg":         "#07060C",
+        "card":       "#0D0B12",
+        "text":       "#EDE8F5",
+        "border":     "rgba(139,58,139,.35)",
+    },
+    "Midnight Blue": {
+        "primary":    "#1E3A8A",
+        "accent":     "#3B82F6",
+        "bg":         "#0F172A",
+        "card":       "#1E293B",
+        "text":       "#F8FAFC",
+        "border":     "rgba(59,130,246,.3)",
+    },
+    "Forest": {
+        "primary":    "#166534",
+        "accent":     "#22C55E",
+        "bg":         "#052E16",
+        "card":       "#0A3D1F",
+        "text":       "#F0FDF4",
+        "border":     "rgba(34,197,94,.3)",
+    },
+    "Obsidian": {
+        "primary":    "#292524",
+        "accent":     "#F59E0B",
+        "bg":         "#0C0A09",
+        "card":       "#1C1917",
+        "text":       "#FAFAF9",
+        "border":     "rgba(245,158,11,.25)",
+    },
+}
+
+def apply_theme(theme_name: str) -> None:
+    """Inject CSS variables for the selected theme."""
+    t = _THEMES.get(theme_name, _THEMES["Royal Velvet"])
+    st.markdown(
+        f'<style>'
+        f':root{{'
+        f'  --bg:{t["bg"]};'
+        f'  --card:{t["card"]};'
+        f'  --accent:{t["accent"]};'
+        f'  --border:{t["border"]};'
+        f'  --text:{t["text"]};'
+        f'}}'
+        f'[data-testid="stAppViewContainer"]{{background:{t["bg"]}!important}}'
+        f'[data-testid="stSidebar"]{{background:{t["card"]}!important;'
+        f'  border-right:1px solid {t["border"]}!important}}'
+        f'</style>',
+        unsafe_allow_html=True,
+    )
+
+
+# ─── 7. KEYBOARD SHORTCUTS ──────────────────────────────────────────────────
+
+def inject_keyboard_shortcuts() -> None:
+    """Inject keyboard shortcuts. Called once in the main layout."""
+    import streamlit.components.v1 as _cv1
+    _cv1.html("""
+    <script>
+    (function(){
+      if (window._ragShortcutsLoaded) return;
+      window._ragShortcutsLoaded = true;
+      document.addEventListener('keydown', function(e) {
+        var ctrl = e.ctrlKey || e.metaKey;
+        // Ctrl/Cmd+K  — focus search bar
+        if (ctrl && e.key === 'k') {
+          e.preventDefault();
+          var inp = document.querySelector('input[placeholder*="Search"]');
+          if (inp) { inp.focus(); inp.select(); }
+        }
+        // Ctrl/Cmd+U  — toggle upload panel (click the upload button)
+        if (ctrl && e.key === 'u') {
+          e.preventDefault();
+          var btn = document.querySelector('[data-testid="baseButton-secondary"][kind="secondary"]');
+          if (btn) btn.click();
+        }
+        // Escape — blur focused search
+        if (e.key === 'Escape') {
+          var inp = document.querySelector('input[placeholder*="Search"]');
+          if (inp && document.activeElement === inp) { inp.blur(); }
+        }
+      });
+    })();
+    </script>
+    """, height=0)
+
+
 def render_portfolio_panel(groq_api_key: str) -> None:
     """Full portfolio UI — called inside the portfolio panel."""
 
@@ -3320,7 +4129,8 @@ def render_portfolio_panel(groq_api_key: str) -> None:
                           key="pf_analyse_sym", label_visibility="collapsed")
 
     if an_sym:
-        an_tabs = st.tabs(["📉 Technicals","🤖 AI Analysis","📊 Simulate Position"])
+        an_tabs = st.tabs(["📉 Technicals","🤖 AI Analysis","📊 Simulate Position",
+                            "⚠ Risk Analytics","🔔 Alerts"])
 
         # ── Tab 0: Technicals ─────────────────────────────────────────────
         with an_tabs[0]:
@@ -3631,11 +4441,15 @@ Be specific with numbers. Max 350 words. Use the investor's actual position data
                     unsafe_allow_html=True,
                 )
 
+        # ── Tab 3: Risk Analytics ─────────────────────────────────────────
+        with an_tabs[3]:
+            with st.spinner("Loading portfolio risk analytics…"):
+                summary_for_risk = portfolio_summary(portfolio)
+            render_portfolio_analytics(summary_for_risk, groq_api_key)
 
-# ─────────────────────────────────────────────────────────────────────────────
-# ══════════════════════════════════════════════════════════════════════════════
-#  v8 HELPERS: SOURCE EVIDENCE PANEL + ANALYST MODE
-# ══════════════════════════════════════════════════════════════════════════════
+        # ── Tab 4: Alerts ─────────────────────────────────────────────────
+        with an_tabs[4]:
+            render_alerts_panel(portfolio)
 
 # Section classifier: map chunk text → probable report section
 _SECTION_PATTERNS = [
@@ -4130,29 +4944,14 @@ def ai_market_analysis(symbols_data: list[dict], groq_api_key: str, context: str
         lines.append(" ".join(parts))
     prompt = (f"Timeframe context: {context}\n\nData:\n" + "\n".join(lines)
               + "\n\nProvide your analyst note for this timeframe:")
-    try:
-        from openai import OpenAI
-        oai = OpenAI(api_key=groq_api_key, base_url="https://api.groq.com/openai/v1")
-        resp = oai.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role":"system","content":_AI_MARKET_SYSTEM},
-                      {"role":"user","content":prompt}],
-            temperature=0.18, max_tokens=360,
-        )
-        return resp.choices[0].message.content.strip()
-    except Exception as e:
-        err = str(e)
-        # Parse rate-limit errors into a clean, actionable message
-        if "rate_limit_exceeded" in err or "429" in err or "Rate limit" in err:
-            # Try to extract retry time from the error message
-            retry_match = re.search(r"try again in (\d+m[\d.]*s|[\d.]+s)", err, re.IGNORECASE)
-            retry_str   = retry_match.group(1) if retry_match else "a few minutes"
-            return (
-                f"⏱ Groq rate limit reached — the free tier has a daily token cap.\n"
-                f"Analysis will be available again in ~{retry_str}.\n\n"
-                f"💡 To remove limits: upgrade at console.groq.com/settings/billing"
-            )
-        return f"⚠ Analysis unavailable: {err[:120]}"
+    return groq_call(
+        api_key     = groq_api_key,
+        messages    = [{"role":"user","content":prompt}],
+        system      = _AI_MARKET_SYSTEM,
+        temperature = 0.18,
+        max_tokens  = 360,
+        site_key    = "ai_market_analysis",
+    )
 
 def _compute_symbol_stats(df: pd.DataFrame, sym: str) -> dict:
     """Compute stats from a 1Y OHLCV DataFrame (legacy, kept for portfolio use)."""
@@ -4403,6 +5202,35 @@ with st.sidebar:
                                        0  if k in ["uploaded_docs","chunk_count"] else
                                        False if k=="auto_generated" else "")
             st.rerun()
+
+    # ── Theme selector ──────────────────────────────────────────────────────
+    st.markdown('<div class="sb-lbl">🎨 Theme</div>', unsafe_allow_html=True)
+    _theme_choice = st.selectbox(
+        "theme",
+        list(_THEMES.keys()),
+        index=list(_THEMES.keys()).index(st.session_state.get("app_theme","Royal Velvet")),
+        label_visibility="collapsed",
+        key="theme_selector",
+    )
+    if _theme_choice != st.session_state.get("app_theme"):
+        st.session_state["app_theme"] = _theme_choice
+        st.rerun()
+
+    # ── Keyboard shortcut hint ──────────────────────────────────────────────
+    st.markdown(
+        '<div style="font-family:Space Mono,monospace;font-size:.44rem;color:#4A3858;'
+        'margin-top:.8rem;line-height:1.8;">'
+        '⌨ Ctrl+K · focus search<br>'
+        '⌨ Ctrl+U · toggle upload<br>'
+        '⌨ Esc · blur search'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+# Apply active theme
+apply_theme(st.session_state.get("app_theme", "Royal Velvet"))
+# Inject keyboard shortcuts (runs once per page load)
+inject_keyboard_shortcuts()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TOP ACTION BAR  — [＋ Upload]  [Simulate Portfolio]  [Search]
