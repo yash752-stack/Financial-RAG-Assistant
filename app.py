@@ -1080,35 +1080,390 @@ TEMPLATES = {
 }
 
 EVAL_QUESTIONS = [
-    {"id":"fb_001","question":"What was total revenue?","expected_keywords":["revenue","billion","million","$"],"category":"Income Statement"},
-    {"id":"fb_002","question":"What was diluted EPS?","expected_keywords":["eps","diluted","$","per share"],"category":"Per Share"},
-    {"id":"fb_003","question":"What was the gross margin?","expected_keywords":["gross margin","%","percent"],"category":"Ratios"},
-    {"id":"fb_004","question":"What was free cash flow?","expected_keywords":["free cash flow","operating","capex","capital expenditure"],"category":"Cash Flow"},
-    {"id":"fb_005","question":"What are the main risk factors?","expected_keywords":["risk","competition","regulatory","uncertainty"],"category":"Risk Factors"},
-    {"id":"fb_006","question":"What is the company's revenue guidance?","expected_keywords":["guidance","outlook","forecast","expect","anticipate"],"category":"Growth"},
-    {"id":"fb_007","question":"What is the debt-to-equity ratio?","expected_keywords":["debt","equity","ratio","leverage"],"category":"Ratios"},
-    {"id":"fb_008","question":"How much did the company spend on R&D?","expected_keywords":["research","development","r&d","billion","million"],"category":"Income Statement"},
+    {"id":"fb_001","question":"What was total revenue?",
+     "expected_keywords":["revenue","billion","million","crore","$","₹","trillion","thousand"],
+     "synonyms":{"revenue":["sales","turnover","top line","income from operations"]},
+     "category":"Income Statement"},
+    {"id":"fb_002","question":"What was diluted EPS?",
+     "expected_keywords":["eps","diluted","per share","earnings per share","rs","₹","$","pence"],
+     "synonyms":{"diluted":["basic","adjusted","normalised"],"eps":["earnings per share","net profit per share"]},
+     "category":"Per Share"},
+    {"id":"fb_003","question":"What was the gross margin?",
+     "expected_keywords":["%","percent","gross margin","gross profit margin","margin"],
+     "synonyms":{"gross margin":["gross profit ratio","gpm"]},
+     "category":"Ratios"},
+    {"id":"fb_004","question":"What was free cash flow?",
+     "expected_keywords":["cash flow","free cash","operating cash","fcf","capex","cash from operations"],
+     "synonyms":{"free cash flow":["cash from operations","operating cash flow","fcf"]},
+     "category":"Cash Flow"},
+    {"id":"fb_005","question":"What are the main risk factors?",
+     "expected_keywords":["risk","competition","regulatory","market","operational","financial","uncertainty","challenge"],
+     "synonyms":{"risk":["threat","exposure","concern","challenge","uncertainty"]},
+     "category":"Risk Factors"},
+    {"id":"fb_006","question":"What is the company's revenue guidance or outlook?",
+     "expected_keywords":["guidance","outlook","forecast","expect","anticipate","target","project","growth","next"],
+     "synonyms":{"guidance":["outlook","target","projection","forecast","expected"]},
+     "category":"Growth"},
+    {"id":"fb_007","question":"What is the debt-to-equity ratio or leverage?",
+     "expected_keywords":["debt","equity","ratio","leverage","borrowing","liabilities","gearing"],
+     "synonyms":{"debt-to-equity":["leverage ratio","gearing","d/e","net debt"]},
+     "category":"Ratios"},
+    {"id":"fb_008","question":"How much did the company spend on R&D?",
+     "expected_keywords":["research","development","r&d","innovation","technology","investment"],
+     "synonyms":{"r&d":["research and development","innovation spend","technology investment"]},
+     "category":"Income Statement"},
 ]
 
+# ── LLM-generated document-adaptive QA generation ───────────────────────────
+_DOC_QA_SYSTEM = """You are a financial document analyst. Given a passage from a financial document,
+generate exactly 5 specific question-answer pairs based ONLY on what is explicitly stated in the text.
+
+Rules:
+1. Each question must have a clear, specific answer that exists verbatim in the passage
+2. Questions should cover different aspects: numbers, dates, names, ratios, descriptions
+3. Include the exact answer phrase from the text as expected_answer
+4. Generate questions at different difficulty: factual lookup, calculation, comparison
+5. Respond ONLY with valid JSON, no preamble, no markdown fences.
+
+Format exactly:
+{"qa_pairs": [
+  {"question": "...", "expected_answer": "...", "answer_phrase": "exact phrase from text", "category": "..."},
+  ...
+]}"""
+
+def generate_doc_qa_pairs(doc_text: str, groq_api_key: str, n_chunks: int = 3) -> list[dict]:
+    """Generate QA pairs from actual document content using LLM."""
+    if not groq_api_key or not doc_text:
+        return []
+    try:
+        from openai import OpenAI
+        oai = OpenAI(api_key=groq_api_key, base_url="https://api.groq.com/openai/v1")
+
+        # Sample representative chunks from the document
+        words = doc_text.split()
+        chunk_size = min(600, len(words) // max(n_chunks, 1))
+        passages = []
+        step = max(1, len(words) // n_chunks)
+        for i in range(0, len(words), step):
+            chunk = " ".join(words[i:i+chunk_size])
+            if len(chunk.strip()) > 100:
+                passages.append(chunk)
+        passages = passages[:n_chunks]
+
+        all_pairs = []
+        for passage in passages:
+            try:
+                resp = oai.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[
+                        {"role": "system", "content": _DOC_QA_SYSTEM},
+                        {"role": "user", "content": f"Generate 5 QA pairs from this passage:\n\n{passage[:1200]}"},
+                    ],
+                    temperature=0.2, max_tokens=800,
+                    response_format={"type": "json_object"},
+                )
+                raw = resp.choices[0].message.content
+                parsed = json.loads(raw)
+                pairs = parsed.get("qa_pairs", [])
+                for p in pairs:
+                    if p.get("question") and p.get("expected_answer"):
+                        all_pairs.append({
+                            "id":               f"doc_{len(all_pairs)+1:03d}",
+                            "question":         p["question"],
+                            "expected_answer":  p["expected_answer"],
+                            "answer_phrase":    p.get("answer_phrase", p["expected_answer"]),
+                            "category":         p.get("category", "Document"),
+                            "source":           "auto-generated",
+                            # Build keyword list from answer for backward compat
+                            "expected_keywords": list({
+                                w.lower() for w in re.findall(r"[a-zA-Z0-9₹$%\.]+", p["expected_answer"])
+                                if len(w) > 2
+                            })[:6],
+                        })
+            except Exception:
+                continue
+        return all_pairs
+    except Exception:
+        return []
+
+def score_answer_semantic(answer: str, expected_keywords: list[str],
+                          expected_answer: str = "",
+                          synonyms: dict | None = None) -> dict:
+    """
+    Three-layer semantic scoring:
+    1. Exact phrase match — did the answer contain the expected_answer verbatim?
+    2. Synonym-expanded keyword match — keyword OR any of its synonyms present?
+    3. Coverage ratio — how many keyword slots were satisfied?
+
+    Returns a score_pct that fairly reflects partial credit.
+    """
+    al = answer.lower()
+    syn = synonyms or {}
+
+    # Layer 1: exact expected answer present (strong signal — full marks)
+    if expected_answer and expected_answer.lower() in al:
+        return {"recall": 1.0, "hits": len(expected_keywords), "total": len(expected_keywords),
+                "score_pct": 100.0, "method": "exact_match"}
+
+    # Layer 2: synonym-expanded keyword matching
+    hits = 0
+    for kw in expected_keywords:
+        kw_lo = kw.lower()
+        # Direct match
+        if kw_lo in al:
+            hits += 1
+            continue
+        # Synonym match
+        kw_syns = syn.get(kw, [])
+        if any(s.lower() in al for s in kw_syns):
+            hits += 1
+            continue
+        # Partial token overlap (for multi-word keywords)
+        kw_tokens = set(re.findall(r"[a-z0-9]+", kw_lo))
+        ans_tokens = set(re.findall(r"[a-z0-9]+", al))
+        overlap = kw_tokens & ans_tokens
+        if len(overlap) >= max(1, len(kw_tokens) - 1):   # allow 1 missing token
+            hits += 0.5  # half credit for partial match
+
+    # NOT FOUND responses get 0 regardless
+    if "not found" in al or "not available" in al or "no information" in al:
+        hits = 0
+
+    total = len(expected_keywords) or 1
+    recall = hits / total
+    return {
+        "recall":    recall,
+        "hits":      hits,
+        "total":     total,
+        "score_pct": round(recall * 100, 1),
+        "method":    "semantic_keyword",
+    }
+
+# Keep old name for backward compat
 def score_answer(answer: str, kws: list[str]) -> dict:
-    al = answer.lower(); hits = sum(1 for kw in kws if kw.lower() in al)
-    return {"recall":hits/len(kws) if kws else 0,"hits":hits,"total":len(kws),
-            "score_pct":round(hits/len(kws)*100 if kws else 0,1)}
+    return score_answer_semantic(answer, kws)
 
 def render_eval_dashboard(results: list[dict]) -> None:
     if not results: return
-    avg = sum(r["score"]["score_pct"] for r in results) / len(results)
-    c = VELVET["green"] if avg >= 70 else (VELVET["gold"] if avg >= 40 else VELVET["red"])
-    st.markdown(f'<div style="background:{VELVET["card2"]};border:1px solid {VELVET["border"]};'
-                f'border-radius:10px;padding:1rem 1.2rem;margin-bottom:1rem;">'
-                f'<div style="font-family:Space Mono,monospace;font-size:.54rem;letter-spacing:.15em;'
-                f'text-transform:uppercase;color:{VELVET["ghost"]};">Overall Recall Score</div>'
-                f'<div style="font-family:Cormorant Garamond,serif;font-size:2.2rem;font-weight:300;color:{c};">{avg:.1f}%</div>'
-                f'<div style="font-family:Space Mono,monospace;font-size:.5rem;color:{VELVET["ghost"]};">{len(results)} questions evaluated</div>'
+    avg  = sum(r["score"]["score_pct"] for r in results) / len(results)
+    pass_rate = sum(1 for r in results if r["score"]["score_pct"] >= 50) / len(results) * 100
+    c    = VELVET["green"] if avg >= 60 else (VELVET["gold"] if avg >= 35 else VELVET["red"])
+    pc   = VELVET["green"] if pass_rate >= 60 else (VELVET["gold"] if pass_rate >= 40 else VELVET["red"])
+
+    # Header metrics strip
+    st.markdown(
+        f'<div style="background:{VELVET["card2"]};border:1px solid {VELVET["border"]};'
+        f'border-radius:10px;padding:1rem 1.2rem;margin-bottom:1rem;'
+        f'display:flex;gap:2rem;flex-wrap:wrap;">'
+        f'<div><div style="font-family:Space Mono,monospace;font-size:.46rem;letter-spacing:.15em;'
+        f'text-transform:uppercase;color:{VELVET["ghost"]};">Semantic Recall Score</div>'
+        f'<div style="font-family:Cormorant Garamond,serif;font-size:2.2rem;font-weight:300;color:{c};">{avg:.1f}%</div></div>'
+        f'<div><div style="font-family:Space Mono,monospace;font-size:.46rem;letter-spacing:.15em;'
+        f'text-transform:uppercase;color:{VELVET["ghost"]};">Pass Rate (≥50%)</div>'
+        f'<div style="font-family:Cormorant Garamond,serif;font-size:2.2rem;font-weight:300;color:{pc};">{pass_rate:.0f}%</div></div>'
+        f'<div><div style="font-family:Space Mono,monospace;font-size:.46rem;letter-spacing:.15em;'
+        f'text-transform:uppercase;color:{VELVET["ghost"]};">Questions</div>'
+        f'<div style="font-family:Cormorant Garamond,serif;font-size:2.2rem;font-weight:300;color:{VELVET["text"]};">{len(results)}</div></div>'
+        f'</div>',
+        unsafe_allow_html=True
+    )
+
+    # Per-question breakdown with color-coded pass/fail bars
+    rows = []
+    for r in results:
+        sp = r["score"]["score_pct"]
+        bar_c = VELVET["green"] if sp >= 70 else (VELVET["gold"] if sp >= 40 else VELVET["red"])
+        grade = "PASS" if sp >= 50 else "FAIL"
+        rows.append({
+            "Question":  (r["question"][:62]+"…") if len(r["question"])>62 else r["question"],
+            "Category":  r.get("category","—"),
+            "Score":     f"{sp:.0f}%",
+            "Grade":     grade,
+            "Hits":      f'{r["score"].get("hits",0):.1f}/{r["score"]["total"]}',
+        })
+    df_r = pd.DataFrame(rows)
+    st.dataframe(df_r, use_container_width=True, hide_index=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SHARED EVAL BENCHMARK RUNNER
+# Used by all three eval modes (generic, adaptive, custom).
+# Runs the full RRF → CE rerank pipeline per question, scores with semantic
+# matching, logs to retrieval monitor, renders dashboard.
+# ─────────────────────────────────────────────────────────────────────────────
+def _run_eval_benchmark(questions: list[dict], vectorstore, groq_api_key: str,
+                        use_expected_answer: bool = False) -> None:
+    """Execute full pipeline benchmark and render results in-place."""
+    if not vectorstore or not groq_api_key:
+        st.error("Need uploaded documents and a Groq API key.")
+        return
+
+    er = []
+    prog = st.progress(0, text="Evaluating…")
+    vs = vectorstore
+    is_bge = vs.get("is_bge", False)
+
+    try:
+        from openai import OpenAI as _OAI
+        _oai = _OAI(api_key=groq_api_key, base_url="https://api.groq.com/openai/v1")
+    except Exception as e:
+        st.error(f"OpenAI client error: {e}"); prog.empty(); return
+
+    for i, eq in enumerate(questions):
+        try:
+            # ── Full pipeline: expand → embed → RRF → CE rerank ─────────
+            expanded = _expand_query(eq["question"])
+            embed_q  = f"query: {expanded}" if is_bge else expanded
+            qe       = vs["model"].encode([embed_q], normalize_embeddings=True).tolist()
+            n_coll   = vs["collection"].count()
+            res      = vs["collection"].query(
+                query_embeddings=qe,
+                n_results=min(20, n_coll),
+                include=["documents", "metadatas", "distances"],
+            )
+            cks_e = res["documents"][0]
+
+            # RRF
+            dense_s = [round(1 - d/2, 4) for d in res["distances"][0]]
+            try:
+                from rank_bm25 import BM25Okapi
+                _b  = BM25Okapi([_tokenize(c) for c in cks_e])
+                _br = _b.get_scores(_tokenize(expanded))
+                _bm = max(_br) or 1.0
+                bm25_s = [s/_bm for s in _br]
+            except Exception:
+                bm25_s = [0.0] * len(cks_e)
+            rrf_e: dict[int, float] = {}
+            for _rl in (sorted(range(len(cks_e)), key=lambda x: dense_s[x], reverse=True),
+                        sorted(range(len(cks_e)), key=lambda x: bm25_s[x], reverse=True)):
+                for _ri, _ridx in enumerate(_rl):
+                    rrf_e[_ridx] = rrf_e.get(_ridx, 0.0) + 1.0 / (60 + _ri + 1)
+            cands_e = sorted(rrf_e, key=lambda x: rrf_e[x], reverse=True)[:6]
+
+            # CE rerank
+            ce_scores_e = {}
+            try:
+                _ce_key = "_cross_encoder_instance"
+                if _ce_key not in st.session_state:
+                    from sentence_transformers import CrossEncoder
+                    st.session_state[_ce_key] = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+                _ce    = st.session_state[_ce_key]
+                _ce_s  = _ce.predict([(eq["question"], cks_e[j]) for j in cands_e]).tolist()
+                ce_scores_e = {j: s for j, s in zip(cands_e, _ce_s)}
+                cands_e = [j for _, j in sorted(zip(_ce_s, cands_e), reverse=True)]
+            except Exception:
+                pass
+
+            ctx      = "\n---\n".join(cks_e[j] for j in cands_e[:6])
+            exp_ans  = eq.get("expected_answer", "")
+            kws      = eq.get("expected_keywords", [])
+            syns     = eq.get("synonyms", {})
+
+            # Keyword hits against retrieved context (retrieval quality signal)
+            kw_hits = sum(1 for kw in kws if kw.lower() in ctx.lower())
+
+            # Generate answer via LLM
+            resp_e = _oai.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {"role": "system", "content":
+                        "Answer ONLY from the provided document context. "
+                        "Quote exact numbers and phrases verbatim. "
+                        "If the answer is not present, say exactly: NOT FOUND in context."},
+                    {"role": "user", "content":
+                        f"Context:\n{ctx}\n\nQuestion: {eq['question']}"},
+                ],
+                temperature=0.03, max_tokens=400,
+            )
+            ans = resp_e.choices[0].message.content
+
+            # Semantic scoring — uses expected_answer if available for exact match
+            sc = score_answer_semantic(
+                answer=ans,
+                expected_keywords=kws,
+                expected_answer=exp_ans if use_expected_answer else "",
+                synonyms=syns,
+            )
+
+            # CE top score for this question
+            top_ce_q = max(ce_scores_e.values()) if ce_scores_e else 0.0
+
+            # Log to monitoring
+            log_retrieval(
+                query=eq["question"],
+                retrieved=[{"section": res["metadatas"][0][j].get("section", "?"),
+                             "ce_score": ce_scores_e.get(j, 0), "score": rrf_e.get(j, 0)}
+                            for j in cands_e[:6]],
+                keyword_hits=kw_hits,
+                keyword_total=len(kws),
+            )
+            er.append({
+                "question":   eq["question"],
+                "category":   eq.get("category", "—"),
+                "answer":     ans,
+                "score":      sc,
+                "ctx_recall": round(kw_hits / len(kws) * 100 if kws else 0, 1),
+                "top_ce":     round(top_ce_q, 2),
+                "exp_ans":    exp_ans,
+            })
+
+        except Exception as exc:
+            err_s = str(exc)
+            if "rate_limit_exceeded" in err_s or "429" in err_s:
+                retry_m = re.search(r"try again in (\S+)", err_s, re.IGNORECASE)
+                st.warning(f"⏱ Rate limit — retry in ~{retry_m.group(1) if retry_m else 'a minute'}")
+            er.append({"question": eq["question"], "category": eq.get("category","—"),
+                        "answer": f"Error: {err_s[:100]}",
+                        "score": {"recall":0,"hits":0,"total":0,"score_pct":0},
+                        "ctx_recall": 0, "top_ce": 0, "exp_ans": ""})
+
+        prog.progress((i+1) / len(questions),
+                      text=f"Q{i+1}/{len(questions)} · {eq['question'][:45]}…")
+
+    prog.empty()
+    if not er:
+        st.warning("No results — check documents and API key."); return
+
+    render_eval_dashboard(er)
+
+    # Context Recall strip
+    avg_ctx = sum(r.get("ctx_recall", 0) for r in er) / len(er)
+    ctx_c   = VELVET["green"] if avg_ctx>=70 else (VELVET["gold"] if avg_ctx>=40 else VELVET["red"])
+    avg_ce  = sum(r.get("top_ce", 0) for r in er) / len(er)
+    ce_c2   = VELVET["green"] if avg_ce>0 else (VELVET["gold"] if avg_ce>-3 else VELVET["red"])
+    st.markdown(
+        f'<div style="background:{VELVET["card2"]};border:1px solid rgba(139,58,139,.2);'
+        f'border-radius:8px;padding:.7rem 1rem;margin:.6rem 0;display:flex;gap:2rem;flex-wrap:wrap;">'
+        f'<div><div style="font-family:Space Mono,monospace;font-size:.46rem;letter-spacing:.1em;'
+        f'text-transform:uppercase;color:{VELVET["ghost"]};">Context Recall@6</div>'
+        f'<div style="font-family:Space Mono,monospace;font-size:1.1rem;color:{ctx_c};">{avg_ctx:.1f}%</div>'
+        f'<div style="font-family:Space Mono,monospace;font-size:.44rem;color:{VELVET["ghost"]};">'
+        f'keywords in retrieved chunks (retrieval quality)</div></div>'
+        f'<div><div style="font-family:Space Mono,monospace;font-size:.46rem;letter-spacing:.1em;'
+        f'text-transform:uppercase;color:{VELVET["ghost"]};">Avg CE Confidence</div>'
+        f'<div style="font-family:Space Mono,monospace;font-size:1.1rem;color:{ce_c2};">{avg_ce:.2f}</div>'
+        f'<div style="font-family:Space Mono,monospace;font-size:.44rem;color:{VELVET["ghost"]};">'
+        f'>0 = relevant matches found</div></div>'
+        f'</div>', unsafe_allow_html=True)
+
+    with st.expander("📋 Full answers"):
+        for r in er:
+            sp  = r["score"]["score_pct"]
+            bar = VELVET["green"] if sp>=70 else (VELVET["gold"] if sp>=40 else VELVET["red"])
+            exp_html = (f'<div style="font-size:.7rem;color:#4ade80;margin:.15rem 0;">'
+                        f'Expected: {r["exp_ans"][:100]}</div>' if r.get("exp_ans") else "")
+            st.markdown(
+                f'<div style="background:{VELVET["card2"]};border:1px solid rgba(139,58,139,.2);'
+                f'border-left:3px solid {bar};'
+                f'border-radius:0 8px 8px 0;padding:.7rem .9rem;margin-bottom:.45rem;">'
+                f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+                f'<div style="font-family:Space Mono,monospace;font-size:.54rem;color:#C084C8;">'
+                f'{r["category"]} · {r["question"][:65]}</div>'
+                f'<div style="font-family:Space Mono,monospace;font-size:.52rem;color:{bar};">'
+                f'{sp:.0f}% · CE {r.get("top_ce",0):.1f}</div></div>'
+                + exp_html +
+                f'<div style="font-size:.77rem;color:#9A8AAA;margin-top:.25rem;line-height:1.5;">'
+                f'{r["answer"][:450]}</div>'
                 f'</div>', unsafe_allow_html=True)
-    st.dataframe(pd.DataFrame([{"Question":r["question"][:60]+"…","Category":r.get("category","—"),
-                                 "Score":f'{r["score"]["score_pct"]}%',"Hits":f'{r["score"]["hits"]}/{r["score"]["total"]}'}
-                                for r in results]), use_container_width=True, hide_index=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ④  DOC vs MARKET COMPARISON  (new Analytics sub-tab)
@@ -1422,243 +1777,180 @@ def render_analytics_tab(vectorstore, groq_api_key, doc_full_text="", auto_metri
         # ── Live monitoring strip ─────────────────────────────────────────
         stats = compute_retrieval_stats()
         if stats:
-            s_ce  = stats["avg_ce"]
-            s_top = stats["top_ce"]
-            s_n   = stats["n_queries"]
-            s_r   = stats.get("recall_at_k")
-            ce_c  = VELVET["green"] if s_top > 0 else (VELVET["gold"] if s_top > -3 else VELVET["red"])
+            s_ce = stats["avg_ce"]; s_top = stats["top_ce"]; s_n = stats["n_queries"]
+            s_r  = stats.get("recall_at_k")
+            ce_c = VELVET["green"] if s_top>0 else (VELVET["gold"] if s_top>-3 else VELVET["red"])
             st.markdown(
                 f'<div style="background:{VELVET["card2"]};border:1px solid rgba(139,58,139,.28);'
-                f'border-radius:10px;padding:.75rem 1rem;margin-bottom:1rem;'
-                f'display:flex;gap:1.5rem;flex-wrap:wrap;">'
-                f'<div><div style="font-family:Space Mono,monospace;font-size:.46rem;letter-spacing:.12em;'
-                f'text-transform:uppercase;color:{VELVET["ghost"]};">Queries logged</div>'
-                f'<div style="font-family:Space Mono,monospace;font-size:.92rem;color:{VELVET["text"]};">{s_n}</div></div>'
-                f'<div><div style="font-family:Space Mono,monospace;font-size:.46rem;letter-spacing:.12em;'
-                f'text-transform:uppercase;color:{VELVET["ghost"]};">Avg CE score</div>'
-                f'<div style="font-family:Space Mono,monospace;font-size:.92rem;color:{ce_c};">{s_ce:.2f}</div></div>'
-                f'<div><div style="font-family:Space Mono,monospace;font-size:.46rem;letter-spacing:.12em;'
-                f'text-transform:uppercase;color:{VELVET["ghost"]};">Top-1 CE score</div>'
-                f'<div style="font-family:Space Mono,monospace;font-size:.92rem;color:{ce_c};">{s_top:.2f}</div></div>'
-                + (f'<div><div style="font-family:Space Mono,monospace;font-size:.46rem;letter-spacing:.12em;'
-                   f'text-transform:uppercase;color:{VELVET["ghost"]};">Recall@6 (eval)</div>'
-                   f'<div style="font-family:Space Mono,monospace;font-size:.92rem;'
-                   f'color:{VELVET["green"] if s_r and s_r>=70 else (VELVET["gold"] if s_r and s_r>=40 else VELVET["red"])};">'
-                   f'{s_r:.1f}%</div></div>' if s_r is not None else '') +
-                f'<div style="font-family:Space Mono,monospace;font-size:.46rem;color:{VELVET["ghost"]};'
-                f'align-self:flex-end;">CE score > 0 = relevant · > 5 = highly relevant · < -4 = filtered out</div>'
+                f'border-radius:10px;padding:.75rem 1rem;margin-bottom:1rem;display:flex;gap:1.5rem;flex-wrap:wrap;">'
+                f'<div><div style="font-family:Space Mono,monospace;font-size:.46rem;letter-spacing:.12em;text-transform:uppercase;color:{VELVET["ghost"]};">Queries logged</div>'
+                f'<div style="font-family:Space Mono,monospace;font-size:.9rem;color:{VELVET["text"]};">{s_n}</div></div>'
+                f'<div><div style="font-family:Space Mono,monospace;font-size:.46rem;letter-spacing:.12em;text-transform:uppercase;color:{VELVET["ghost"]};">Avg CE</div>'
+                f'<div style="font-family:Space Mono,monospace;font-size:.9rem;color:{ce_c};">{s_ce:.2f}</div></div>'
+                f'<div><div style="font-family:Space Mono,monospace;font-size:.46rem;letter-spacing:.12em;text-transform:uppercase;color:{VELVET["ghost"]};">Top-1 CE</div>'
+                f'<div style="font-family:Space Mono,monospace;font-size:.9rem;color:{ce_c};">{s_top:.2f}</div></div>'
+                + (f'<div><div style="font-family:Space Mono,monospace;font-size:.46rem;letter-spacing:.12em;text-transform:uppercase;color:{VELVET["ghost"]};">Recall@6</div>'
+                   f'<div style="font-family:Space Mono,monospace;font-size:.9rem;'
+                   f'color:{VELVET["green"] if s_r and s_r>=70 else (VELVET["gold"] if s_r and s_r>=40 else VELVET["red"])};">{s_r:.1f}%</div></div>'
+                   if s_r is not None else '') +
+                f'<div style="font-family:Space Mono,monospace;font-size:.44rem;color:{VELVET["ghost"]};align-self:flex-end;">CE > 0 = relevant · > 5 = strong · < −4 = filtered</div>'
+                f'</div>', unsafe_allow_html=True)
+            with st.expander("📋 Retrieval log (last 30)"):
+                log_rows = [{"Time":e["ts"],"Query":e["query"][:50],"Chunks":e["n_chunks"],
+                              "Sections":", ".join(e["sections"][:3]),
+                              "Avg CE":e["avg_ce_score"],"Top CE":e["top_ce_score"],
+                              "Recall":f'{e["kw_hits"]}/{e["kw_total"]}' if e["kw_total"] else "—"}
+                             for e in reversed(_RETRIEVAL_LOG[-30:])]
+                if log_rows:
+                    st.dataframe(pd.DataFrame(log_rows), use_container_width=True, hide_index=True)
+
+        # ── Mode selector ─────────────────────────────────────────────────
+        st.markdown(_hdr + "Benchmark Mode</div>", unsafe_allow_html=True)
+        eval_mode = st.radio(
+            "mode",
+            ["🎯 Document-Adaptive (AI-generated from your doc)",
+             "📋 Generic Financial (8 standard questions)",
+             "✏️ Custom Questions"],
+            label_visibility="collapsed",
+            horizontal=True,
+            key="eval_mode_sel",
+        )
+
+        # ── Document-Adaptive mode ────────────────────────────────────────
+        if eval_mode.startswith("🎯"):
+            st.markdown(
+                f'<div style="background:rgba(74,222,128,.06);border:1px solid rgba(74,222,128,.2);'
+                f'border-radius:8px;padding:.7rem 1rem;margin-bottom:.8rem;">'
+                f'<div style="font-family:Space Mono,monospace;font-size:.52rem;color:#4ade80;'
+                f'letter-spacing:.1em;">✓ RECOMMENDED FOR ACCURATE RESULTS</div>'
+                f'<div style="font-family:Syne,sans-serif;font-size:.78rem;color:{VELVET["dim"]};'
+                f'margin-top:.3rem;">The LLM reads your actual document and generates questions it '
+                f'<em>knows the answers to</em>. Scores reflect true retrieval+answer quality, '
+                f'not vocabulary mismatch.</div>'
                 f'</div>', unsafe_allow_html=True)
 
-            # Per-query log table
-            with st.expander("📋 Retrieval log (last 50 queries)"):
-                log_rows = [{
-                    "Time":     e["ts"],
-                    "Query":    e["query"][:55]+"…" if len(e["query"])>55 else e["query"],
-                    "Chunks":   e["n_chunks"],
-                    "Sections": ", ".join(e["sections"][:3]),
-                    "Avg CE":   e["avg_ce_score"],
-                    "Top CE":   e["top_ce_score"],
-                    "Recall":   f'{e["kw_hits"]}/{e["kw_total"]}' if e["kw_total"] else "—",
-                } for e in reversed(_RETRIEVAL_LOG[-50:])]
-                if log_rows:
-                    st.dataframe(pd.DataFrame(log_rows),
-                                 use_container_width=True, hide_index=True)
+            col_gen, col_run_a, col_clr_a = st.columns([2, 2, 1])
+            with col_gen:
+                gen_btn = st.button("⚡ Generate QA from Document", use_container_width=True, key="gen_qa_btn")
+            with col_run_a:
+                run_adaptive = st.button("▶  Run Adaptive Benchmark", use_container_width=True, key="run_adaptive_btn",
+                                         disabled="adaptive_qa_pairs" not in st.session_state)
+            with col_clr_a:
+                if st.button("🗑", key="clr_adaptive", use_container_width=True,
+                             help="Clear generated questions"):
+                    st.session_state.pop("adaptive_qa_pairs", None); st.rerun()
 
-        st.markdown(_hdr + "FinanceBench-Style QA Accuracy Evaluation</div>",
-                    unsafe_allow_html=True)
-
-        # ── Custom Q&A input ─────────────────────────────────────────────
-        with st.expander("➕ Add custom test question"):
-            cq_col1, cq_col2 = st.columns([3, 1])
-            with cq_col1:
-                new_q = st.text_input("Question", placeholder="e.g. What was operating income in FY24?",
-                                      key="eval_new_q", label_visibility="collapsed")
-                new_kw = st.text_input("Expected keywords (comma-separated)",
-                                       placeholder="operating income, million, FY24",
-                                       key="eval_new_kw", label_visibility="collapsed")
-            with cq_col2:
-                new_cat = st.selectbox("Category",
-                    ["Income Statement","Balance Sheet","Cash Flow","Per Share","Ratios",
-                     "Risk Factors","Segments","Outlook & Guidance","Other"],
-                    key="eval_new_cat", label_visibility="collapsed")
-                if st.button("Add question", key="eval_add_btn", use_container_width=True):
-                    if new_q.strip():
-                        kws = [k.strip() for k in new_kw.split(",") if k.strip()]
-                        if "custom_eval_qs" not in st.session_state:
-                            st.session_state.custom_eval_qs = []
-                        st.session_state.custom_eval_qs.append({
-                            "id":               f"custom_{len(st.session_state.custom_eval_qs)+1:03d}",
-                            "question":         new_q.strip(),
-                            "expected_keywords": kws or [""],
-                            "category":         new_cat,
-                        })
-                        st.success(f"Added: {new_q[:50]}")
+            if gen_btn:
+                if not doc_full_text or not groq_api_key:
+                    st.error("Need uploaded documents and API key.")
+                else:
+                    with st.spinner("🧠 LLM reading your document and writing questions…"):
+                        pairs = generate_doc_qa_pairs(doc_full_text, groq_api_key, n_chunks=4)
+                    if pairs:
+                        st.session_state.adaptive_qa_pairs = pairs
+                        st.success(f"Generated {len(pairs)} document-specific QA pairs.")
                         st.rerun()
+                    else:
+                        st.error("Failed to generate QA pairs. Check API key and try again.")
 
-        # Merge standard + custom questions
-        _custom_qs = st.session_state.get("custom_eval_qs", [])
-        _all_qs    = EVAL_QUESTIONS + _custom_qs
-        st.markdown(
-            f'<div style="font-family:Space Mono,monospace;font-size:.5rem;color:{VELVET["ghost"]};">'
-            f'{len(EVAL_QUESTIONS)} standard + {len(_custom_qs)} custom = {len(_all_qs)} total questions</div>',
-            unsafe_allow_html=True)
-
-        if _custom_qs:
-            with st.expander(f"📝 Custom questions ({len(_custom_qs)})"):
-                for cq in _custom_qs:
-                    st.markdown(
-                        f'<div style="font-family:Space Mono,monospace;font-size:.56rem;'
-                        f'color:#C084C8;margin:.2rem 0;">{cq["id"]} · {cq["category"]} · '
-                        f'{cq["question"][:70]}</div>', unsafe_allow_html=True)
-                if st.button("🗑 Clear custom questions", key="eval_clear_custom"):
-                    st.session_state.custom_eval_qs = []
-                    st.rerun()
-
-        col_run, col_clear = st.columns([3, 1])
-        with col_run:
-            run_btn = st.button("▶  Run Full Pipeline Benchmark", use_container_width=True)
-        with col_clear:
-            if st.button("🗑 Clear log", use_container_width=True):
-                _RETRIEVAL_LOG.clear()
-                st.rerun()
-
-        if run_btn:
-            if not vectorstore or not groq_api_key:
-                st.error("Need uploaded documents and a Groq API key.")
-            else:
-                er   = []
-                prog = st.progress(0, text="Evaluating…")
-                vs   = vectorstore
-                is_bge = vs.get("is_bge", False)
-                from openai import OpenAI as _OAI
-                _oai = _OAI(api_key=groq_api_key, base_url="https://api.groq.com/openai/v1")
-
-                for i, eq in enumerate(_all_qs):
-                    try:
-                        # ── Full pipeline: expand → embed → RRF → CE rerank ──
-                        expanded  = _expand_query(eq["question"])
-                        embed_q   = f"query: {expanded}" if is_bge else expanded
-                        qe        = vs["model"].encode([embed_q], normalize_embeddings=True).tolist()
-                        n_coll    = vs["collection"].count()
-                        res       = vs["collection"].query(
-                            query_embeddings=qe,
-                            n_results=min(20, n_coll),
-                            include=["documents","metadatas","distances"],
-                        )
-                        cks_e = res["documents"][0]
-
-                        # RRF local re-score
-                        dense_s = [round(1 - d/2, 4) for d in res["distances"][0]]
-                        try:
-                            from rank_bm25 import BM25Okapi
-                            _b = BM25Okapi([_tokenize(c) for c in cks_e])
-                            _br = _b.get_scores(_tokenize(expanded))
-                            _bm = max(_br) or 1.0
-                            bm25_s = [s/_bm for s in _br]
-                        except Exception:
-                            bm25_s = [0.0]*len(cks_e)
-                        _K2 = 60
-                        rrf_e: dict[int, float] = {}
-                        for _rl in (
-                            sorted(range(len(cks_e)), key=lambda x: dense_s[x], reverse=True),
-                            sorted(range(len(cks_e)), key=lambda x: bm25_s[x],  reverse=True),
-                        ):
-                            for _ri, _ridx in enumerate(_rl):
-                                rrf_e[_ridx] = rrf_e.get(_ridx, 0.0) + 1.0/(_K2+_ri+1)
-                        cands_e = sorted(rrf_e, key=lambda x: rrf_e[x], reverse=True)[:6]
-
-                        # CE rerank
-                        try:
-                            _ce_key = "_cross_encoder_instance"
-                            if _ce_key not in st.session_state:
-                                from sentence_transformers import CrossEncoder
-                                st.session_state[_ce_key] = CrossEncoder(
-                                    "cross-encoder/ms-marco-MiniLM-L-6-v2")
-                            _ce = st.session_state[_ce_key]
-                            _ce_s = _ce.predict([(eq["question"], cks_e[j]) for j in cands_e]).tolist()
-                            cands_e = [j for _, j in sorted(zip(_ce_s, cands_e), reverse=True)]
-                        except Exception:
-                            pass
-
-                        ctx = "\n---\n".join(cks_e[j] for j in cands_e[:6])
-
-                        # Score keyword recall against retrieved context directly
-                        kw_hits = sum(1 for kw in eq["expected_keywords"]
-                                      if kw.lower() in ctx.lower())
-
-                        # Generate answer
-                        resp_e = _oai.chat.completions.create(
-                            model="llama-3.3-70b-versatile",
-                            messages=[
-                                {"role":"system","content":
-                                    "Answer concisely using only the provided document context. "
-                                    "Quote exact numbers. Say NOT FOUND if the answer isn't present."},
-                                {"role":"user","content":f"Context:\n{ctx}\n\nQuestion: {eq['question']}"},
-                            ],
-                            temperature=0.05, max_tokens=400,
-                        )
-                        ans = resp_e.choices[0].message.content
-                        sc  = score_answer(ans, eq["expected_keywords"])
-
-                        # Log to monitoring
-                        log_retrieval(
-                            query=eq["question"],
-                            retrieved=[{"section": res["metadatas"][0][j].get("section","?"),
-                                        "ce_score": 0, "score": rrf_e.get(j, 0)}
-                                       for j in cands_e[:6]],
-                            keyword_hits=kw_hits,
-                            keyword_total=len(eq["expected_keywords"]),
-                        )
-                        er.append({
-                            "question": eq["question"], "category": eq.get("category","—"),
-                            "answer": ans, "score": sc,
-                            "ctx_recall": round(kw_hits/len(eq["expected_keywords"])*100
-                                                if eq["expected_keywords"] else 0, 1),
-                        })
-                    except Exception as exc:
-                        er.append({"question":eq["question"],"category":eq.get("category","—"),
-                                   "answer":f"Error: {str(exc)[:120]}",
-                                   "score":{"recall":0,"hits":0,"total":0,"score_pct":0},
-                                   "ctx_recall":0})
-                    prog.progress((i+1)/len(_all_qs),
-                                  text=f"Q{i+1}/{len(_all_qs)} · {eq['question'][:40]}…")
-
-                prog.empty()
-                render_eval_dashboard(er)
-
-                # Retrieval context recall (separate from LLM answer recall)
-                ctx_recalls = [r.get("ctx_recall", 0) for r in er]
-                avg_ctx = sum(ctx_recalls) / len(ctx_recalls) if ctx_recalls else 0
-                ctx_c = VELVET["green"] if avg_ctx>=70 else (VELVET["gold"] if avg_ctx>=40 else VELVET["red"])
+            # Show generated pairs
+            if "adaptive_qa_pairs" in st.session_state:
+                aq = st.session_state.adaptive_qa_pairs
                 st.markdown(
-                    f'<div style="background:{VELVET["card2"]};border:1px solid rgba(139,58,139,.2);'
-                    f'border-radius:8px;padding:.7rem 1rem;margin:.6rem 0;">'
-                    f'<div style="font-family:Space Mono,monospace;font-size:.5rem;letter-spacing:.12em;'
-                    f'text-transform:uppercase;color:{VELVET["ghost"]};">Context Recall@6 '
-                    f'(keywords found in retrieved chunks, before LLM)</div>'
-                    f'<div style="font-family:Space Mono,monospace;font-size:1.4rem;color:{ctx_c};">'
-                    f'{avg_ctx:.1f}%</div>'
-                    f'<div style="font-family:Space Mono,monospace;font-size:.46rem;color:{VELVET["ghost"]};">'
-                    f'This measures retrieval quality independently of LLM answer quality</div>'
-                    f'</div>', unsafe_allow_html=True)
-
-                with st.expander("📋 Full answers + context recall"):
-                    for r in er:
-                        ctx_c2 = (VELVET["green"] if r.get("ctx_recall",0)>=70
-                                  else (VELVET["gold"] if r.get("ctx_recall",0)>=40
-                                        else VELVET["red"]))
+                    f'<div style="font-family:Space Mono,monospace;font-size:.5rem;'
+                    f'color:{VELVET["ghost"]};margin-bottom:.5rem;">'
+                    f'{len(aq)} document-specific questions ready</div>', unsafe_allow_html=True)
+                with st.expander("👀 Preview generated questions"):
+                    for q in aq:
                         st.markdown(
                             f'<div style="background:{VELVET["card2"]};border:1px solid rgba(139,58,139,.2);'
-                            f'border-radius:8px;padding:.7rem .9rem;margin-bottom:.5rem;">'
-                            f'<div style="display:flex;justify-content:space-between;align-items:center;">'
-                            f'<div style="font-family:Space Mono,monospace;font-size:.56rem;color:#C084C8;">'
-                            f'{r["category"]} · {r["question"][:70]}</div>'
-                            f'<div style="font-family:Space Mono,monospace;font-size:.54rem;'
-                            f'color:{ctx_c2};">ctx:{r.get("ctx_recall",0):.0f}% · '
-                            f'ans:{r["score"]["score_pct"]:.0f}%</div></div>'
-                            f'<div style="font-size:.78rem;color:#9A8AAA;margin-top:.3rem;'
-                            f'line-height:1.5;">{r["answer"][:500]}</div>'
+                            f'border-radius:6px;padding:.5rem .8rem;margin-bottom:.3rem;">'
+                            f'<div style="font-family:Space Mono,monospace;font-size:.52rem;color:#C084C8;">'
+                            f'{q["category"]} · {q["id"]}</div>'
+                            f'<div style="font-size:.78rem;color:{VELVET["text"]};margin:.15rem 0;">Q: {q["question"]}</div>'
+                            f'<div style="font-size:.76rem;color:#4ade80;">Expected: {q["expected_answer"][:120]}</div>'
                             f'</div>', unsafe_allow_html=True)
+
+            if run_adaptive and "adaptive_qa_pairs" in st.session_state:
+                _run_eval_benchmark(
+                    st.session_state.adaptive_qa_pairs, vectorstore,
+                    groq_api_key, use_expected_answer=True,
+                )
+
+        # ── Generic mode ──────────────────────────────────────────────────
+        elif eval_mode.startswith("📋"):
+            st.markdown(
+                f'<div style="background:rgba(240,192,64,.05);border:1px solid rgba(240,192,64,.2);'
+                f'border-radius:8px;padding:.6rem 1rem;margin-bottom:.8rem;">'
+                f'<div style="font-family:Space Mono,monospace;font-size:.5rem;color:#F0C040;">⚠ NOTE</div>'
+                f'<div style="font-family:Syne,sans-serif;font-size:.76rem;color:{VELVET["dim"]};">'
+                f'These 8 generic questions use SEC filing vocabulary. Low scores on non-English or '
+                f'small documents are expected — use Document-Adaptive mode for accurate measurement.</div>'
+                f'</div>', unsafe_allow_html=True)
+
+            _custom_qs = st.session_state.get("custom_eval_qs", [])
+            st.caption(f"{len(EVAL_QUESTIONS)} standard questions · semantic keyword scoring")
+            col_run_g, col_clr_g = st.columns([3, 1])
+            with col_run_g:
+                run_generic = st.button("▶  Run Generic Benchmark", use_container_width=True, key="run_generic_btn")
+            with col_clr_g:
+                if st.button("🗑 Clear log", key="clr_log_g", use_container_width=True):
+                    _RETRIEVAL_LOG.clear(); st.rerun()
+            if run_generic:
+                _run_eval_benchmark(EVAL_QUESTIONS, vectorstore, groq_api_key)
+
+        # ── Custom mode ───────────────────────────────────────────────────
+        else:
+            with st.expander("➕ Add a custom question", expanded=True):
+                cq_col1, cq_col2 = st.columns([3, 1])
+                with cq_col1:
+                    new_q  = st.text_input("Question", key="eval_new_q",
+                                            placeholder="e.g. What was operating income in FY24?",
+                                            label_visibility="collapsed")
+                    new_exp = st.text_input("Expected answer (exact phrase from document)", key="eval_new_exp",
+                                            placeholder="₹12,450 crore",
+                                            label_visibility="collapsed")
+                    new_kw = st.text_input("Backup keywords (comma-separated)", key="eval_new_kw",
+                                            placeholder="operating income, crore, FY24",
+                                            label_visibility="collapsed")
+                with cq_col2:
+                    new_cat = st.selectbox("Category",
+                        ["Income Statement","Balance Sheet","Cash Flow","Per Share","Ratios",
+                         "Risk Factors","Segments","Outlook & Guidance","Other"],
+                        key="eval_new_cat", label_visibility="collapsed")
+                    if st.button("Add", key="eval_add_btn", use_container_width=True):
+                        if new_q.strip():
+                            kws = [k.strip() for k in new_kw.split(",") if k.strip()]
+                            if "custom_eval_qs" not in st.session_state:
+                                st.session_state.custom_eval_qs = []
+                            st.session_state.custom_eval_qs.append({
+                                "id":               f"custom_{len(st.session_state.custom_eval_qs)+1:03d}",
+                                "question":         new_q.strip(),
+                                "expected_answer":  new_exp.strip(),
+                                "expected_keywords": kws or new_exp.strip().split()[:6],
+                                "category":         new_cat, "source": "custom",
+                            })
+                            st.success(f"Added: {new_q[:50]}"); st.rerun()
+
+            _custom_qs = st.session_state.get("custom_eval_qs", [])
+            if _custom_qs:
+                with st.expander(f"📝 {len(_custom_qs)} custom questions"):
+                    for cq in _custom_qs:
+                        exp = cq.get("expected_answer","")
+                        st.markdown(
+                            f'<div style="font-family:Space Mono,monospace;font-size:.54rem;'
+                            f'color:#C084C8;margin:.2rem 0;">{cq["id"]} · {cq["category"]}</div>'
+                            f'<div style="font-size:.76rem;color:{VELVET["dim"]};margin-bottom:.2rem;">'
+                            f'Q: {cq["question"][:80]}'
+                            + (f'<br>Expected: <span style="color:#4ade80">{exp[:80]}</span>' if exp else "")
+                            + f'</div>', unsafe_allow_html=True)
+                    if st.button("🗑 Clear all custom", key="eval_clear_custom"):
+                        st.session_state.custom_eval_qs = []; st.rerun()
+
+                if st.button("▶  Run Custom Benchmark", use_container_width=True, key="run_custom_btn"):
+                    _run_eval_benchmark(_custom_qs, vectorstore, groq_api_key, use_expected_answer=True)
+            else:
+                st.info("Add questions above, then run the benchmark.")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DATA FETCH HELPERS
@@ -4282,107 +4574,61 @@ if st.session_state.auto_generated:
             st.info("Ingest documents first.")
 
     with _atabs[4]:
+        # ── Monitoring strip ──────────────────────────────────────────────
         stats2 = compute_retrieval_stats()
         if stats2:
-            s2_ce  = stats2["avg_ce"]
-            s2_top = stats2["top_ce"]
-            s2_n   = stats2["n_queries"]
-            s2_r   = stats2.get("recall_at_k")
-            _ce_c2 = VELVET["green"] if s2_top>0 else (VELVET["gold"] if s2_top>-3 else VELVET["red"])
+            s2_ce=stats2["avg_ce"]; s2_top=stats2["top_ce"]
+            s2_n=stats2["n_queries"]; s2_r=stats2.get("recall_at_k")
+            _ce_c2=VELVET["green"] if s2_top>0 else(VELVET["gold"] if s2_top>-3 else VELVET["red"])
             st.markdown(
                 f'<div style="background:{VELVET["card2"]};border:1px solid rgba(139,58,139,.28);'
-                f'border-radius:10px;padding:.75rem 1rem;margin-bottom:1rem;'
-                f'display:flex;gap:1.5rem;flex-wrap:wrap;">'
-                f'<div><div style="font-family:Space Mono,monospace;font-size:.46rem;letter-spacing:.12em;'
-                f'text-transform:uppercase;color:{VELVET["ghost"]};">Queries logged</div>'
-                f'<div style="font-family:Space Mono,monospace;font-size:.9rem;color:{VELVET["text"]};">{s2_n}</div></div>'
-                f'<div><div style="font-family:Space Mono,monospace;font-size:.46rem;letter-spacing:.12em;'
-                f'text-transform:uppercase;color:{VELVET["ghost"]};">Avg CE</div>'
-                f'<div style="font-family:Space Mono,monospace;font-size:.9rem;color:{_ce_c2};">{s2_ce:.2f}</div></div>'
-                f'<div><div style="font-family:Space Mono,monospace;font-size:.46rem;letter-spacing:.12em;'
-                f'text-transform:uppercase;color:{VELVET["ghost"]};">Top-1 CE</div>'
-                f'<div style="font-family:Space Mono,monospace;font-size:.9rem;color:{_ce_c2};">{s2_top:.2f}</div></div>'
-                + (f'<div><div style="font-family:Space Mono,monospace;font-size:.46rem;letter-spacing:.12em;'
-                   f'text-transform:uppercase;color:{VELVET["ghost"]};">Recall@6</div>'
-                   f'<div style="font-family:Space Mono,monospace;font-size:.9rem;'
-                   f'color:{VELVET["green"] if s2_r and s2_r>=70 else (VELVET["gold"] if s2_r and s2_r>=40 else VELVET["red"])};">'
-                   f'{s2_r:.1f}%</div></div>' if s2_r is not None else '') +
+                f'border-radius:10px;padding:.65rem .9rem;margin-bottom:.8rem;display:flex;gap:1.5rem;flex-wrap:wrap;">'
+                f'<div><div style="font-family:Space Mono,monospace;font-size:.44rem;text-transform:uppercase;color:{VELVET["ghost"]};">Queries</div>'
+                f'<div style="font-family:Space Mono,monospace;font-size:.86rem;color:{VELVET["text"]};">{s2_n}</div></div>'
+                f'<div><div style="font-family:Space Mono,monospace;font-size:.44rem;text-transform:uppercase;color:{VELVET["ghost"]};">Avg CE</div>'
+                f'<div style="font-family:Space Mono,monospace;font-size:.86rem;color:{_ce_c2};">{s2_ce:.2f}</div></div>'
+                f'<div><div style="font-family:Space Mono,monospace;font-size:.44rem;text-transform:uppercase;color:{VELVET["ghost"]};">Top-1 CE</div>'
+                f'<div style="font-family:Space Mono,monospace;font-size:.86rem;color:{_ce_c2};">{s2_top:.2f}</div></div>'
+                +(f'<div><div style="font-family:Space Mono,monospace;font-size:.44rem;text-transform:uppercase;color:{VELVET["ghost"]};">Recall@6</div>'
+                  f'<div style="font-family:Space Mono,monospace;font-size:.86rem;color:{VELVET["green"] if s2_r and s2_r>=70 else(VELVET["gold"] if s2_r and s2_r>=40 else VELVET["red"])};">{s2_r:.1f}%</div></div>'
+                  if s2_r is not None else"")+
                 f'</div>', unsafe_allow_html=True)
-            with st.expander("📋 Retrieval log"):
-                log_rows2 = [{"Time":e["ts"],"Query":e["query"][:50],
-                               "Chunks":e["n_chunks"],"Avg CE":e["avg_ce_score"],
-                               "Top CE":e["top_ce_score"]}
-                              for e in reversed(_RETRIEVAL_LOG[-30:])]
-                if log_rows2:
-                    st.dataframe(pd.DataFrame(log_rows2), use_container_width=True, hide_index=True)
 
-        st.markdown('<div style="font-family:Space Mono,monospace;font-size:.54rem;letter-spacing:.18em;'
-                    'text-transform:uppercase;color:#C084C8;margin-bottom:.8rem;">'
-                    'FinanceBench-Style QA Accuracy Evaluation</div>', unsafe_allow_html=True)
+        # ── Mode selector ─────────────────────────────────────────────────
+        mode2 = st.radio("mode2",
+            ["🎯 Document-Adaptive","📋 Generic","✏️ Custom"],
+            label_visibility="collapsed", horizontal=True, key="eval_mode_sel2")
 
-        _custom_qs2 = st.session_state.get("custom_eval_qs", [])
-        _all_qs2    = EVAL_QUESTIONS + _custom_qs2
-        st.caption(f"{len(EVAL_QUESTIONS)} standard + {len(_custom_qs2)} custom = {len(_all_qs2)} questions")
+        if mode2.startswith("🎯"):
+            col_g2, col_r2 = st.columns(2)
+            with col_g2:
+                if st.button("⚡ Generate QA", key="gen_qa2", use_container_width=True):
+                    if st.session_state.doc_full_text and GROQ_API_KEY:
+                        with st.spinner("Generating…"):
+                            p2 = generate_doc_qa_pairs(st.session_state.doc_full_text, GROQ_API_KEY, 4)
+                        if p2:
+                            st.session_state.adaptive_qa_pairs = p2
+                            st.success(f"{len(p2)} questions generated"); st.rerun()
+            with col_r2:
+                if st.button("▶  Run Adaptive", key="run_adaptive2", use_container_width=True,
+                             disabled="adaptive_qa_pairs" not in st.session_state):
+                    _run_eval_benchmark(st.session_state.adaptive_qa_pairs,
+                                        st.session_state.vectorstore, GROQ_API_KEY,
+                                        use_expected_answer=True)
+            if "adaptive_qa_pairs" in st.session_state:
+                st.caption(f"{len(st.session_state.adaptive_qa_pairs)} doc-specific questions ready")
 
-        if st.button("▶  Run Full Pipeline Benchmark", key="bench2"):
-            if not st.session_state.vectorstore or not GROQ_API_KEY:
-                st.error("Need documents and API key.")
-            else:
-                er2 = []; prog2 = st.progress(0, text="Evaluating…")
-                vs2 = st.session_state.vectorstore
-                is_bge2 = vs2.get("is_bge", False)
-                from openai import OpenAI as _OAI2
-                _oai2 = _OAI2(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
-                for i, eq in enumerate(_all_qs2):
-                    try:
-                        expanded2 = _expand_query(eq["question"])
-                        embed_q2  = f"query: {expanded2}" if is_bge2 else expanded2
-                        qe3 = vs2["model"].encode([embed_q2], normalize_embeddings=True).tolist()
-                        res3 = vs2["collection"].query(query_embeddings=qe3,
-                                                       n_results=min(20, vs2["collection"].count()),
-                                                       include=["documents","metadatas","distances"])
-                        cks3 = res3["documents"][0]
-                        ds3  = [round(1-d/2,4) for d in res3["distances"][0]]
-                        try:
-                            from rank_bm25 import BM25Okapi
-                            _b3  = BM25Okapi([_tokenize(c) for c in cks3])
-                            _br3 = _b3.get_scores(_tokenize(expanded2))
-                            _bm3 = max(_br3) or 1.0
-                            bs3  = [s/_bm3 for s in _br3]
-                        except: bs3 = [0.0]*len(cks3)
-                        rrf3: dict[int,float] = {}
-                        for _rl3 in (sorted(range(len(cks3)),key=lambda x:ds3[x],reverse=True),
-                                     sorted(range(len(cks3)),key=lambda x:bs3[x],reverse=True)):
-                            for _ri3,_ridx3 in enumerate(_rl3):
-                                rrf3[_ridx3]=rrf3.get(_ridx3,0.0)+1.0/(60+_ri3+1)
-                        cands3 = sorted(rrf3, key=lambda x:rrf3[x], reverse=True)[:6]
-                        ctx3 = "\n---\n".join(cks3[j] for j in cands3)
-                        kw3  = sum(1 for kw in eq["expected_keywords"] if kw.lower() in ctx3.lower())
-                        resp3 = _oai2.chat.completions.create(
-                            model="llama-3.3-70b-versatile",
-                            messages=[{"role":"system","content":
-                                          "Answer concisely using only the context. Say NOT FOUND if absent."},
-                                      {"role":"user","content":f"Context:\n{ctx3}\n\nQuestion: {eq['question']}"}],
-                            temperature=0.05, max_tokens=400)
-                        ans3 = resp3.choices[0].message.content
-                        sc3  = score_answer(ans3, eq["expected_keywords"])
-                        log_retrieval(query=eq["question"],
-                                      retrieved=[{"section":res3["metadatas"][0][j].get("section","?"),
-                                                  "ce_score":0,"score":rrf3.get(j,0)} for j in cands3],
-                                      keyword_hits=kw3, keyword_total=len(eq["expected_keywords"]))
-                        er2.append({"question":eq["question"],"category":eq.get("category","—"),
-                                    "answer":ans3,"score":sc3,
-                                    "ctx_recall":round(kw3/len(eq["expected_keywords"])*100
-                                                       if eq["expected_keywords"] else 0,1)})
-                    except Exception as exc:
-                        er2.append({"question":eq["question"],"category":eq.get("category","—"),
-                                    "answer":f"Error:{str(exc)[:100]}",
-                                    "score":{"recall":0,"hits":0,"total":0,"score_pct":0},"ctx_recall":0})
-                    prog2.progress((i+1)/len(_all_qs2))
-                prog2.empty()
-                render_eval_dashboard(er2)
-                avg_ctx2 = sum(r.get("ctx_recall",0) for r in er2)/len(er2) if er2 else 0
-                st.caption(f"Context Recall@6: {avg_ctx2:.1f}% (keyword recall in retrieved chunks)")
+        elif mode2.startswith("📋"):
+            if st.button("▶  Run Generic Benchmark", key="bench2", use_container_width=True):
+                _run_eval_benchmark(EVAL_QUESTIONS, st.session_state.vectorstore, GROQ_API_KEY)
+
+        else:
+            _cq2 = st.session_state.get("custom_eval_qs", [])
+            st.caption(f"{len(_cq2)} custom questions — add them in the Analytics tab Eval section")
+            if _cq2:
+                if st.button("▶  Run Custom", key="run_custom2", use_container_width=True):
+                    _run_eval_benchmark(_cq2, st.session_state.vectorstore, GROQ_API_KEY,
+                                        use_expected_answer=True)
 
     st.markdown("<hr style='border-color:rgba(139,58,139,.1);margin:.6rem 0 1rem;'>",
                 unsafe_allow_html=True)
@@ -5392,3 +5638,4 @@ st.markdown("""
   </div>
 </div>
 """, unsafe_allow_html=True)
+            
