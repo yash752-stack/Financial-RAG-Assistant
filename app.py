@@ -71,6 +71,8 @@ for _k, _v in [
     ("alert_log",            []),
     # Theme
     ("app_theme",            "Royal Velvet"),
+    # Groq retry error tracking: {site_key: {ts, wait, msg, type}}
+    ("_groq_last_err",       {}),
 ]:
     if _k not in st.session_state:
         st.session_state[_k] = _v
@@ -2996,6 +2998,9 @@ def groq_call(
     """
     if not api_key:
         return "⚠ No API key — add your Groq key in the sidebar."
+    # Defensive init — ensures key exists even if called before session state loop
+    if "_groq_last_err" not in st.session_state:
+        st.session_state["_groq_last_err"] = {}
     from openai import OpenAI
     oai = OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
 
