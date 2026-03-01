@@ -73,6 +73,8 @@ for _k, _v in [
     ("app_theme",            "Royal Velvet"),
     # Groq retry error tracking: {site_key: {ts, wait, msg, type}}
     ("_groq_last_err",       {}),
+    # CrossEncoder opt-in (disabled by default to save RAM on free tier)
+    ("_ce_enabled",          False),
 ]:
     if _k not in st.session_state:
         st.session_state[_k] = _v
@@ -1073,7 +1075,9 @@ class HybridRetriever:
         cands = sorted(rrf_scores.keys(), key=lambda i: rrf_scores[i], reverse=True)[:max(20, n)]
 
         # ── Cross-encoder reranking + threshold filter ───────────────────
-        if rerank:
+        # CrossEncoder (~85MB model) is disabled on free tier by default.
+        # Only load if user has explicitly opted in via session state flag.
+        if rerank and st.session_state.get("_ce_enabled", False):
             try:
                 from sentence_transformers import CrossEncoder
                 if self._ce is None:
@@ -1433,17 +1437,18 @@ def _run_eval_benchmark(questions: list[dict], vectorstore, groq_api_key: str,
                     rrf_e[_ridx] = rrf_e.get(_ridx, 0.0) + 1.0 / (60 + _ri + 1)
             cands_e = sorted(rrf_e, key=lambda x: rrf_e[x], reverse=True)[:6]
 
-            # CE rerank
+            # CE rerank — only if user has enabled it (memory opt-in)
             ce_scores_e = {}
             try:
-                _ce_key = "_cross_encoder_instance"
-                if _ce_key not in st.session_state:
-                    from sentence_transformers import CrossEncoder
-                    st.session_state[_ce_key] = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
-                _ce    = st.session_state[_ce_key]
-                _ce_s  = _ce.predict([(eq["question"], cks_e[j]) for j in cands_e]).tolist()
-                ce_scores_e = {j: s for j, s in zip(cands_e, _ce_s)}
-                cands_e = [j for _, j in sorted(zip(_ce_s, cands_e), reverse=True)]
+                if st.session_state.get("_ce_enabled", False):
+                    _ce_key = "_cross_encoder_instance"
+                    if _ce_key not in st.session_state:
+                        from sentence_transformers import CrossEncoder
+                        st.session_state[_ce_key] = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+                    _ce    = st.session_state[_ce_key]
+                    _ce_s  = _ce.predict([(eq["question"], cks_e[j]) for j in cands_e]).tolist()
+                    ce_scores_e = {j: s for j, s in zip(cands_e, _ce_s)}
+                    cands_e = [j for _, j in sorted(zip(_ce_s, cands_e), reverse=True)]
             except Exception:
                 pass
 
@@ -2451,31 +2456,18 @@ def ingest_documents(files):
         length_function=len,
     )
 
-    # ── Embedding model priority chain ──────────────────────────────────
-    # Streamlit Community Cloud free tier = 1GB RAM.
-    # BGE-large-en-v1.5 alone needs ~1.3GB → instant OOM on free tier.
-    # Priority (memory-safe):
-    # 1. all-MiniLM-L6-v2       — 22MB, fast, good enough for RAG
-    # 2. all-mpnet-base-v2       — 420MB, strong generic model
-    # 3. yiyanghkust/finbert     — finance vocab, ~440MB
-    # BGE-large is intentionally excluded — requires 1.3GB, kills free tier.
-    @st.cache_resource
+    # ── Embedding model ──────────────────────────────────────────────────
+    # Streamlit free tier: 690MB min, 2.7GB max — but in practice OOMs at ~800MB.
+    # all-MiniLM-L6-v2  = 22MB model + ~180MB torch runtime = ~200MB total.
+    # all-mpnet-base-v2  = 420MB — too large when combined with rest of app.
+    # BGE-large-en-v1.5  = 1.3GB — absolutely cannot run on free tier.
+    # Strategy: MiniLM only. Quality is excellent for RAG (0.668 MTEB score).
+    @st.cache_resource(show_spinner=False)
     def load_model():
-        for model_id, bge_flag, label in [
-            ("all-MiniLM-L6-v2",            False, "MiniLM"),
-            ("sentence-transformers/all-mpnet-base-v2", False, "MPNet"),
-            ("yiyanghkust/finbert-pretrain", False, "FinBERT"),
-        ]:
-            try:
-                m = SentenceTransformer(model_id)
-                m._bge   = bge_flag
-                m._label = label
-                return m
-            except Exception:
-                continue
-        # absolute fallback
+        from sentence_transformers import SentenceTransformer
         m = SentenceTransformer("all-MiniLM-L6-v2")
-        m._bge = False; m._label = "MiniLM"
+        m._bge   = False
+        m._label = "MiniLM-L6"
         return m
 
     model  = load_model()
@@ -2540,10 +2532,14 @@ def ingest_documents(files):
     if all_chunks:
         with st.spinner(f"Embedding {len(all_chunks)} chunks · {_mlbl}…"):
             embed_texts = [m["_embed_text"] for m in all_meta]
+            # batch_size=16 reduces peak RAM during encode (was 32)
             embs = model.encode(embed_texts, normalize_embeddings=True,
-                                batch_size=32, show_progress_bar=False).tolist()
+                                batch_size=16, show_progress_bar=False).tolist()
             clean_meta = [{k: v for k, v in m.items() if k != "_embed_text"} for m in all_meta]
             col.add(documents=all_chunks, embeddings=embs, ids=all_ids, metadatas=clean_meta)
+            # Free intermediate tensors immediately after encode
+            del embed_texts, embs
+            import gc; gc.collect()
 
     combined_text = " ".join(full_texts)
     with st.spinner("Auto-generating analytics…"):
@@ -5194,6 +5190,26 @@ with st.sidebar:
         if st.button(q_item, use_container_width=True, key=f"qa_{q_item[:14]}"):
             st.session_state["_prefill"] = q_item
 
+    # ── CrossEncoder toggle (disabled by default to save ~300MB) ───────────
+    st.markdown('<div class="sb-lbl">⚙ Retrieval</div>', unsafe_allow_html=True)
+    _ce_on = st.toggle(
+        "Cross-encoder reranking",
+        value=st.session_state.get("_ce_enabled", False),
+        key="ce_toggle",
+        help="Improves answer accuracy but uses ~300MB extra RAM. Disable if app crashes.",
+    )
+    if _ce_on != st.session_state.get("_ce_enabled", False):
+        st.session_state["_ce_enabled"] = _ce_on
+        if not _ce_on and "_cross_encoder_instance" in st.session_state:
+            del st.session_state["_cross_encoder_instance"]
+            import gc; gc.collect()
+    st.markdown(
+        f'<div style="font-family:Space Mono,monospace;font-size:.44rem;color:#4A3858;margin-top:.2rem;">'
+        f'{"✓ CE active — higher accuracy" if _ce_on else "○ CE off — lower memory (recommended)"}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
     st.markdown('<div class="sb-lbl">Actions</div>', unsafe_allow_html=True)
     col_a1, col_a2 = st.columns(2)
     with col_a1:
@@ -6410,24 +6426,25 @@ if q:
                             "page":      m.get("page", ""),
                         })
 
-                    # 8. Cross-encoder rerank + relevance threshold filter
-                    #    CE scores are logits; threshold -5.0 ≈ "probably irrelevant"
+                    # 8. Cross-encoder rerank — only if user has opted in (saves ~300MB)
                     CE_THRESHOLD = -4.0
                     try:
-                        _ce_key = "_cross_encoder_instance"
-                        if _ce_key not in st.session_state:
-                            from sentence_transformers import CrossEncoder
-                            st.session_state[_ce_key] = CrossEncoder(
-                                "cross-encoder/ms-marco-MiniLM-L-6-v2"
-                            )
-                        ce = st.session_state[_ce_key]
-                        ce_scores = ce.predict([(q, c["chunk"]) for c in candidates]).tolist()
-                        for cand, sc in zip(candidates, ce_scores):
-                            cand["ce_score"] = sc
-                        # Sort by CE score, then filter out below-threshold chunks
-                        candidates.sort(key=lambda x: x.get("ce_score", -99), reverse=True)
-                        above = [c for c in candidates if c.get("ce_score", -99) >= CE_THRESHOLD]
-                        candidates = above if len(above) >= 3 else candidates  # always keep ≥3
+                        if st.session_state.get("_ce_enabled", False):
+                            _ce_key = "_cross_encoder_instance"
+                            if _ce_key not in st.session_state:
+                                from sentence_transformers import CrossEncoder
+                                st.session_state[_ce_key] = CrossEncoder(
+                                    "cross-encoder/ms-marco-MiniLM-L-6-v2"
+                                )
+                            ce = st.session_state[_ce_key]
+                            ce_scores = ce.predict([(q, c["chunk"]) for c in candidates]).tolist()
+                            for cand, sc in zip(candidates, ce_scores):
+                                cand["ce_score"] = sc
+                            candidates.sort(key=lambda x: x.get("ce_score", -99), reverse=True)
+                            above = [c for c in candidates if c.get("ce_score", -99) >= CE_THRESHOLD]
+                            candidates = above if len(above) >= 3 else candidates
+                        else:
+                            candidates.sort(key=lambda x: x["score"], reverse=True)
                     except Exception:
                         candidates.sort(key=lambda x: x["score"], reverse=True)
 
