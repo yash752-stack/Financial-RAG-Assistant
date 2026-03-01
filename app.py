@@ -2406,12 +2406,135 @@ def _extract_page_aware(f) -> list[dict]:
 
     elif name.endswith((".xlsx", ".xls")):
         try:
-            dfs = pd.read_excel(io.BytesIO(raw), sheet_name=None, dtype=str)
-            for sheet_i, (sheet, df) in enumerate(dfs.items()):
-                text = f"=== Sheet: {sheet} ===\n" + df.fillna("").to_string(index=False)
-                pages.append({"text": text, "page": sheet_i + 1, "source": f"{f.name}[{sheet}]"})
+            # ── Strategy 1: openpyxl with data_only=True ─────────────────
+            # data_only=True reads the *cached* formula result (the number
+            # Excel last computed and stored in the file).  This is the only
+            # reliable way to get =SUM(...) values without running Excel.
+            # Caveat: if the file was never saved after editing, the cache
+            # may be absent (cell.value == None).  We handle that in strategy 2.
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True, read_only=True)
+            for sheet_i, sheet_name in enumerate(wb.sheetnames):
+                ws = wb[sheet_name]
+                rows_text = []
+                headers: list[str] = []
+
+                for row_i, row in enumerate(ws.iter_rows(values_only=True)):
+                    # Skip completely empty rows
+                    if all(v is None for v in row):
+                        continue
+
+                    cells = []
+                    for v in row:
+                        if v is None:
+                            cells.append("")
+                        elif isinstance(v, float):
+                            # Drop trailing .0 for whole numbers, keep decimals
+                            cells.append(str(int(v)) if v == int(v) and abs(v) < 1e15 else f"{v:,.2f}")
+                        elif isinstance(v, bool):
+                            cells.append("Yes" if v else "No")
+                        else:
+                            cells.append(str(v).strip())
+
+                    # Use first non-empty row as header hint
+                    if row_i == 0 and any(c for c in cells):
+                        headers = cells
+
+                    row_str = " | ".join(c for c in cells if c)
+                    if row_str.strip():
+                        rows_text.append(row_str)
+
+                if not rows_text:
+                    continue
+
+                text = f"=== Sheet: {sheet_name} ===\n" + "\n".join(rows_text)
+                pages.append({"text": text, "page": sheet_i + 1,
+                               "source": f"{f.name}[{sheet_name}]"})
+            wb.close()
+
+            # ── Strategy 2: fallback to pandas if openpyxl got empty cache ──
+            # If any sheet produced only blank lines (formula cache missing),
+            # re-read with pandas which uses xlrd/openpyxl default (may give
+            # NaN for some formula cells, but captures static values).
+            if not pages:
+                raise ValueError("openpyxl data_only returned no content")
+
+            # ── Strategy 3: scan for cells that still look blank ──────────
+            # Check if ANY numeric value was captured; if not, re-read without
+            # data_only to at least get formula strings as fallback text.
+            has_numbers = any(
+                any(c.strip().replace(",","").replace(".","").replace("-","").isdigit()
+                    for c in p["text"].split("|"))
+                for p in pages
+            )
+            if not has_numbers:
+                # Re-read with formula strings visible (shows =SUM(B2:B5) etc.)
+                wb2 = openpyxl.load_workbook(io.BytesIO(raw), data_only=False, read_only=True)
+                for sheet_i, sheet_name in enumerate(wb2.sheetnames):
+                    ws2 = wb2[sheet_name]
+                    formula_rows = []
+                    for row in ws2.iter_rows(values_only=True):
+                        if all(v is None for v in row):
+                            continue
+                        cells = []
+                        for v in row:
+                            if v is None:
+                                cells.append("")
+                            elif isinstance(v, str) and v.startswith("="):
+                                # Try to evaluate simple =SUM(n,n,...) or =n+n patterns
+                                inner = v[1:].strip()
+                                # =SUM(literal numbers)
+                                m_sum = re.match(r"SUM\(([0-9\.,\s\+\-]+)\)", inner, re.IGNORECASE)
+                                if m_sum:
+                                    try:
+                                        nums = [float(x.replace(",","")) for x in re.findall(r"[\d\.]+", m_sum.group(1))]
+                                        cells.append(str(int(sum(nums))) if sum(nums)==int(sum(nums)) else f"{sum(nums):,.2f}")
+                                        continue
+                                    except Exception:
+                                        pass
+                                cells.append(f"[formula: {v}]")
+                            elif isinstance(v, (int, float)):
+                                cells.append(str(int(v)) if isinstance(v, float) and v == int(v) else str(v))
+                            else:
+                                cells.append(str(v).strip())
+                        row_str = " | ".join(c for c in cells if c)
+                        if row_str.strip():
+                            formula_rows.append(row_str)
+                    if formula_rows:
+                        # Replace the blank page entry with formula-visible version
+                        for p in pages:
+                            if f"[{sheet_name}]" in p["source"]:
+                                p["text"] = f"=== Sheet: {sheet_name} (formulas) ===\n" + "\n".join(formula_rows)
+                                break
+                        else:
+                            pages.append({"text": f"=== Sheet: {sheet_name} (formulas) ===\n" + "\n".join(formula_rows),
+                                          "page": sheet_i + 1, "source": f"{f.name}[{sheet_name}]"})
+                wb2.close()
+
         except Exception as e:
-            pages.append({"text": f"[Excel parse error: {e}]", "page": 1, "source": f.name})
+            # Final fallback: pandas read_excel (handles .xls with xlrd)
+            try:
+                dfs = pd.read_excel(io.BytesIO(raw), sheet_name=None)
+                for sheet_i, (sheet, df) in enumerate(dfs.items()):
+                    # Convert numeric columns to strings preserving actual values
+                    rows = []
+                    for _, row in df.iterrows():
+                        cells = []
+                        for val in row:
+                            if pd.isna(val):
+                                cells.append("")
+                            elif isinstance(val, float) and val == int(val):
+                                cells.append(str(int(val)))
+                            else:
+                                cells.append(str(val))
+                        rows.append(" | ".join(c for c in cells if c))
+                    text = f"=== Sheet: {sheet} ===\n" + "\n".join(r for r in rows if r.strip())
+                    if text.strip():
+                        pages.append({"text": text, "page": sheet_i + 1,
+                                      "source": f"{f.name}[{sheet}]"})
+            except Exception as e2:
+                pages.append({"text": f"[Excel parse error: {e} / {e2}]",
+                               "page": 1, "source": f.name})
 
     elif name.endswith(".csv"):
         try:
