@@ -2089,7 +2089,7 @@ def _throttled_get(url, timeout=10):
         raise RuntimeError("Rate limit reached — wait a few seconds.")
     return requests.get(url, headers=_HEADERS, timeout=timeout)
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, max_entries=50)
 def fetch_yahoo_series(symbol, period, interval):
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range={period}&interval={interval}&includePrePost=false"
     try:
@@ -2100,7 +2100,7 @@ def fetch_yahoo_series(symbol, period, interval):
         return pd.Series(close, index=idx, name=symbol).dropna()
     except: return None
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=60, max_entries=100)
 def fetch_quote(symbol):
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=2d&interval=1d"
     try:
@@ -2452,17 +2452,19 @@ def ingest_documents(files):
     )
 
     # ── Embedding model priority chain ──────────────────────────────────
-    # 1. BGE-large-en-v1.5  — MTEB #1, requires passage:/query: prefixes
-    # 2. all-mpnet-base-v2  — strong generic model, ~3× better than MiniLM
-    # 3. FinBERT-pretrain    — finance-domain vocabulary, good for SEC filings
-    # 4. all-MiniLM-L6-v2   — smallest/fastest, last resort
+    # Streamlit Community Cloud free tier = 1GB RAM.
+    # BGE-large-en-v1.5 alone needs ~1.3GB → instant OOM on free tier.
+    # Priority (memory-safe):
+    # 1. all-MiniLM-L6-v2       — 22MB, fast, good enough for RAG
+    # 2. all-mpnet-base-v2       — 420MB, strong generic model
+    # 3. yiyanghkust/finbert     — finance vocab, ~440MB
+    # BGE-large is intentionally excluded — requires 1.3GB, kills free tier.
     @st.cache_resource
     def load_model():
         for model_id, bge_flag, label in [
-            ("BAAI/bge-large-en-v1.5",      True,  "BGE-large"),
+            ("all-MiniLM-L6-v2",            False, "MiniLM"),
             ("sentence-transformers/all-mpnet-base-v2", False, "MPNet"),
             ("yiyanghkust/finbert-pretrain", False, "FinBERT"),
-            ("all-MiniLM-L6-v2",            False, "MiniLM"),
         ]:
             try:
                 m = SentenceTransformer(model_id)
@@ -2471,7 +2473,7 @@ def ingest_documents(files):
                 return m
             except Exception:
                 continue
-        # absolute fallback — should never reach here
+        # absolute fallback
         m = SentenceTransformer("all-MiniLM-L6-v2")
         m._bge = False; m._label = "MiniLM"
         return m
@@ -2486,9 +2488,9 @@ def ingest_documents(files):
         "financials",
         metadata={
             "hnsw:space":            "cosine",
-            "hnsw:M":                32,      # default 16 → 32: denser graph = better recall
-            "hnsw:construction_ef":  200,     # default 100 → 200: richer build = higher recall
-            "hnsw:search_ef":        100,     # default 10 → 100: wider beam search at query time
+            "hnsw:M":                16,      # reduced from 32 — saves ~2× index RAM on free tier
+            "hnsw:construction_ef":  100,     # reduced from 200 — less RAM during build
+            "hnsw:search_ef":        80,      # reduced from 100 — still high-quality search
         },
     )
 
@@ -2793,8 +2795,7 @@ def fetch_stock_fundamentals(symbol: str) -> dict:
     except Exception:
         return {}
 
-@st.cache_data(ttl=300)
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, max_entries=25)
 def fetch_stock_history_1y(symbol: str) -> pd.DataFrame:
     """1 year daily OHLCV as DataFrame — cached 5 min."""
     url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
@@ -3052,13 +3053,9 @@ def groq_call(
 
 # ─── 2. PORTFOLIO RISK ANALYTICS ────────────────────────────────────────────
 
-_SPY_BETA_CACHE: dict = {}   # {sym: beta_float}
-
+@st.cache_data(ttl=1800, max_entries=50, show_spinner=False)
 def _fetch_beta(sym: str) -> float:
-    """Compute 1-year rolling beta against SPY for a single symbol."""
-    global _SPY_BETA_CACHE
-    if sym in _SPY_BETA_CACHE:
-        return _SPY_BETA_CACHE[sym]
+    """Compute 1-year rolling beta against SPY. Cached 30 min, max 50 symbols."""
     try:
         spy_df  = fetch_stock_history_1y("SPY")
         sym_df  = fetch_stock_history_1y(sym)
@@ -3066,7 +3063,6 @@ def _fetch_beta(sym: str) -> float:
             return 1.0
         spy_r  = spy_df["close"].pct_change().dropna()
         sym_r  = sym_df["close"].pct_change().dropna()
-        # Align on date index
         common = spy_r.index.intersection(sym_r.index)
         if len(common) < 30:
             return 1.0
@@ -3074,33 +3070,37 @@ def _fetch_beta(sym: str) -> float:
         sym_r = sym_r.loc[common].values
         cov    = float(np.cov(sym_r, spy_r)[0, 1])
         var_m  = float(np.var(spy_r))
-        beta   = round(cov / var_m, 3) if var_m else 1.0
-        _SPY_BETA_CACHE[sym] = beta
-        return beta
+        return round(cov / var_m, 3) if var_m else 1.0
     except Exception:
         return 1.0
 
 def calculate_portfolio_beta(summary: dict) -> float:
-    """Weighted-average beta across all holdings."""
+    """Weighted-average beta. Capped at 8 holdings to bound memory."""
     total_val = summary["total_value"] or 1.0
+    # Cap to top-8 by weight to avoid OOM from too many 1Y fetches
+    top_holdings = sorted(summary["holdings"], key=lambda h: h["mkt_val"], reverse=True)[:8]
+    top_val = sum(h["mkt_val"] for h in top_holdings) or total_val
     beta = 0.0
-    for h in summary["holdings"]:
-        w = h["mkt_val"] / total_val
+    for h in top_holdings:
+        w = h["mkt_val"] / top_val
         beta += w * _fetch_beta(h["sym"])
     return round(beta, 3)
 
 def calculate_var(summary: dict, confidence: float = 0.95) -> float:
     """
-    Parametric VaR (1-day) using per-holding annualised vol from compute_technicals.
+    Parametric VaR (1-day). Capped at 8 holdings to bound memory.
     Falls back to 1.5% daily vol if history unavailable.
-    VaR = portfolio_value × z × daily_vol  (weighted average vol, simplified)
     """
     z_map = {0.90: 1.282, 0.95: 1.645, 0.99: 2.326}
     z = z_map.get(confidence, 1.645)
     total_val = summary["total_value"] or 1.0
+    if not summary["holdings"]:
+        return 0.0
+    top_holdings = sorted(summary["holdings"], key=lambda h: h["mkt_val"], reverse=True)[:8]
+    top_val = sum(h["mkt_val"] for h in top_holdings) or total_val
     weighted_vol = 0.0
-    for h in summary["holdings"]:
-        w = h["mkt_val"] / total_val
+    for h in top_holdings:
+        w = h["mkt_val"] / top_val
         try:
             df  = fetch_stock_history_1y(h["sym"])
             tec = compute_technicals(df)
@@ -3114,23 +3114,24 @@ def calculate_var(summary: dict, confidence: float = 0.95) -> float:
 def calculate_sharpe_ratio(summary: dict, risk_free: float = 0.053) -> float:
     """
     Simplified Sharpe using 1-year return and annualised vol.
-    risk_free defaults to ~5.3% (US 10Y approx).
+    Capped at 8 holdings to bound memory.
     """
     total_val  = summary["total_value"] or 1.0
     total_cost = summary["total_cost"]  or 1.0
-    ann_return = (total_val / total_cost - 1.0)   # approximate annual return
-
-    # Weighted portfolio vol
+    ann_return = (total_val / total_cost - 1.0)
+    if not summary["holdings"]:
+        return 0.0
+    top_holdings = sorted(summary["holdings"], key=lambda h: h["mkt_val"], reverse=True)[:8]
+    top_val = sum(h["mkt_val"] for h in top_holdings) or total_val
     weighted_vol = 0.0
-    for h in summary["holdings"]:
-        w = h["mkt_val"] / total_val
+    for h in top_holdings:
+        w = h["mkt_val"] / top_val
         try:
             df  = fetch_stock_history_1y(h["sym"])
             tec = compute_technicals(df)
             weighted_vol += w * (tec.get("vol_annual", 30.0) / 100.0)
         except Exception:
             weighted_vol += w * 0.30
-
     if weighted_vol < 0.001:
         return 0.0
     return round((ann_return - risk_free) / weighted_vol, 3)
