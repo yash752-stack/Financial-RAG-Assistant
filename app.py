@@ -1074,23 +1074,9 @@ class HybridRetriever:
         rrf_scores = self._rrf(dense_ranked, bm25_ranked)
         cands = sorted(rrf_scores.keys(), key=lambda i: rrf_scores[i], reverse=True)[:max(20, n)]
 
-        # ── Cross-encoder reranking + threshold filter ───────────────────
-        # CrossEncoder (~85MB model) is disabled on free tier by default.
-        # Only load if user has explicitly opted in via session state flag.
-        if rerank and st.session_state.get("_ce_enabled", False):
-            try:
-                from sentence_transformers import CrossEncoder
-                if self._ce is None:
-                    self._ce = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
-                ce_scores_list = self._ce.predict(
-                    [(query, self.chunks[i]) for i in cands]
-                ).tolist()
-                # Filter out candidates below CE threshold (irrelevant chunks)
-                scored = [(idx, sc) for idx, sc in zip(cands, ce_scores_list)
-                          if sc >= ce_threshold]
-                scored.sort(key=lambda x: x[1], reverse=True)
-                cands = [idx for idx, _ in scored] if scored else cands
-            except: pass
+        # ── Cross-encoder reranking removed ─────────────────────────────
+        # sentence-transformers / torch removed to fit Streamlit free tier.
+        # RRF fusion of TF-IDF + BM25 is used instead.
 
         return [
             {
@@ -1398,7 +1384,6 @@ def _run_eval_benchmark(questions: list[dict], vectorstore, groq_api_key: str,
     er = []
     prog = st.progress(0, text="Evaluating…")
     vs = vectorstore
-    is_bge = vs.get("is_bge", False)
 
     try:
         from openai import OpenAI as _OAI
@@ -1406,51 +1391,43 @@ def _run_eval_benchmark(questions: list[dict], vectorstore, groq_api_key: str,
     except Exception as e:
         st.error(f"OpenAI client error: {e}"); prog.empty(); return
 
+    # Pre-load TF-IDF components once
+    _vectorizer_e   = vs.get("vectorizer")
+    _tfidf_matrix_e = vs.get("tfidf_matrix")
+    _chunks_e       = vs.get("chunks", [])
+
     for i, eq in enumerate(questions):
         try:
-            # ── Full pipeline: expand → embed → RRF → CE rerank ─────────
+            # ── Full pipeline: expand → TF-IDF → RRF ────────────────────
             expanded = _expand_query(eq["question"])
-            embed_q  = f"query: {expanded}" if is_bge else expanded
-            qe       = vs["model"].encode([embed_q], normalize_embeddings=True).tolist()
-            n_coll   = vs["collection"].count()
-            res      = vs["collection"].query(
-                query_embeddings=qe,
-                n_results=min(20, n_coll),
-                include=["documents", "metadatas", "distances"],
-            )
-            cks_e = res["documents"][0]
 
-            # RRF
-            dense_s = [round(1 - d/2, 4) for d in res["distances"][0]]
+            # TF-IDF similarity (replaces model.encode + collection.query)
+            from sklearn.metrics.pairwise import cosine_similarity
+            if _vectorizer_e is not None and _tfidf_matrix_e is not None and len(_chunks_e):
+                q_vec_e   = _vectorizer_e.transform([expanded])
+                sims_e    = cosine_similarity(q_vec_e, _tfidf_matrix_e).flatten().tolist()
+            else:
+                sims_e = [0.0] * len(_chunks_e)
+
+            # BM25 re-score
             try:
                 from rank_bm25 import BM25Okapi
-                _b  = BM25Okapi([_tokenize(c) for c in cks_e])
+                _b  = BM25Okapi([_tokenize(c) for c in _chunks_e])
                 _br = _b.get_scores(_tokenize(expanded))
-                _bm = max(_br) or 1.0
+                _bm = max(_br) if max(_br) > 0 else 1.0
                 bm25_s = [s/_bm for s in _br]
             except Exception:
-                bm25_s = [0.0] * len(cks_e)
+                bm25_s = [0.0] * len(_chunks_e)
+
+            # RRF fusion
+            N_e = len(_chunks_e)
             rrf_e: dict[int, float] = {}
-            for _rl in (sorted(range(len(cks_e)), key=lambda x: dense_s[x], reverse=True),
-                        sorted(range(len(cks_e)), key=lambda x: bm25_s[x], reverse=True)):
+            for _rl in (sorted(range(N_e), key=lambda x: sims_e[x],  reverse=True),
+                        sorted(range(N_e), key=lambda x: bm25_s[x], reverse=True)):
                 for _ri, _ridx in enumerate(_rl):
                     rrf_e[_ridx] = rrf_e.get(_ridx, 0.0) + 1.0 / (60 + _ri + 1)
             cands_e = sorted(rrf_e, key=lambda x: rrf_e[x], reverse=True)[:6]
-
-            # CE rerank — only if user has enabled it (memory opt-in)
-            ce_scores_e = {}
-            try:
-                if st.session_state.get("_ce_enabled", False):
-                    _ce_key = "_cross_encoder_instance"
-                    if _ce_key not in st.session_state:
-                        from sentence_transformers import CrossEncoder
-                        st.session_state[_ce_key] = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
-                    _ce    = st.session_state[_ce_key]
-                    _ce_s  = _ce.predict([(eq["question"], cks_e[j]) for j in cands_e]).tolist()
-                    ce_scores_e = {j: s for j, s in zip(cands_e, _ce_s)}
-                    cands_e = [j for _, j in sorted(zip(_ce_s, cands_e), reverse=True)]
-            except Exception:
-                pass
+            cks_e   = _chunks_e
 
             ctx      = "\n---\n".join(cks_e[j] for j in cands_e[:6])
             exp_ans  = eq.get("expected_answer", "")
@@ -1829,24 +1806,51 @@ def render_analytics_tab(vectorstore, groq_api_key, doc_full_text="", auto_metri
         c1, c2, c3 = st.columns(3)
         with c1: bw = st.slider("BM25 weight", 0.0, 1.0, 0.35, 0.05)
         with c2: tn = st.slider("Results", 3, 10, 5)
-        with c3: uce = st.checkbox("Cross-encoder re-rank", value=True)
+        with c3: uce = st.checkbox("Cross-encoder re-rank", value=False, disabled=True,
+                                   help="Cross-encoder disabled — not available in free-tier mode")
         tf = st.multiselect("Taxonomy filter", list(TAXONOMY.keys()), default=[], label_visibility="collapsed")
         if hs_q and vectorstore:
             with st.spinner("Retrieving…"):
                 try:
-                    vs = vectorstore
-                    ar = vs["collection"].get(include=["documents","embeddings","metadatas"])
-                    cks, emb, mts = ar["documents"], ar["embeddings"], ar["metadatas"]
+                    vs   = vectorstore
+                    cks  = vs.get("chunks", [])
+                    mts  = vs.get("meta",   [])
                     if tf:
-                        fi = [i for i,c in enumerate(cks) if any(t in tag_chunk(c) for t in tf)]
-                        cks, emb, mts = [cks[i] for i in fi],[emb[i] for i in fi],[mts[i] for i in fi]
+                        fi   = [i for i,c in enumerate(cks) if any(t in tag_chunk(c) for t in tf)]
+                        cks  = [cks[i] for i in fi]
+                        mts  = [mts[i]  for i in fi]
                     if not cks:
                         st.warning("No chunks match filter.")
                     else:
-                        qe = vs["model"].encode([hs_q], normalize_embeddings=True).tolist()[0]
-                        hits = HybridRetriever(cks, emb).retrieve(hs_q, qe, n=tn, bw=bw, rerank=uce)
+                        # TF-IDF similarity
+                        from sklearn.metrics.pairwise import cosine_similarity
+                        vec  = vs.get("vectorizer")
+                        mat  = vs.get("tfidf_matrix")
+                        if vec and mat is not None:
+                            from sklearn.feature_extraction.text import TfidfVectorizer
+                            q_vec = vec.transform([hs_q])
+                            sims  = cosine_similarity(q_vec, mat).flatten().tolist()
+                        else:
+                            sims = [0.0] * len(cks)
+                        # BM25
+                        try:
+                            from rank_bm25 import BM25Okapi
+                            _b2   = BM25Okapi([_tokenize(c) for c in cks])
+                            _br2  = _b2.get_scores(_tokenize(hs_q))
+                            _bm2  = max(_br2) if max(_br2) > 0 else 1.0
+                            bm25n = [s/_bm2 for s in _br2]
+                        except Exception:
+                            bm25n = [0.0] * len(cks)
+                        # RRF
+                        _K2 = 60; N2 = len(cks); rrf2: dict[int,float] = {}
+                        for _rl2 in (sorted(range(N2), key=lambda i: sims[i],  reverse=True),
+                                     sorted(range(N2), key=lambda i: bm25n[i], reverse=True)):
+                            for _r2, _idx2 in enumerate(_rl2):
+                                rrf2[_idx2] = rrf2.get(_idx2, 0.0) + 1.0/(_K2+_r2+1)
+                        top_idxs2 = sorted(rrf2, key=lambda i: rrf2[i], reverse=True)[:tn]
+                        hits = [{"idx":i,"chunk":cks[i],"score":rrf2[i]} for i in top_idxs2]
                         for rank, h in enumerate(hits, 1):
-                            mt = mts[h["idx"]] if h["idx"] < len(mts) else {}
+                            mt   = mts[h["idx"]] if h["idx"] < len(mts) else {}
                             tags = tag_chunk(h["chunk"])
                             th = " ".join(f'<span style="background:rgba(139,58,139,.15);border:1px solid rgba(139,58,139,.3);'
                                           f'font-family:Space Mono,monospace;font-size:.5rem;padding:.1rem .35rem;'
@@ -2440,55 +2444,46 @@ def _extract_page_aware(f) -> list[dict]:
 
     return pages
 
+def _chunk_text(text: str, chunk_size: int = 512, overlap: int = 64) -> list[str]:
+    """Pure-Python recursive splitter — no langchain required."""
+    if not text.strip():
+        return []
+    separators = ["\n\n", "\n", ". ", "! ", "? ", "; ", ", ", " ", ""]
+    def _split(t: str, seps: list[str]) -> list[str]:
+        if len(t) <= chunk_size or not seps:
+            return [t] if t.strip() else []
+        sep = seps[0]
+        parts = t.split(sep)
+        chunks, buf = [], ""
+        for p in parts:
+            candidate = (buf + sep + p).lstrip(sep) if buf else p
+            if len(candidate) <= chunk_size:
+                buf = candidate
+            else:
+                if buf:
+                    chunks.append(buf)
+                    # carry overlap
+                    buf = buf[-overlap:] + sep + p if len(buf) > overlap else p
+                else:
+                    chunks.extend(_split(p, seps[1:]))
+                    buf = ""
+        if buf:
+            chunks.append(buf)
+        return [c for c in chunks if c.strip()]
+    return _split(text, separators)
+
+
 def ingest_documents(files):
-    from chromadb import EphemeralClient
-    from chromadb.config import Settings
-    from sentence_transformers import SentenceTransformer
-    from langchain_text_splitters import RecursiveCharacterTextSplitter
-
-    # ── Smarter financial-aware splitter ────────────────────────────────
-    # 512 chars (~128 tokens) keeps each chunk focused on a single metric/table row.
-    # Overlap of 64 chars preserves cross-sentence number context.
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=512,
-        chunk_overlap=64,
-        separators=["\n\n", "\n", ". ", "! ", "? ", "; ", ", ", " ", ""],
-        length_function=len,
-    )
-
-    # ── Embedding model ──────────────────────────────────────────────────
-    # Streamlit free tier: 690MB min, 2.7GB max — but in practice OOMs at ~800MB.
-    # all-MiniLM-L6-v2  = 22MB model + ~180MB torch runtime = ~200MB total.
-    # all-mpnet-base-v2  = 420MB — too large when combined with rest of app.
-    # BGE-large-en-v1.5  = 1.3GB — absolutely cannot run on free tier.
-    # Strategy: MiniLM only. Quality is excellent for RAG (0.668 MTEB score).
-    @st.cache_resource(show_spinner=False)
-    def load_model():
-        from sentence_transformers import SentenceTransformer
-        m = SentenceTransformer("all-MiniLM-L6-v2")
-        m._bge   = False
-        m._label = "MiniLM-L6"
-        return m
-
-    model  = load_model()
-    is_bge = getattr(model, "_bge",   False)
-    _mlbl  = getattr(model, "_label", "Embeddings")
-    client = EphemeralClient(settings=Settings(anonymized_telemetry=False))
-    try:   client.delete_collection("financials")
-    except: pass
-    col = client.create_collection(
-        "financials",
-        metadata={
-            "hnsw:space":            "cosine",
-            "hnsw:M":                16,      # reduced from 32 — saves ~2× index RAM on free tier
-            "hnsw:construction_ef":  100,     # reduced from 200 — less RAM during build
-            "hnsw:search_ef":        80,      # reduced from 100 — still high-quality search
-        },
-    )
+    """
+    Pure-Python RAG pipeline — zero ML framework dependencies.
+    Uses TF-IDF (sklearn) for dense-style retrieval + BM25 for keyword retrieval.
+    Memory budget: ~30MB total (vs ~750MB with sentence-transformers+torch).
+    """
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    import scipy.sparse as sp
 
     all_chunks, all_ids, all_meta, fnames, full_texts = [], [], [], [], []
     prog = st.progress(0, text="Reading files…")
-    is_bge = getattr(model, "_bge", False)
 
     for i, f in enumerate(files):
         prog.progress((i + 0.1) / len(files), text=f"Parsing {f.name}…")
@@ -2498,22 +2493,15 @@ def ingest_documents(files):
         full_texts.append(combined)
 
         for block in page_blocks:
-            raw_chunks = splitter.split_text(block["text"])
+            raw_chunks = _chunk_text(block["text"])
             for j, chunk in enumerate(raw_chunks):
+                if not chunk.strip():
+                    continue
                 section  = _infer_section(chunk)
                 keywords = _extract_chunk_keywords(chunk)
-
-                # ── Section header injection ─────────────────────────────
-                # Prepend the inferred section label to the chunk text so the
-                # embedding captures it as context, and BM25 can keyword-match it.
-                # E.g. "[Income Statement] Revenue for FY24 was ₹2,43,020 Cr..."
                 chunk_with_header = (f"[{section}] {chunk}"
                                      if section != "General" else chunk)
-
-                # BGE requires "passage:" prefix for documents during indexing
-                embed_text = f"passage: {chunk_with_header}" if is_bge else chunk_with_header
-
-                all_chunks.append(chunk)          # store clean (no prefix) for display
+                all_chunks.append(chunk)
                 all_ids.append(f"{f.name}_p{block['page']}_c{j}")
                 all_meta.append({
                     "filename":    f.name,
@@ -2523,30 +2511,46 @@ def ingest_documents(files):
                     "section":     section,
                     "keywords":    keywords,
                     "source":      block["source"],
-                    "_embed_text": embed_text,
+                    "_index_text": chunk_with_header,
                 })
-
         prog.progress((i + 1) / len(files), text=f"Processed {f.name}")
     prog.empty()
 
+    # ── Build TF-IDF matrix (replaces neural embeddings) ────────────────
+    tfidf_matrix = None
+    vectorizer   = None
     if all_chunks:
-        with st.spinner(f"Embedding {len(all_chunks)} chunks · {_mlbl}…"):
-            embed_texts = [m["_embed_text"] for m in all_meta]
-            # batch_size=16 reduces peak RAM during encode (was 32)
-            embs = model.encode(embed_texts, normalize_embeddings=True,
-                                batch_size=16, show_progress_bar=False).tolist()
-            clean_meta = [{k: v for k, v in m.items() if k != "_embed_text"} for m in all_meta]
-            col.add(documents=all_chunks, embeddings=embs, ids=all_ids, metadatas=clean_meta)
-            # Free intermediate tensors immediately after encode
-            del embed_texts, embs
+        with st.spinner(f"Indexing {len(all_chunks)} chunks (TF-IDF)…"):
+            index_texts = [m["_index_text"] for m in all_meta]
+            vectorizer  = TfidfVectorizer(
+                max_features=8000,
+                sublinear_tf=True,
+                ngram_range=(1, 2),
+                min_df=1,
+                strip_accents="unicode",
+            )
+            tfidf_matrix = vectorizer.fit_transform(index_texts)  # sparse: tiny RAM
             import gc; gc.collect()
 
     combined_text = " ".join(full_texts)
     with st.spinner("Auto-generating analytics…"):
         auto_metrics = extract_metrics(combined_text)
 
-    st.session_state.vectorstore    = {"collection": col, "model": model,
-                                       "is_bge": is_bge, "model_label": _mlbl}
+    # Store clean meta (no _index_text)
+    clean_meta = [{k: v for k, v in m.items() if k != "_index_text"} for m in all_meta]
+
+    st.session_state.vectorstore = {
+        "chunks":       all_chunks,
+        "meta":         clean_meta,
+        "ids":          all_ids,
+        "vectorizer":   vectorizer,
+        "tfidf_matrix": tfidf_matrix,
+        "model_label":  "TF-IDF",
+        "is_bge":       False,
+        # Legacy keys kept for compatibility
+        "model":        None,
+        "collection":   None,
+    }
     st.session_state.uploaded_docs  = len(files)
     st.session_state.chunk_count    = len(all_chunks)
     st.session_state.file_names     = fnames
@@ -5190,23 +5194,14 @@ with st.sidebar:
         if st.button(q_item, use_container_width=True, key=f"qa_{q_item[:14]}"):
             st.session_state["_prefill"] = q_item
 
-    # ── CrossEncoder toggle (disabled by default to save ~300MB) ───────────
+    # ── Retrieval info ────────────────────────────────────────────────────
     st.markdown('<div class="sb-lbl">⚙ Retrieval</div>', unsafe_allow_html=True)
-    _ce_on = st.toggle(
-        "Cross-encoder reranking",
-        value=st.session_state.get("_ce_enabled", False),
-        key="ce_toggle",
-        help="Improves answer accuracy but uses ~300MB extra RAM. Disable if app crashes.",
-    )
-    if _ce_on != st.session_state.get("_ce_enabled", False):
-        st.session_state["_ce_enabled"] = _ce_on
-        if not _ce_on and "_cross_encoder_instance" in st.session_state:
-            del st.session_state["_cross_encoder_instance"]
-            import gc; gc.collect()
     st.markdown(
-        f'<div style="font-family:Space Mono,monospace;font-size:.44rem;color:#4A3858;margin-top:.2rem;">'
-        f'{"✓ CE active — higher accuracy" if _ce_on else "○ CE off — lower memory (recommended)"}'
-        f'</div>',
+        '<div style="font-family:Space Mono,monospace;font-size:.44rem;color:#4A3858;line-height:1.7;">'
+        'TF-IDF + BM25 hybrid retrieval<br>'
+        'RRF rank fusion · zero ML deps<br>'
+        '~30MB memory footprint'
+        '</div>',
         unsafe_allow_html=True,
     )
 
@@ -5338,16 +5333,22 @@ with _search_col:
         hits = []
         if st.session_state.vectorstore:
             try:
-                vs      = st.session_state.vectorstore
-                is_bge  = vs.get("is_bge", False)
-                eq      = f"query: {_raw_q}" if is_bge else _raw_q
-                q_emb   = vs["model"].encode([eq], normalize_embeddings=True).tolist()
-                res     = vs["collection"].query(query_embeddings=q_emb, n_results=5,
-                                                 include=["documents","metadatas","distances"])
-                for chunk, meta, dist in zip(res["documents"][0], res["metadatas"][0], res["distances"][0]):
-                    hits.append({"filename": meta["filename"],
-                                 "score":    round(1 - dist/2, 3),
-                                 "snippet":  chunk[:300]})
+                vs     = st.session_state.vectorstore
+                chunks = vs.get("chunks", [])
+                meta   = vs.get("meta",   [])
+                vec    = vs.get("vectorizer")
+                mat    = vs.get("tfidf_matrix")
+                if vec and mat is not None and chunks:
+                    from sklearn.metrics.pairwise import cosine_similarity
+                    q_vec = vec.transform([_raw_q])
+                    sims  = cosine_similarity(q_vec, mat).flatten()
+                    top5  = sims.argsort()[::-1][:5]
+                    for idx in top5:
+                        if sims[idx] > 0:
+                            m = meta[idx] if idx < len(meta) else {}
+                            hits.append({"filename": m.get("filename","—"),
+                                         "score":    round(float(sims[idx]), 3),
+                                         "snippet":  chunks[idx][:300]})
             except: pass
         st.session_state.search_results = hits
 
@@ -5476,11 +5477,32 @@ if st.session_state.auto_generated:
         if hs_q and st.session_state.vectorstore:
             with st.spinner("Retrieving…"):
                 try:
-                    vs = st.session_state.vectorstore
-                    ar = vs["collection"].get(include=["documents","embeddings","metadatas"])
-                    cks, emb, mts = ar["documents"], ar["embeddings"], ar["metadatas"]
-                    qe2 = vs["model"].encode([hs_q], normalize_embeddings=True).tolist()[0]
-                    hits2 = HybridRetriever(cks, emb).retrieve(hs_q, qe2, n=tn2, bw=bw2, rerank=uce2)
+                    vs   = st.session_state.vectorstore
+                    cks  = vs.get("chunks", [])
+                    mts  = vs.get("meta", [])
+                    vec2 = vs.get("vectorizer")
+                    mat2 = vs.get("tfidf_matrix")
+                    if vec2 and mat2 is not None and cks:
+                        from sklearn.metrics.pairwise import cosine_similarity
+                        qv2  = vec2.transform([hs_q])
+                        sim2 = cosine_similarity(qv2, mat2).flatten().tolist()
+                    else:
+                        sim2 = [0.0]*len(cks)
+                    try:
+                        from rank_bm25 import BM25Okapi
+                        _b3  = BM25Okapi([_tokenize(c) for c in cks])
+                        _br3 = _b3.get_scores(_tokenize(hs_q))
+                        _bm3 = max(_br3) if max(_br3)>0 else 1.0
+                        bm3  = [s/_bm3 for s in _br3]
+                    except Exception:
+                        bm3 = [0.0]*len(cks)
+                    _K3=60; N3=len(cks); rrf3: dict[int,float]={}
+                    for _rl3 in (sorted(range(N3), key=lambda i: sim2[i], reverse=True),
+                                 sorted(range(N3), key=lambda i: bm3[i],  reverse=True)):
+                        for _r3,_i3 in enumerate(_rl3):
+                            rrf3[_i3]=rrf3.get(_i3,0.0)+1.0/(_K3+_r3+1)
+                    hits2=[{"idx":i,"chunk":cks[i],"score":rrf3[i]}
+                           for i in sorted(rrf3,key=lambda i:rrf3[i],reverse=True)[:tn2]]
                     for rank, h in enumerate(hits2, 1):
                         mt = mts[h["idx"]] if h["idx"] < len(mts) else {}
                         tags_h = tag_chunk(h["chunk"])
@@ -6335,22 +6357,53 @@ if q:
             # ── Document retrieval ─────────────────────────────────────────
             doc_context = ""; sources_data = []
             if st.session_state.vectorstore:
-                vs     = st.session_state.vectorstore
-                model  = vs["model"]
-                is_bge = vs.get("is_bge", False)
+                vs = st.session_state.vectorstore
 
-                # 1. Semantic cache — skip re-embedding for repeated queries
+                # 1. Semantic cache
                 _cached = _retrieval_cache_get(q)
                 if _cached:
                     doc_context  = _cached["doc_context"]
                     sources_data = _cached["sources_data"]
                 else:
-                    # 2. Query expansion + BGE prefix
+                    # 2. Query expansion
                     expanded_q = _expand_query(q)
-                    embed_q    = f"query: {expanded_q}" if is_bge else expanded_q
-                    q_emb      = model.encode([embed_q], normalize_embeddings=True).tolist()
 
-                    # 3. Pre-retrieval section filter
+                    # 3. TF-IDF similarity (replaces neural embedding + ChromaDB)
+                    from sklearn.metrics.pairwise import cosine_similarity
+                    import numpy as _np2
+                    vectorizer   = vs.get("vectorizer")
+                    tfidf_matrix = vs.get("tfidf_matrix")
+                    chunks_all   = vs.get("chunks", [])
+                    meta_all     = vs.get("meta", [])
+                    dense_scores_all = []
+                    if vectorizer is not None and tfidf_matrix is not None and len(chunks_all):
+                        q_vec = vectorizer.transform([expanded_q])
+                        sims  = cosine_similarity(q_vec, tfidf_matrix).flatten()
+                        dense_scores_all = sims.tolist()
+                    else:
+                        dense_scores_all = [0.0] * len(chunks_all)
+
+                    # 4. BM25 re-score
+                    try:
+                        from rank_bm25 import BM25Okapi
+                        _bm25_local = BM25Okapi([_tokenize(c) for c in chunks_all])
+                        bm25_raw    = _bm25_local.get_scores(_tokenize(expanded_q))
+                        bm25_max    = max(bm25_raw) if max(bm25_raw) > 0 else 1.0
+                        bm25_norm   = [s / bm25_max for s in bm25_raw]
+                    except Exception:
+                        bm25_norm = [0.0] * len(chunks_all)
+
+                    # 5. RRF fusion
+                    _K = 60
+                    N  = len(chunks_all)
+                    dense_rank = sorted(range(N), key=lambda i: dense_scores_all[i], reverse=True)
+                    bm25_rank  = sorted(range(N), key=lambda i: bm25_norm[i],        reverse=True)
+                    rrf: dict[int, float] = {}
+                    for ranked in (dense_rank, bm25_rank):
+                        for rank, idx in enumerate(ranked):
+                            rrf[idx] = rrf.get(idx, 0.0) + 1.0 / (_K + rank + 1)
+
+                    # 6. Section hint pre-filter (post-RRF boost)
                     q_lower = q.lower()
                     pre_section = None
                     _section_hints = {
@@ -6365,88 +6418,26 @@ if q:
                         if re.search(pat, q_lower, re.IGNORECASE):
                             pre_section = sec; break
 
-                    _where  = {"section": {"$eq": pre_section}} if pre_section else None
-                    _n_coll = vs["collection"].count()
-
-                    # 4. Dense retrieval (ChromaDB ANN)
-                    try:
-                        res = vs["collection"].query(
-                            query_embeddings=q_emb,
-                            n_results=min(20, _n_coll),
-                            where=_where,
-                            include=["documents", "metadatas", "distances"],
-                        )
-                        if _where and len(res["documents"][0]) < 5:
-                            res = vs["collection"].query(
-                                query_embeddings=q_emb,
-                                n_results=min(20, _n_coll),
-                                include=["documents", "metadatas", "distances"],
-                            )
-                    except Exception:
-                        res = vs["collection"].query(
-                            query_embeddings=q_emb,
-                            n_results=min(20, _n_coll),
-                            include=["documents", "metadatas", "distances"],
-                        )
-
-                    cks, mts, dts = res["documents"][0], res["metadatas"][0], res["distances"][0]
-                    dense_scores  = [round(1 - d / 2, 4) for d in dts]
-
-                    # 5. BM25 re-score same candidates for RRF
-                    try:
-                        from rank_bm25 import BM25Okapi
-                        _bm25_local = BM25Okapi([_tokenize(c) for c in cks])
-                        bm25_raw    = _bm25_local.get_scores(_tokenize(expanded_q))
-                        bm25_max    = max(bm25_raw) or 1.0
-                        bm25_norm   = [s / bm25_max for s in bm25_raw]
-                    except Exception:
-                        bm25_norm = [0.0] * len(cks)
-
-                    # 6. RRF fusion — rank-based, scale-invariant
-                    _K = 60
-                    dense_rank = sorted(range(len(cks)), key=lambda i: dense_scores[i],  reverse=True)
-                    bm25_rank  = sorted(range(len(cks)), key=lambda i: bm25_norm[i],     reverse=True)
-                    rrf: dict[int, float] = {}
-                    for ranked in (dense_rank, bm25_rank):
-                        for rank, idx in enumerate(ranked):
-                            rrf[idx] = rrf.get(idx, 0.0) + 1.0 / (_K + rank + 1)
-
-                    # 7. Build candidate list with section metadata + post-score boost
+                    # 7. Build candidates (top 20 by RRF)
+                    top_idxs = sorted(rrf, key=lambda i: rrf[i], reverse=True)[:20]
                     candidates = []
-                    for i, (c, m, d) in enumerate(zip(cks, mts, dts)):
-                        section    = m.get("section") or guess_section(c)
-                        boost      = 0.04 if (pre_section and section == pre_section) else 0.0
-                        doc_title  = m.get("doc_title", m.get("filename", ""))
+                    for i in top_idxs:
+                        m       = meta_all[i]
+                        section = m.get("section") or guess_section(chunks_all[i])
+                        boost   = 0.04 if (pre_section and section == pre_section) else 0.0
                         candidates.append({
-                            "chunk":     c, "meta": m, "dist": d,
+                            "chunk":     chunks_all[i],
+                            "meta":      m,
+                            "dist":      1 - dense_scores_all[i],
                             "score":     min(1.0, rrf.get(i, 0.0) + boost),
                             "rrf_raw":   rrf.get(i, 0.0),
                             "section":   section,
-                            "doc_title": doc_title,
+                            "doc_title": m.get("doc_title", m.get("filename", "")),
                             "page":      m.get("page", ""),
                         })
 
-                    # 8. Cross-encoder rerank — only if user has opted in (saves ~300MB)
-                    CE_THRESHOLD = -4.0
-                    try:
-                        if st.session_state.get("_ce_enabled", False):
-                            _ce_key = "_cross_encoder_instance"
-                            if _ce_key not in st.session_state:
-                                from sentence_transformers import CrossEncoder
-                                st.session_state[_ce_key] = CrossEncoder(
-                                    "cross-encoder/ms-marco-MiniLM-L-6-v2"
-                                )
-                            ce = st.session_state[_ce_key]
-                            ce_scores = ce.predict([(q, c["chunk"]) for c in candidates]).tolist()
-                            for cand, sc in zip(candidates, ce_scores):
-                                cand["ce_score"] = sc
-                            candidates.sort(key=lambda x: x.get("ce_score", -99), reverse=True)
-                            above = [c for c in candidates if c.get("ce_score", -99) >= CE_THRESHOLD]
-                            candidates = above if len(above) >= 3 else candidates
-                        else:
-                            candidates.sort(key=lambda x: x["score"], reverse=True)
-                    except Exception:
-                        candidates.sort(key=lambda x: x["score"], reverse=True)
+                    # 8. Sort by score (CE rerank removed — no sentence-transformers)
+                    candidates.sort(key=lambda x: x["score"], reverse=True)
 
                     top = candidates[:6]
                     doc_context = "\n---\n".join(
