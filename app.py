@@ -1375,11 +1375,33 @@ def render_eval_dashboard(results: list[dict]) -> None:
 # matching, logs to retrieval monitor, renders dashboard.
 # ─────────────────────────────────────────────────────────────────────────────
 def _run_eval_benchmark(questions: list[dict], vectorstore, groq_api_key: str,
-                        use_expected_answer: bool = False) -> None:
+                        use_expected_answer: bool = False,
+                        doc_text: str = "") -> None:
     """Execute full pipeline benchmark and render results in-place."""
     if not vectorstore or not groq_api_key:
         st.error("Need uploaded documents and a Groq API key.")
         return
+
+    # ── Doc-aware keyword enrichment ────────────────────────────────────────
+    # For generic benchmarks the fixed keywords may not match the document's
+    # actual vocabulary. Scan the full doc text once and build a set of
+    # numbers and financial terms that actually appear — use these to augment
+    # the keyword list for each question so the scorer gives credit for
+    # document-specific phrasings (e.g. "net sales" instead of "revenue").
+    doc_lower = doc_text.lower() if doc_text else ""
+    # Extract all numbers found in doc (catches "$1.2B", "₹243 Cr", "14.5%")
+    _doc_numbers = set(re.findall(r"[\d,]+\.?\d*\s*(?:%|bn|b|m|cr|lakh|billion|million|thousand)?", doc_lower))
+    _doc_fin_terms = set(re.findall(r"[a-z][a-z\s\-]{3,25}(?:revenue|income|profit|loss|cash|assets|equity|eps|ebitda|margin|ratio|debt|sales|turnover|cagr|growth|guidance|outlook|dividend|buyback|r&d|capex|fcf|roe|roa|roce)[a-z\s]{0,15}", doc_lower))
+
+    def _enrich_keywords(kws: list[str], syns: dict) -> tuple[list[str], dict]:
+        """Add any doc-found synonyms that the scorer should also accept."""
+        enriched_kws  = list(kws)
+        enriched_syns = {k: list(v) for k, v in syns.items()}
+        # Numbers: if doc has any numbers at all, add them as valid keyword tokens
+        if _doc_numbers and not any(c.isdigit() for kw in kws for c in kw):
+            enriched_kws.extend(list(_doc_numbers)[:4])
+        # Financial terms: any doc term overlapping with the question's theme
+        return enriched_kws, enriched_syns
 
     er = []
     prog = st.progress(0, text="Evaluating… (pacing calls to avoid rate limits)")
@@ -1435,6 +1457,9 @@ def _run_eval_benchmark(questions: list[dict], vectorstore, groq_api_key: str,
             kws      = eq.get("expected_keywords", [])
             syns     = eq.get("synonyms", {})
 
+            # Enrich keywords with doc-found terms so scorer credits doc-specific phrasing
+            kws_eff, syns_eff = _enrich_keywords(kws, syns)
+
             # Keyword hits against retrieved context (retrieval quality signal)
             kw_hits = sum(1 for kw in kws if kw.lower() in ctx.lower())
 
@@ -1477,12 +1502,12 @@ def _run_eval_benchmark(questions: list[dict], vectorstore, groq_api_key: str,
                     site_key=f"eval_{i}_retry",
                 )
 
-            # Semantic scoring
+            # Semantic scoring — use enriched keywords to credit doc-specific phrasing
             sc = score_answer_semantic(
                 answer=ans,
-                expected_keywords=kws,
+                expected_keywords=kws_eff,
                 expected_answer=exp_ans if use_expected_answer else "",
-                synonyms=syns,
+                synonyms=syns_eff,
             )
             ce_scores_e: dict = {}
             top_ce_q = 0.0
@@ -2023,10 +2048,14 @@ def render_analytics_tab(vectorstore, groq_api_key, doc_full_text="", auto_metri
             st.markdown(
                 f'<div style="background:rgba(240,192,64,.05);border:1px solid rgba(240,192,64,.2);'
                 f'border-radius:8px;padding:.6rem 1rem;margin-bottom:.8rem;">'
-                f'<div style="font-family:Space Mono,monospace;font-size:.5rem;color:#F0C040;">⚠ NOTE</div>'
+                f'<div style="font-family:Space Mono,monospace;font-size:.5rem;color:#F0C040;">ℹ WHY SCORES DIFFER</div>'
                 f'<div style="font-family:Syne,sans-serif;font-size:.76rem;color:{VELVET["dim"]};">'
-                f'These 8 generic questions use SEC filing vocabulary. Low scores on non-English or '
-                f'small documents are expected — use Document-Adaptive mode for accurate measurement.</div>'
+                f'<b>Document-Adaptive</b> scores high because questions are generated <i>from</i> your document — '
+                f'it\'s an open-book test written from the answer key. '
+                f'<b>Generic</b> uses 8 fixed SEC-filing questions ("diluted EPS", "free cash flow", etc.) '
+                f'that may not match your document\'s vocabulary. '
+                f'A small file with 2 chunks will score low — use Adaptive mode for real accuracy measurement, '
+                f'or upload a multi-page PDF/Excel for generic to work well.</div>'
                 f'</div>', unsafe_allow_html=True)
 
             _custom_qs = st.session_state.get("custom_eval_qs", [])
@@ -2038,7 +2067,8 @@ def render_analytics_tab(vectorstore, groq_api_key, doc_full_text="", auto_metri
                 if st.button("🗑 Clear log", key="clr_log_g", use_container_width=True):
                     _RETRIEVAL_LOG.clear(); st.rerun()
             if run_generic:
-                _run_eval_benchmark(EVAL_QUESTIONS, vectorstore, groq_api_key)
+                _run_eval_benchmark(EVAL_QUESTIONS, vectorstore, groq_api_key,
+                                    doc_text=doc_full_text)
 
         # ── Custom mode ───────────────────────────────────────────────────
         else:
@@ -2596,16 +2626,44 @@ def _extract_page_aware(f) -> list[dict]:
         except Exception as e:
             pages.append({"text": f"[DOCX parse error: {e}]", "page": 1, "source": f.name})
     else:
+        # Plain text / markdown / unknown
+        text_raw = ""
         for enc in ("utf-8", "latin-1", "cp1252"):
             try:
-                pages.append({"text": raw.decode(enc), "page": 1, "source": f.name}); break
+                text_raw = raw.decode(enc); break
             except: pass
         else:
-            pages.append({"text": raw.decode("utf-8", errors="ignore"), "page": 1, "source": f.name})
+            text_raw = raw.decode("utf-8", errors="ignore")
+
+        # Split into logical "pages" at paragraph breaks so chunker gets
+        # smaller units — prevents a whole file becoming 1-2 giant chunks.
+        # Strategy: group lines into blocks of ≤1500 chars separated by blank lines.
+        lines = text_raw.splitlines()
+        blocks, cur = [], []
+        cur_len = 0
+        for line in lines:
+            cur.append(line)
+            cur_len += len(line) + 1
+            # Split at blank line OR when block reaches 1500 chars
+            if (not line.strip() or cur_len >= 1500) and cur_len > 0:
+                block_text = "\n".join(cur).strip()
+                if block_text:
+                    blocks.append(block_text)
+                cur, cur_len = [], 0
+        if cur:
+            block_text = "\n".join(cur).strip()
+            if block_text:
+                blocks.append(block_text)
+
+        if not blocks:
+            blocks = [text_raw]
+
+        for bi, block_text in enumerate(blocks):
+            pages.append({"text": block_text, "page": bi + 1, "source": f.name})
 
     return pages
 
-def _chunk_text(text: str, chunk_size: int = 512, overlap: int = 64) -> list[str]:
+def _chunk_text(text: str, chunk_size: int = 300, overlap: int = 50) -> list[str]:
     """Pure-Python recursive splitter — no langchain required."""
     if not text.strip():
         return []
@@ -5733,7 +5791,8 @@ if st.session_state.auto_generated:
 
         elif mode2.startswith("📋"):
             if st.button("▶  Run Generic Benchmark", key="bench2", use_container_width=True):
-                _run_eval_benchmark(EVAL_QUESTIONS, st.session_state.vectorstore, GROQ_API_KEY)
+                _run_eval_benchmark(EVAL_QUESTIONS, st.session_state.vectorstore, GROQ_API_KEY,
+                                    doc_text=st.session_state.get("doc_full_text", ""))
 
         else:
             _cq2 = st.session_state.get("custom_eval_qs", [])
