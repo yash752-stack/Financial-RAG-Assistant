@@ -1382,14 +1382,8 @@ def _run_eval_benchmark(questions: list[dict], vectorstore, groq_api_key: str,
         return
 
     er = []
-    prog = st.progress(0, text="Evaluating…")
+    prog = st.progress(0, text="Evaluating… (pacing calls to avoid rate limits)")
     vs = vectorstore
-
-    try:
-        from openai import OpenAI as _OAI
-        _oai = _OAI(api_key=groq_api_key, base_url="https://api.groq.com/openai/v1")
-    except Exception as e:
-        st.error(f"OpenAI client error: {e}"); prog.empty(); return
 
     # Pre-load TF-IDF components once
     _vectorizer_e   = vs.get("vectorizer")
@@ -1397,7 +1391,14 @@ def _run_eval_benchmark(questions: list[dict], vectorstore, groq_api_key: str,
     _chunks_e       = vs.get("chunks", [])
 
     for i, eq in enumerate(questions):
+        prog.progress(i / len(questions),
+                      text=f"Q{i+1}/{len(questions)} · {eq['question'][:45]}…")
         try:
+            # ── Inter-call delay to stay within Groq free tier RPM ───────
+            # Free tier: 30 req/min → ~2s between calls keeps us safe.
+            if i > 0:
+                _tm.sleep(2.1)
+
             # ── Full pipeline: expand → TF-IDF → RRF ────────────────────
             expanded = _expand_query(eq["question"])
 
@@ -1437,37 +1438,59 @@ def _run_eval_benchmark(questions: list[dict], vectorstore, groq_api_key: str,
             # Keyword hits against retrieved context (retrieval quality signal)
             kw_hits = sum(1 for kw in kws if kw.lower() in ctx.lower())
 
-            # Generate answer via LLM
-            resp_e = _oai.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[
-                    {"role": "system", "content":
-                        "Answer ONLY from the provided document context. "
+            # Generate answer via groq_call (handles retry + rate limit internally)
+            ans = groq_call(
+                api_key=groq_api_key,
+                messages=[{"role": "user", "content": f"Context:\n{ctx}\n\nQuestion: {eq['question']}"}],
+                system=("Answer ONLY from the provided document context. "
                         "Quote exact numbers and phrases verbatim. "
-                        "If the answer is not present, say exactly: NOT FOUND in context."},
-                    {"role": "user", "content":
-                        f"Context:\n{ctx}\n\nQuestion: {eq['question']}"},
-                ],
-                temperature=0.03, max_tokens=400,
+                        "If the answer is not present, say exactly: NOT FOUND in context."),
+                model="llama-3.3-70b-versatile",
+                temperature=0.03,
+                max_tokens=400,
+                site_key=f"eval_{i}",
             )
-            ans = resp_e.choices[0].message.content
 
-            # Semantic scoring — uses expected_answer if available for exact match
+            # If groq_call returned a rate-limit error string, wait and skip gracefully
+            if ans.startswith("⚠"):
+                wait_m = re.search(r"(\d+)m\s*(\d+)s|(\d+)s", ans)
+                wait_s = 62  # default: wait just over 1 minute
+                if wait_m:
+                    if wait_m.group(1):
+                        wait_s = int(wait_m.group(1))*60 + int(wait_m.group(2))
+                    else:
+                        wait_s = int(wait_m.group(3))
+                wait_s = min(wait_s + 3, 125)  # cap at ~2 min, add buffer
+                prog.progress(i / len(questions),
+                              text=f"⏱ Rate limit hit — pausing {wait_s}s then continuing…")
+                _tm.sleep(wait_s)
+                # Retry once after the pause
+                ans = groq_call(
+                    api_key=groq_api_key,
+                    messages=[{"role": "user", "content": f"Context:\n{ctx}\n\nQuestion: {eq['question']}"}],
+                    system=("Answer ONLY from the provided document context. "
+                            "Quote exact numbers and phrases verbatim. "
+                            "If the answer is not present, say exactly: NOT FOUND in context."),
+                    model="llama-3.3-70b-versatile",
+                    temperature=0.03,
+                    max_tokens=400,
+                    site_key=f"eval_{i}_retry",
+                )
+
+            # Semantic scoring
             sc = score_answer_semantic(
                 answer=ans,
                 expected_keywords=kws,
                 expected_answer=exp_ans if use_expected_answer else "",
                 synonyms=syns,
             )
+            ce_scores_e: dict = {}
+            top_ce_q = 0.0
 
-            # CE top score for this question
-            top_ce_q = max(ce_scores_e.values()) if ce_scores_e else 0.0
-
-            # Log to monitoring
             log_retrieval(
                 query=eq["question"],
-                retrieved=[{"section": res["metadatas"][0][j].get("section", "?"),
-                             "ce_score": ce_scores_e.get(j, 0), "score": rrf_e.get(j, 0)}
+                retrieved=[{"section": (_chunks_e[j][:30] if j < len(_chunks_e) else "?"),
+                             "ce_score": 0, "score": rrf_e.get(j, 0)}
                             for j in cands_e[:6]],
                 keyword_hits=kw_hits,
                 keyword_total=len(kws),
@@ -1478,22 +1501,36 @@ def _run_eval_benchmark(questions: list[dict], vectorstore, groq_api_key: str,
                 "answer":     ans,
                 "score":      sc,
                 "ctx_recall": round(kw_hits / len(kws) * 100 if kws else 0, 1),
-                "top_ce":     round(top_ce_q, 2),
+                "top_ce":     0.0,
                 "exp_ans":    exp_ans,
             })
 
         except Exception as exc:
             err_s = str(exc)
+            # Rate limit: parse wait time, sleep, continue — no error card shown
             if "rate_limit_exceeded" in err_s or "429" in err_s:
-                retry_m = re.search(r"try again in (\S+)", err_s, re.IGNORECASE)
-                st.warning(f"⏱ Rate limit — retry in ~{retry_m.group(1) if retry_m else 'a minute'}")
-            er.append({"question": eq["question"], "category": eq.get("category","—"),
-                        "answer": f"Error: {err_s[:100]}",
-                        "score": {"recall":0,"hits":0,"total":0,"score_pct":0},
-                        "ctx_recall": 0, "top_ce": 0, "exp_ans": ""})
+                retry_m = re.search(r"(\d+)m\s*(\d+)s|(\d+)s", err_s)
+                wait_s  = 62
+                if retry_m:
+                    if retry_m.group(1): wait_s = int(retry_m.group(1))*60 + int(retry_m.group(2))
+                    else:                wait_s = int(retry_m.group(3))
+                wait_s = min(wait_s + 3, 125)
+                prog.progress(i / len(questions),
+                              text=f"⏱ Rate limit — pausing {wait_s}s ({i+1}/{len(questions)} done so far)…")
+                _tm.sleep(wait_s)
+                # Mark as skipped (not as error card)
+                er.append({"question": eq["question"], "category": eq.get("category","—"),
+                           "answer": "⏱ Skipped (rate limit — re-run to retry)",
+                           "score": {"recall":0,"hits":0,"total":0,"score_pct":0},
+                           "ctx_recall": 0, "top_ce": 0, "exp_ans": ""})
+            else:
+                er.append({"question": eq["question"], "category": eq.get("category","—"),
+                           "answer": f"Error: {err_s[:120]}",
+                           "score": {"recall":0,"hits":0,"total":0,"score_pct":0},
+                           "ctx_recall": 0, "top_ce": 0, "exp_ans": ""})
 
         prog.progress((i+1) / len(questions),
-                      text=f"Q{i+1}/{len(questions)} · {eq['question'][:45]}…")
+                      text=f"✓ Q{i+1}/{len(questions)} done · {eq['question'][:40]}…")
 
     prog.empty()
     if not er:
@@ -1792,9 +1829,10 @@ def render_analytics_tab(vectorstore, groq_api_key, doc_full_text="", auto_metri
                                 f'color:{VELVET["text"]};margin:.3rem 0 .2rem;">{tn}</div>'
                                 f'<div style="font-family:Space Mono,monospace;font-size:.52rem;color:{color};'
                                 f'text-transform:uppercase;">{tm["category"]}</div></div>', unsafe_allow_html=True)
-                    if st.button("Run Analysis →", key=f"tpl_{tn[:20]}", use_container_width=True):
+                    if st.button("Run →", key=f"tpl_{tn[:20]}", use_container_width=True):
                         st.session_state["_prefill"] = tm["prompt"]
-                        st.success(f"✓ '{tn}' sent to chat ↓")
+                        st.session_state["show_chat"] = True
+                        st.rerun()
 
     # ── 3: Hybrid Search ─────────────────────────────────────────────────────
     with sub_tabs[3]:
@@ -5587,8 +5625,8 @@ if st.session_state.auto_generated:
                                 f'text-transform:uppercase;">{tm["category"]}</div></div>', unsafe_allow_html=True)
                     if st.button("Run →", key=f"tpl2_{tn[:18]}", use_container_width=True):
                         st.session_state["_prefill"] = tm["prompt"]
-                        st.session_state.show_chat = True
-                        st.success(f"✓ '{tn}' → open Chat ↑")
+                        st.session_state["show_chat"] = True
+                        st.rerun()
 
     with _atabs[3]:
         hs_q = st.text_input("Hybrid search", placeholder="e.g. free cash flow 2023",
