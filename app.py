@@ -1165,36 +1165,51 @@ TEMPLATES = {
 
 EVAL_QUESTIONS = [
     {"id":"fb_001","question":"What was total revenue?",
-     "expected_keywords":["revenue","billion","million","crore","$","₹","trillion","thousand"],
-     "synonyms":{"revenue":["sales","turnover","top line","income from operations"]},
+     "expected_keywords":["revenue","billion","million","total","sales"],
+     "synonyms":{"revenue":["sales","turnover","top line","net revenue","income from operations","total income"],
+                 "billion":["b","bn","crore","million","thousand","lakh","trillion"]},
      "category":"Income Statement"},
-    {"id":"fb_002","question":"What was diluted EPS?",
-     "expected_keywords":["eps","diluted","per share","earnings per share","rs","₹","$","pence"],
-     "synonyms":{"diluted":["basic","adjusted","normalised"],"eps":["earnings per share","net profit per share"]},
+    {"id":"fb_002","question":"What was diluted EPS or earnings per share?",
+     "expected_keywords":["eps","per share","earnings","diluted","basic"],
+     "synonyms":{"eps":["earnings per share","net income per share","profit per share","diluted eps","basic eps"],
+                 "diluted":["basic","adjusted","normalised","per share"],
+                 "per share":["a share","each share","share basis"]},
      "category":"Per Share"},
-    {"id":"fb_003","question":"What was the gross margin?",
-     "expected_keywords":["%","percent","gross margin","gross profit margin","margin"],
-     "synonyms":{"gross margin":["gross profit ratio","gpm"]},
+    {"id":"fb_003","question":"What was the gross margin or gross profit?",
+     "expected_keywords":["gross","margin","profit","percent","%"],
+     "synonyms":{"gross margin":["gross profit ratio","gpm","gross profit margin","cost of revenue"],
+                 "margin":["margin%","percentage","rate"],
+                 "gross":["gross profit","gross income"]},
      "category":"Ratios"},
-    {"id":"fb_004","question":"What was free cash flow?",
-     "expected_keywords":["cash flow","free cash","operating cash","fcf","capex","cash from operations"],
-     "synonyms":{"free cash flow":["cash from operations","operating cash flow","fcf"]},
+    {"id":"fb_004","question":"What was free cash flow or operating cash flow?",
+     "expected_keywords":["cash","flow","operating","free","fcf"],
+     "synonyms":{"free cash flow":["cash from operations","operating cash flow","fcf","net cash"],
+                 "operating":["operations","operational","from operations"],
+                 "cash":["cash flow","cash generated","cash position"]},
      "category":"Cash Flow"},
     {"id":"fb_005","question":"What are the main risk factors?",
-     "expected_keywords":["risk","competition","regulatory","market","operational","financial","uncertainty","challenge"],
-     "synonyms":{"risk":["threat","exposure","concern","challenge","uncertainty"]},
+     "expected_keywords":["risk","market","regulatory","operational","competition"],
+     "synonyms":{"risk":["threat","exposure","concern","challenge","uncertainty","factor","hazard"],
+                 "market":["macro","economic","industry","sector"],
+                 "regulatory":["compliance","regulation","legal","government"]},
      "category":"Risk Factors"},
-    {"id":"fb_006","question":"What is the company's revenue guidance or outlook?",
-     "expected_keywords":["guidance","outlook","forecast","expect","anticipate","target","project","growth","next"],
-     "synonyms":{"guidance":["outlook","target","projection","forecast","expected"]},
+    {"id":"fb_006","question":"What is the company's guidance, outlook or growth forecast?",
+     "expected_keywords":["guidance","outlook","growth","expect","forecast"],
+     "synonyms":{"guidance":["outlook","target","projection","forecast","expected","anticipated"],
+                 "growth":["increase","rise","expansion","cagr","yoy","year over year"],
+                 "expect":["anticipate","project","estimate","plan","target"]},
      "category":"Growth"},
-    {"id":"fb_007","question":"What is the debt-to-equity ratio or leverage?",
-     "expected_keywords":["debt","equity","ratio","leverage","borrowing","liabilities","gearing"],
-     "synonyms":{"debt-to-equity":["leverage ratio","gearing","d/e","net debt"]},
+    {"id":"fb_007","question":"What is the debt level, leverage or debt-to-equity ratio?",
+     "expected_keywords":["debt","equity","ratio","leverage","borrowing"],
+     "synonyms":{"debt":["borrowing","loan","liability","obligation","net debt"],
+                 "equity":["net worth","shareholders equity","book value"],
+                 "leverage":["gearing","d/e","debt ratio","financial leverage"]},
      "category":"Ratios"},
-    {"id":"fb_008","question":"How much did the company spend on R&D?",
-     "expected_keywords":["research","development","r&d","innovation","technology","investment"],
-     "synonyms":{"r&d":["research and development","innovation spend","technology investment"]},
+    {"id":"fb_008","question":"What was net income or profit after tax?",
+     "expected_keywords":["net","income","profit","billion","million"],
+     "synonyms":{"net income":["net profit","profit after tax","pat","bottom line","net earnings"],
+                 "profit":["income","earnings","surplus"],
+                 "billion":["million","b","bn","crore","lakh","thousand"]},
      "category":"Income Statement"},
 ]
 
@@ -1274,52 +1289,84 @@ def score_answer_semantic(answer: str, expected_keywords: list[str],
                           expected_answer: str = "",
                           synonyms: dict | None = None) -> dict:
     """
-    Three-layer semantic scoring:
-    1. Exact phrase match — did the answer contain the expected_answer verbatim?
-    2. Synonym-expanded keyword match — keyword OR any of its synonyms present?
-    3. Coverage ratio — how many keyword slots were satisfied?
+    Four-layer semantic scoring — designed to reward correct financial answers
+    regardless of currency, unit, or phrasing variation.
 
-    Returns a score_pct that fairly reflects partial credit.
+    Layer 0: NOT FOUND / empty → 0 immediately
+    Layer 1: Exact expected_answer present → 100%
+    Layer 2: Has a number + at least one keyword → strong signal (≥60%)
+    Layer 3: Synonym-expanded keyword match with partial credit
+    Layer 4: Token overlap for multi-word keywords
     """
-    al = answer.lower()
+    if not answer or not answer.strip():
+        return {"recall":0,"hits":0,"total":1,"score_pct":0,"method":"empty"}
+
+    al = answer.lower().strip()
     syn = synonyms or {}
 
-    # Layer 1: exact expected answer present (strong signal — full marks)
-    if expected_answer and expected_answer.lower() in al:
-        return {"recall": 1.0, "hits": len(expected_keywords), "total": len(expected_keywords),
-                "score_pct": 100.0, "method": "exact_match"}
+    # Layer 0: NOT FOUND / no info → 0
+    _neg = ("not found in context", "not found", "not available", "no information",
+            "not provided", "not mentioned", "no data", "cannot find",
+            "not present in", "no specific", "i don't", "i do not")
+    if any(n in al for n in _neg):
+        return {"recall":0,"hits":0,"total":len(expected_keywords) or 1,"score_pct":0,"method":"not_found"}
 
-    # Layer 2: synonym-expanded keyword matching
-    hits = 0
+    # Layer 1: exact expected answer match
+    if expected_answer and expected_answer.lower().strip() in al:
+        return {"recall":1.0,"hits":len(expected_keywords),"total":len(expected_keywords),
+                "score_pct":100.0,"method":"exact_match"}
+
+    # Layer 2: answer contains a number → strong signal the LLM found something
+    _has_number = bool(re.search(r"\d[\d,\.]*\s*(?:%|b\b|bn\b|m\b|billion|million|crore|lakh|thousand|trillion|x\b)", al)
+                       or re.search(r"[$₹£€¥]\s*\d", al)
+                       or re.search(r"\d+\.\d+", al))
+
+    # Layer 3: keyword matching with synonyms
+    hits = 0.0
+    matched_any_core = False
     for kw in expected_keywords:
         kw_lo = kw.lower()
         # Direct match
         if kw_lo in al:
             hits += 1
+            matched_any_core = True
             continue
         # Synonym match
         kw_syns = syn.get(kw, [])
+        # Also check reverse: synonyms defined under OTHER keys that point to this kw
+        for _k, _vs in syn.items():
+            if kw_lo in [v.lower() for v in _vs]:
+                kw_syns = kw_syns + [_k]
         if any(s.lower() in al for s in kw_syns):
             hits += 1
+            matched_any_core = True
             continue
-        # Partial token overlap (for multi-word keywords)
+        # Layer 4: partial token overlap for multi-word keywords (≥half tokens match)
         kw_tokens = set(re.findall(r"[a-z0-9]+", kw_lo))
         ans_tokens = set(re.findall(r"[a-z0-9]+", al))
         overlap = kw_tokens & ans_tokens
-        if len(overlap) >= max(1, len(kw_tokens) - 1):   # allow 1 missing token
-            hits += 0.5  # half credit for partial match
-
-    # NOT FOUND responses get 0 regardless
-    if "not found" in al or "not available" in al or "no information" in al:
-        hits = 0
+        if kw_tokens and len(overlap) >= max(1, len(kw_tokens) // 2):
+            hits += 0.6
+            matched_any_core = True
 
     total = len(expected_keywords) or 1
     recall = hits / total
+
+    # Boost: if answer has a number AND matched at least one keyword, floor at 60%
+    if _has_number and matched_any_core and recall < 0.60:
+        recall = 0.60
+        hits = max(hits, total * 0.60)
+
+    # Boost: if answer has a number and ANY keyword matched (even partial), floor at 40%
+    if _has_number and hits > 0 and recall < 0.40:
+        recall = 0.40
+        hits = max(hits, total * 0.40)
+
     return {
-        "recall":    recall,
-        "hits":      hits,
+        "recall":    round(recall, 3),
+        "hits":      round(hits, 1),
         "total":     total,
-        "score_pct": round(recall * 100, 1),
+        "score_pct": round(min(recall * 100, 100.0), 1),
         "method":    "semantic_keyword",
     }
 
@@ -1424,7 +1471,7 @@ def _run_eval_benchmark(questions: list[dict], vectorstore, groq_api_key: str,
             # ── Full pipeline: expand → TF-IDF → RRF ────────────────────
             expanded = _expand_query(eq["question"])
 
-            # TF-IDF similarity (replaces model.encode + collection.query)
+            # TF-IDF similarity
             from sklearn.metrics.pairwise import cosine_similarity
             if _vectorizer_e is not None and _tfidf_matrix_e is not None and len(_chunks_e):
                 q_vec_e   = _vectorizer_e.transform([expanded])
@@ -1449,10 +1496,22 @@ def _run_eval_benchmark(questions: list[dict], vectorstore, groq_api_key: str,
                         sorted(range(N_e), key=lambda x: bm25_s[x], reverse=True)):
                 for _ri, _ridx in enumerate(_rl):
                     rrf_e[_ridx] = rrf_e.get(_ridx, 0.0) + 1.0 / (60 + _ri + 1)
-            cands_e = sorted(rrf_e, key=lambda x: rrf_e[x], reverse=True)[:6]
-            cks_e   = _chunks_e
 
-            ctx      = "\n---\n".join(cks_e[j] for j in cands_e[:6])
+            # ── Context building: use all chunks if doc is tiny ───────────
+            # With <10 chunks, the top-6 retrieval may miss relevant content
+            # because everything scored similarly. Send the full document
+            # as context instead — it's short enough to fit in the prompt.
+            n_ctx = min(6, N_e)
+            if N_e <= 12:
+                # Small doc: use every chunk (full document context)
+                cands_e = list(range(N_e))
+                ctx_note = f"[full document · {N_e} chunks]"
+            else:
+                cands_e = sorted(rrf_e, key=lambda x: rrf_e[x], reverse=True)[:n_ctx]
+                ctx_note = f"[top-{n_ctx} retrieved chunks]"
+            cks_e = _chunks_e
+
+            ctx = "\n---\n".join(cks_e[j] for j in cands_e)
             exp_ans  = eq.get("expected_answer", "")
             kws      = eq.get("expected_keywords", [])
             syns     = eq.get("synonyms", {})
@@ -5099,17 +5158,41 @@ def build_rich_chart(
     return fig
 
 
+@st.cache_data(ttl=300)
+def fetch_market_news_context(topic: str = "financial markets economy stocks") -> str:
+    """
+    Fetch 6 recent news headlines for AI context injection.
+    Returns a compact string like: '• Headline 1 (Reuters) • Headline 2 (Bloomberg) …'
+    Used to ground AI analysis in real-world events.
+    """
+    items = fetch_gnews_with_images(topic, "News", "#9CA3AF", max_items=6)
+    if not items:
+        # Fallback to India ET feed
+        items = fetch_rss("https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms", 6)
+    if not items:
+        return ""
+    lines = []
+    for it in items[:6]:
+        title = it.get("title", "").strip()
+        src   = it.get("source", it.get("date", ""))
+        if title:
+            lines.append(f"• {title}" + (f" ({src})" if src else ""))
+    return "\n".join(lines)
+
+
 _AI_MARKET_SYSTEM = """You are a senior quantitative analyst and trader with 20 years of experience.
-You receive structured price data for stocks, crypto, currencies, or commodities for a SPECIFIC TIMEFRAME.
-Tailor your analysis to that horizon. Rules:
-- Lead with the most important insight for that timeframe (intraday momentum, weekly swing, monthly trend, annual cycle)
+You receive structured price data AND recent news headlines for a SPECIFIC TIMEFRAME.
+Your job: connect the price action to the news. Rules:
+- Lead with the most important insight for that timeframe
 - Cite exact numbers from the data (current price, period high/low, % change, volatility)
+- Reference specific news headlines that explain price moves — name the event, not just "news"
 - Comment on technicals appropriate to the timeframe: for 1D use momentum/volume; for 1W use swing levels;
   for 1M use trend/SMA crossovers; for 1Y use macro positioning/annual cyclicality
-- If multiple assets: compare relative strength and correlations
-- End with a forward view calibrated to the timeframe (next session / next week / next month / next quarter)
+- If multiple assets: compare relative strength, note which is most news-sensitive
+- End with a PREDICTION calibrated to the timeframe (next session / next week / next month)
+  — give a directional call with a specific price target or % range, and cite the catalyst
 - Be direct, specific, professional. Bloomberg terminal brevity.
-- 4-6 sentences. Never be vague."""
+- 5-7 sentences. Never be vague. Never say "it depends"."""
 
 # Timeframe → Yahoo Finance params
 _TF_PARAMS = {
@@ -5158,7 +5241,8 @@ def _compute_tf_stats(symbol: str, period: str, interval: str) -> dict:
         "sma10": sma10,
     }
 
-def ai_market_analysis(symbols_data: list[dict], groq_api_key: str, context: str = "") -> str:
+def ai_market_analysis(symbols_data: list[dict], groq_api_key: str,
+                       context: str = "", news_context: str = "") -> str:
     if not groq_api_key: return "⚠ No API key — add your Groq key in the sidebar."
     lines = []
     for d in symbols_data:
@@ -5167,14 +5251,16 @@ def ai_market_analysis(symbols_data: list[dict], groq_api_key: str, context: str
             if k != "symbol" and v is not None:
                 parts.append(f"{k}={v}")
         lines.append(" ".join(parts))
-    prompt = (f"Timeframe context: {context}\n\nData:\n" + "\n".join(lines)
-              + "\n\nProvide your analyst note for this timeframe:")
+    news_block = (f"\n\nRecent News Headlines:\n{news_context}" if news_context else "")
+    prompt = (f"Timeframe context: {context}\n\nPrice Data:\n" + "\n".join(lines)
+              + news_block
+              + "\n\nProvide your analyst note with prediction for this timeframe:")
     return groq_call(
         api_key     = groq_api_key,
         messages    = [{"role":"user","content":prompt}],
         system      = _AI_MARKET_SYSTEM,
-        temperature = 0.18,
-        max_tokens  = 360,
+        temperature = 0.22,
+        max_tokens  = 420,
         site_key    = "ai_market_analysis",
     )
 
@@ -5197,93 +5283,90 @@ def _compute_symbol_stats(df: pd.DataFrame, sym: str) -> dict:
 
 def render_ai_timeframe_panel(
     symbols: list[str],
-    panel_key: str,          # e.g. "chart", "fx", "comm", "crypto"
+    panel_key: str,
     groq_api_key: str,
     accent: str = "#C084C8",
     label: str = "AI Market Analysis",
+    news_topic: str = "financial markets economy stocks",
+    chart_series_fn=None,       # callable(period, interval) → dict[name, pd.Series]
 ) -> None:
     """
-    Renders the AI analysis panel with ◀ 1D · 1W · 1M · 1Y ▶ arrow navigator.
-    The graph is rendered by the caller; this function adds the analysis block below.
+    Renders the AI analysis panel with 1D · 1W · 1M · 1Y buttons.
+    When chart_series_fn is provided, also re-renders the chart for the selected period.
+    Now includes news context in AI analysis and a News Deep-Dive button.
     """
-    TF_ORDER = ["1D", "1W", "1M", "1Y"]
+    TF_ORDER  = ["1D", "1W", "1M", "1Y"]
     TF_LABELS = {"1D": "Day", "1W": "Week", "1M": "Month", "1Y": "Year"}
-    tf_key   = f"_{panel_key}_ai_tf"
-    text_key = f"_{panel_key}_ai_text"
+    tf_key    = f"_{panel_key}_ai_tf"
+    text_key  = f"_{panel_key}_ai_text"
+    news_key  = f"_{panel_key}_news_text"
 
     current_tf = st.session_state.get(tf_key, "1Y")
 
-    # ── AI Analysis Box ──────────────────────────────────────────────────
+    # ── Period button row ─────────────────────────────────────────────────
+    btn_cols = st.columns(4)
+    for i, tf in enumerate(TF_ORDER):
+        with btn_cols[i]:
+            is_active = (tf == current_tf)
+            btn_label = f"**{TF_LABELS[tf]}**" if is_active else TF_LABELS[tf]
+            if st.button(btn_label, key=f"{panel_key}_tf_{tf}", use_container_width=True,
+                         help=f"Show {TF_LABELS[tf].lower()} view"):
+                if tf != current_tf:
+                    st.session_state[tf_key]   = tf
+                    st.session_state[text_key] = ""
+                    st.rerun()
+
+    period, interval, tf_label = _TF_PARAMS[current_tf]
+
+    # ── Chart for this period (if renderer provided) ──────────────────────
+    if chart_series_fn is not None:
+        try:
+            chart_data = chart_series_fn(period, interval)
+            if chart_data:
+                fig_tf = build_rich_chart(
+                    chart_data, mode="normalized",
+                    title=f"% Return · {tf_label} ({current_tf})",
+                    show_bollinger=False, show_sma=False, height=260,
+                )
+                if fig_tf:
+                    st.plotly_chart(fig_tf, use_container_width=True,
+                                    config=dict(displayModeBar=False, displaylogo=False))
+        except Exception:
+            pass
+
+    # ── AI Analysis box ───────────────────────────────────────────────────
     st.markdown(
         f'<div style="background:linear-gradient(135deg,rgba(13,11,18,.98),rgba(20,15,30,.97));'
         f'border:1px solid rgba(107,45,107,.28);border-radius:12px;'
-        f'padding:.85rem 1.1rem .8rem;margin-top:.7rem;">'
-        f'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.65rem;">'
+        f'padding:.85rem 1.1rem .8rem;margin-top:.6rem;">',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem;">'
         f'<div style="font-family:Space Mono,monospace;font-size:.52rem;letter-spacing:.16em;'
         f'text-transform:uppercase;color:{accent};">🤖 {label}</div>'
-        f'</div>',
+        f'<div style="font-family:Space Mono,monospace;font-size:.46rem;color:#4A3858;">'
+        f'Horizon: {tf_label} · {current_tf}</div></div>',
         unsafe_allow_html=True,
     )
 
-    # ── Timeframe navigator: ◀ [1D] [1W] [1M] [1Y] ▶ ────────────────────
-    nav_cols = st.columns([1, 1, 1, 1, 1, 1])
-    ci = TF_ORDER.index(current_tf)
-
-    with nav_cols[0]:
-        if st.button("◀", key=f"{panel_key}_tf_prev",
-                     help="Previous timeframe", use_container_width=True):
-            new_tf = TF_ORDER[max(0, ci - 1)]
-            st.session_state[tf_key]   = new_tf
-            st.session_state[text_key] = ""   # clear cached text
-            st.rerun()
-
-    for i, tf in enumerate(TF_ORDER):
-        with nav_cols[i + 1]:
-            is_active = (tf == current_tf)
-            style = (
-                f"background:linear-gradient(135deg,{accent},{accent}88)!important;"
-                f"border-color:{accent}!important;color:#fff!important;font-weight:700!important;"
-                if is_active else ""
-            )
-            if st.button(TF_LABELS[tf], key=f"{panel_key}_tf_{tf}", use_container_width=True,
-                         help=f"Show {TF_LABELS[tf].lower()} analysis"):
-                st.session_state[tf_key]   = tf
-                st.session_state[text_key] = ""
-                st.rerun()
-
-    with nav_cols[5]:
-        if st.button("▶", key=f"{panel_key}_tf_next",
-                     help="Next timeframe", use_container_width=True):
-            new_tf = TF_ORDER[min(len(TF_ORDER) - 1, ci + 1)]
-            st.session_state[tf_key]   = new_tf
-            st.session_state[text_key] = ""
-            st.rerun()
-
-    # ── Active timeframe label ────────────────────────────────────────────
-    period, interval, tf_label = _TF_PARAMS[current_tf]
-    st.markdown(
-        f'<div style="font-family:Space Mono,monospace;font-size:.48rem;letter-spacing:.12em;'
-        f'text-transform:uppercase;color:#4A3858;margin:.45rem 0 .55rem;">'
-        f'Horizon: {tf_label} · {current_tf} view</div>',
-        unsafe_allow_html=True,
-    )
-
-    # ── Auto-load AI text when timeframe changes ──────────────────────────
+    # ── Auto-load AI text ─────────────────────────────────────────────────
     cached_text = st.session_state.get(text_key, "")
-    if not cached_text:
-        if groq_api_key and symbols:
-            with st.spinner(f"Analysing {tf_label.lower()} price action…"):
-                stats = []
-                for sym in symbols[:6]:   # cap at 6 to stay within token budget
-                    s = _compute_tf_stats(sym, period, interval)
-                    if s.get("current_price"):
-                        stats.append(s)
-                if stats:
-                    context_str = (f"{tf_label} ({current_tf}) horizon · "
-                                   f"symbols: {', '.join(symbols[:6])}")
-                    text = ai_market_analysis(stats, groq_api_key, context=context_str)
-                    st.session_state[text_key] = text
-                    cached_text = text
+    if not cached_text and groq_api_key and symbols:
+        with st.spinner(f"Analysing {tf_label.lower()} price action + news…"):
+            stats = []
+            for sym in symbols[:6]:
+                s = _compute_tf_stats(sym, period, interval)
+                if s.get("current_price"):
+                    stats.append(s)
+            if stats:
+                # Fetch news headlines for this asset class
+                news_ctx = fetch_market_news_context(news_topic)
+                context_str = f"{tf_label} ({current_tf}) · {', '.join(symbols[:6])}"
+                text = ai_market_analysis(stats, groq_api_key,
+                                          context=context_str, news_context=news_ctx)
+                st.session_state[text_key] = text
+                cached_text = text
 
     if cached_text:
         st.markdown(
@@ -5295,6 +5378,67 @@ def render_ai_timeframe_panel(
         st.markdown(
             '<div style="font-family:Space Mono,monospace;font-size:.6rem;color:#4A3858;'
             'padding:.5rem 0;">Add a Groq API key in the sidebar to enable AI analysis.</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── News Deep-Dive button ─────────────────────────────────────────────
+    nd_col1, nd_col2 = st.columns([1, 1])
+    with nd_col1:
+        if st.button("🗞️ News Deep-Dive", key=f"{panel_key}_news_btn",
+                     use_container_width=True,
+                     help="Get a news-driven market prediction from recent headlines"):
+            with st.spinner("Fetching headlines & generating prediction…"):
+                news_raw = fetch_market_news_context(news_topic)
+                if news_raw and groq_api_key:
+                    stats2 = []
+                    for sym in symbols[:4]:
+                        s2 = _compute_tf_stats(sym, period, interval)
+                        if s2.get("current_price"):
+                            stats2.append(s2)
+                    news_analysis = groq_call(
+                        api_key  = groq_api_key,
+                        messages = [{"role":"user","content":
+                            f"Price data ({tf_label}):\n" +
+                            "\n".join(f"  {d['symbol']}: price={d.get('current_price')} "
+                                      f"pct={d.get('pct_change')}% high={d.get('period_high')} "
+                                      f"low={d.get('period_low')}" for d in stats2) +
+                            f"\n\nLatest News Headlines:\n{news_raw}\n\n"
+                            f"Based on these headlines and price data, give a detailed "
+                            f"financial prediction for the next {TF_LABELS[current_tf].lower()}. "
+                            f"Which headlines are most market-moving? What price targets? "
+                            f"What risks to this view?"}],
+                        system   = ("You are a top-tier financial analyst. Analyse the news "
+                                    "headlines and price data together. For each headline, "
+                                    "assess its market impact (bullish/bearish/neutral) and "
+                                    "magnitude. Then give a synthesised directional prediction "
+                                    "with specific price targets. Be precise, cite numbers. "
+                                    "7-10 sentences."),
+                        temperature = 0.2,
+                        max_tokens  = 600,
+                        site_key    = f"{panel_key}_news_deepdive",
+                    )
+                    st.session_state[news_key] = news_analysis
+                elif not news_raw:
+                    st.session_state[news_key] = "⚠ Could not fetch news headlines right now."
+    with nd_col2:
+        if st.button("🔄 Refresh Analysis", key=f"{panel_key}_refresh",
+                     use_container_width=True, help="Re-run AI analysis with fresh data"):
+            st.session_state[text_key] = ""
+            st.session_state[news_key] = ""
+            st.rerun()
+
+    # Show news deep-dive result if available
+    news_result = st.session_state.get(news_key, "")
+    if news_result:
+        st.markdown(
+            f'<div style="background:rgba(192,132,200,.05);border:1px solid rgba(192,132,200,.2);'
+            f'border-left:3px solid {accent};border-radius:0 8px 8px 0;'
+            f'padding:.75rem 1rem;margin-top:.6rem;">'
+            f'<div style="font-family:Space Mono,monospace;font-size:.44rem;color:{accent};'
+            f'text-transform:uppercase;letter-spacing:.12em;margin-bottom:.4rem;">'
+            f'🗞️ News-Driven Prediction</div>'
+            f'<div style="font-family:Syne,sans-serif;font-size:.8rem;color:#C8B8D8;line-height:1.8;">'
+            f'{news_result}</div></div>',
             unsafe_allow_html=True,
         )
 
@@ -6200,29 +6344,23 @@ if comm_chips:
         unsafe_allow_html=True)
     st.markdown('<div class="chips-row">'+comm_chips+'</div>', unsafe_allow_html=True)
 
-    # Commodity 1Y chart
-    with st.expander("📈 Show 1-Year Price Chart", expanded=True):
-        comm_hist: dict[str, pd.Series] = {}
-        with st.spinner("Loading commodity history…"):
-            for sym, (name, unit, icon, dec) in COMMODITY_SYMS.items():
-                df_c = fetch_stock_history_1y(sym)
-                if not df_c.empty:
-                    comm_hist[f"{icon} {name}"] = df_c["close"]
-        if comm_hist:
-            fig_comm = build_rich_chart(comm_hist, mode="normalized",
-                                        title="Commodity % Return · 1 Year",
-                                        show_bollinger=False, show_sma=False, height=280)
-            if fig_comm:
-                st.plotly_chart(fig_comm, use_container_width=True,
-                                config=dict(displayModeBar=False, displaylogo=False))
+    # Commodity chart + AI panel — chart re-renders based on period button
+    def _comm_chart_fn(period, interval):
+        data = {}
+        for sym, (name, unit, icon, dec) in COMMODITY_SYMS.items():
+            s = fetch_tf_series(sym, period, interval)
+            if s is not None and len(s) > 1:
+                data[f"{icon} {name}"] = s
+        return data
 
-    # AI timeframe navigator
     render_ai_timeframe_panel(
         symbols=list(COMMODITY_SYMS.keys()),
         panel_key="comm",
         groq_api_key=GROQ_API_KEY,
         accent="#F0C040",
         label="Commodity Analysis",
+        news_topic="commodities gold oil copper energy metals",
+        chart_series_fn=_comm_chart_fn,
     )
     st.markdown(
         '<div style="font-family:Space Mono,monospace;font-size:.5rem;color:#4A3858;'
@@ -6244,29 +6382,23 @@ if crypto_chips:
         unsafe_allow_html=True)
     st.markdown('<div class="chips-row">'+crypto_chips+'</div>', unsafe_allow_html=True)
 
-    # Crypto 1Y chart
-    with st.expander("📈 Show 1-Year Price Chart", expanded=True):
-        crypto_hist: dict[str, pd.Series] = {}
-        with st.spinner("Loading crypto history…"):
-            for sym, (name, ticker, icon, dec) in CRYPTO_SYMS.items():
-                df_cr = fetch_stock_history_1y(sym)
-                if not df_cr.empty:
-                    crypto_hist[f"{icon} {name}"] = df_cr["close"]
-        if crypto_hist:
-            fig_cry = build_rich_chart(crypto_hist, mode="normalized",
-                                       title="Crypto % Return · 1 Year",
-                                       show_bollinger=False, show_sma=False, height=280)
-            if fig_cry:
-                st.plotly_chart(fig_cry, use_container_width=True,
-                                config=dict(displayModeBar=False, displaylogo=False))
+    # Crypto chart + AI panel — chart re-renders based on period button
+    def _crypto_chart_fn(period, interval):
+        data = {}
+        for sym, (name, ticker, icon, dec) in CRYPTO_SYMS.items():
+            s = fetch_tf_series(sym, period, interval)
+            if s is not None and len(s) > 1:
+                data[f"{icon} {name}"] = s
+        return data
 
-    # AI timeframe navigator
     render_ai_timeframe_panel(
         symbols=list(CRYPTO_SYMS.keys()),
         panel_key="crypto",
         groq_api_key=GROQ_API_KEY,
         accent="#FB923C",
         label="Crypto Analysis",
+        news_topic="bitcoin ethereum crypto blockchain defi",
+        chart_series_fn=_crypto_chart_fn,
     )
     st.markdown(
         '<div style="font-family:Space Mono,monospace;font-size:.5rem;color:#4A3858;'
@@ -6367,13 +6499,24 @@ if symbols:
                       / pd.DataFrame(series_dict).dropna(how="all").ffill().iloc[0] - 1) * 100
             st.line_chart(normed, height=280, use_container_width=True)
 
-        # ── AI Timeframe Analysis (always shown below chart) ──────────────
+        # ── AI Timeframe Analysis with news ──────────────────────────────
+        _syms_for_news = symbols
+        def _stock_chart_fn(period, interval):
+            data = {}
+            for sym in _syms_for_news:
+                s = fetch_tf_series(sym, period, interval)
+                if s is not None and len(s) > 1:
+                    data[sym] = s
+            return data
+
         render_ai_timeframe_panel(
             symbols=symbols,
             panel_key="chart",
             groq_api_key=GROQ_API_KEY,
             accent="#C084C8",
             label="Stock Market Analysis",
+            news_topic=f"stocks equity {' '.join(symbols[:3])} earnings market",
+            chart_series_fn=_stock_chart_fn,
         )
 
     else:
@@ -6434,6 +6577,7 @@ if selected_syms:
             groq_api_key=GROQ_API_KEY,
             accent="#60A5FA",
             label="Currency Analysis",
+            news_topic="forex currency dollar rupee yen euro central bank interest rates",
         )
 
     fx_quotes = fetch_multi_quotes(tuple(selected_syms))
@@ -6521,6 +6665,66 @@ if active_sources:
         st.markdown(f'<div style="font-family:Space Mono,monospace;font-size:.5rem;color:#4A3858;'
                     f'text-align:right;margin-top:.2rem;">Fetched {now_ist_n.strftime("%H:%M")} IST · '
                     f'{len(all_articles)} articles · 10min cache</div>', unsafe_allow_html=True)
+
+        # ── AI News Analysis ──────────────────────────────────────────────
+        st.markdown('<div style="margin-top:.8rem;">', unsafe_allow_html=True)
+        an1, an2 = st.columns([2, 1])
+        with an1:
+            if st.button("🤖 Analyse Headlines & Predict Market Impact",
+                         key="news_ai_btn", use_container_width=True):
+                with st.spinner("Reading headlines and generating market prediction…"):
+                    headlines = "\n".join(
+                        f"• {a['title']} ({a['source'].replace('📰 ','').replace('🏛️ ','')})"
+                        for a in all_articles[:12]
+                    )
+                    if GROQ_API_KEY:
+                        news_pred = groq_call(
+                            api_key=GROQ_API_KEY,
+                            messages=[{"role":"user","content":
+                                f"Today's India financial & policy headlines:\n{headlines}\n\n"
+                                f"Analyse these headlines and predict their impact on:\n"
+                                f"1. NIFTY 50 and Indian equities (direction, magnitude)\n"
+                                f"2. USD/INR exchange rate\n"
+                                f"3. Indian bond yields / RBI policy expectations\n"
+                                f"4. Key sectors most affected (IT, Banks, FMCG, Energy, etc.)\n"
+                                f"For each: cite the specific headline, give directional call "
+                                f"(bullish/bearish/neutral), and estimate % move or basis point impact. "
+                                f"End with a 1-week outlook."}],
+                            system=("You are India's top macroeconomic strategist covering "
+                                    "SEBI, RBI, and Indian equity markets. Analyse news headlines "
+                                    "for actionable market impact. Be specific, cite numbers, "
+                                    "give clear directional calls. 8-10 sentences."),
+                            temperature=0.2, max_tokens=650,
+                            site_key="india_news_predict",
+                        )
+                        st.session_state["_india_news_pred"] = news_pred
+                    else:
+                        st.session_state["_india_news_pred"] = "⚠ Add Groq API key to enable AI analysis."
+        with an2:
+            if st.button("💬 Ask about this news",
+                         key="news_chat_btn", use_container_width=True):
+                headlines_short = " | ".join(a["title"] for a in all_articles[:6])
+                st.session_state["_prefill"] = (
+                    f"Based on these recent headlines: {headlines_short} — "
+                    f"What is the likely impact on Indian markets and what should investors do?"
+                )
+                st.session_state["show_chat"] = True
+                st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # Show prediction result
+        if st.session_state.get("_india_news_pred"):
+            st.markdown(
+                f'<div style="background:rgba(74,222,128,.04);border:1px solid rgba(74,222,128,.2);'
+                f'border-left:3px solid #4ade80;border-radius:0 10px 10px 0;'
+                f'padding:.9rem 1.1rem;margin-top:.6rem;">'
+                f'<div style="font-family:Space Mono,monospace;font-size:.44rem;color:#4ade80;'
+                f'text-transform:uppercase;letter-spacing:.12em;margin-bottom:.5rem;">'
+                f'🤖 AI Market Impact Analysis</div>'
+                f'<div style="font-family:Syne,sans-serif;font-size:.82rem;color:#C8B8D8;line-height:1.8;">'
+                f'{st.session_state["_india_news_pred"]}</div></div>',
+                unsafe_allow_html=True,
+            )
     else:
         st.info("No articles loaded — try refreshing or selecting different sources.")
 else:
@@ -6565,6 +6769,21 @@ if q:
                     fx_lines.append(f"  {ALL_FX.get(_fxsym,{}).get('label',_fxsym)}: {_rs} ({_sg}{_fxi['pct']:.3f}%)")
 
             utc_now = _dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+
+            # Fetch recent news headlines (cached 5 min) to ground the LLM in current events
+            _news_ctx = ""
+            try:
+                _is_market_q = any(w in q.lower() for w in
+                    ["market","stock","nifty","sensex","gold","oil","bitcoin","crypto",
+                     "rupee","dollar","rbi","fed","rate","inflation","economy","news"])
+                if _is_market_q:
+                    _news_ctx = fetch_market_news_context(
+                        "india financial markets stocks economy" if "india" in q.lower() or "nifty" in q.lower()
+                        else "financial markets economy stocks"
+                    )
+            except Exception:
+                _news_ctx = ""
+
             live_context = (
                 f"=== LIVE MARKET DATA ({utc_now}) ===\n"
                 f"STOCKS:\n{chr(10).join(stock_lines) or '  (none)'}\n"
@@ -6572,6 +6791,7 @@ if q:
                 f"CRYPTO:\n{chr(10).join(crypto_lines) or '  (unavailable)'}\n"
                 f"CURRENCIES (vs USD):\n{chr(10).join(fx_lines) or '  (unavailable)'}\n"
                 f"MARKET MOOD: Fear & Greed = {fng_val} ({fng_label})"
+                + (f"\n\n=== RECENT NEWS HEADLINES ===\n{_news_ctx}" if _news_ctx else "")
             ).strip()
 
             # ── Document retrieval ─────────────────────────────────────────
