@@ -428,180 +428,148 @@ div[data-testid="stButton"] button.tf-active{
 }
 
 /* ═══════════════════════════════════════════════════════
-   TOP ACTION BAR  — square upload · cycling simulate · search
-   All three live on a single row. Upload is a true square tile.
-   Simulate cycles cherry-red ↔ bright-green every 3 seconds.
+   TOP ACTION BAR — two big square buttons + search
+   Upload  → cherry red  (#DC143C)
+   Simulate → sea blue   (#006994)
+   Both identical square size, aesthetic glow on hover
    ═══════════════════════════════════════════════════════ */
 
-/* ── ACTION ROW: force all three columns onto one visual line ── */
 div[data-testid="stHorizontalBlock"]:has(.sq-btn-upload) {
-  align-items: center !important;
+  align-items: stretch !important;
+  gap: 0.6rem !important;
 }
 
-/* ══════════════════════════════════════════════════════════
-   UPLOAD BUTTON — true square, sharp corners, giant +
-   ══════════════════════════════════════════════════════════ */
-.sq-btn-upload {
+/* ── Shared square button base ── */
+.sq-btn-upload,
+.sq-btn-simulate {
   position: relative;
   display: block;
+  border-radius: 10px;
+  overflow: hidden;
 }
-/* Visual tile: renders first in normal flow */
+
+/* ── UPLOAD — cherry red visual tile ── */
 .sq-btn-upload-plus {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   width: 100%;
-  aspect-ratio: 1 / 1;       /* ← true square */
-  min-height: 4.8rem;
-  max-height: 5.2rem;
-  background: #080808;
-  border: 2px solid rgba(255,255,255,.32);
-  border-radius: 4px;         /* ← sharp corners */
+  aspect-ratio: 1 / 1;
+  min-height: 5.8rem;
+  background: linear-gradient(145deg, #1a0208 0%, #2d0410 50%, #12010a 100%);
+  border: 1.5px solid rgba(220,20,60,.55);
+  border-radius: 10px;
   pointer-events: none;
-  gap: 0.1rem;
-  box-shadow: 0 4px 28px rgba(0,0,0,.85),
-              inset 0 1px 0 rgba(255,255,255,.07);
-  transition: border-color .18s ease, background .18s ease, box-shadow .22s ease;
+  gap: 0.25rem;
+  box-shadow: 0 0 0 1px rgba(220,20,60,.12),
+              0 4px 32px rgba(220,20,60,.28),
+              inset 0 1px 0 rgba(255,80,100,.08);
+  transition: all .22s ease;
 }
 .sq-btn-upload-plus-icon {
-  font-size: 2.8rem;
+  font-size: 2.6rem;
   font-weight: 200;
-  color: #ffffff;
+  color: #ff4d6d;
   line-height: 1;
   font-family: 'Helvetica Neue', Arial, sans-serif;
   letter-spacing: -0.04em;
+  text-shadow: 0 0 20px rgba(220,20,60,.6);
 }
 .sq-btn-upload-plus-label {
   font-family: 'Space Mono', monospace;
-  font-size: .46rem;
-  letter-spacing: .18em;
+  font-size: .44rem;
+  letter-spacing: .2em;
   text-transform: uppercase;
-  color: rgba(255,255,255,.65);
+  color: rgba(255,100,120,.8);
 }
-/* Invisible button pulled UP to cover the visual tile */
 .sq-btn-upload div[data-testid="stButton"] {
-  margin-top: -5.2rem !important;
+  margin-top: -6.0rem !important;
 }
 .sq-btn-upload div[data-testid="stButton"] > button {
   width: 100% !important;
   aspect-ratio: 1 / 1 !important;
-  min-height: 4.8rem !important;
+  min-height: 5.8rem !important;
   background: transparent !important;
   border: 2px solid transparent !important;
-  border-radius: 4px !important;
+  border-radius: 10px !important;
   color: transparent !important;
   box-shadow: none !important;
   padding: 0 !important;
-  transition: transform .2s cubic-bezier(.34,1.56,.64,1) !important;
+  transition: transform .22s cubic-bezier(.34,1.56,.64,1) !important;
 }
 .sq-btn-upload:hover .sq-btn-upload-plus {
-  border-color: rgba(255,255,255,.75);
-  background: #141414;
-  box-shadow: 0 0 0 1px rgba(255,255,255,.12),
-              0 0 40px rgba(255,255,255,.08),
-              0 12px 32px rgba(0,0,0,.9);
+  border-color: rgba(220,20,60,.9);
+  background: linear-gradient(145deg, #2a0510 0%, #420818 50%, #1e0210 100%);
+  box-shadow: 0 0 0 1px rgba(220,20,60,.25),
+              0 0 40px rgba(220,20,60,.45),
+              inset 0 1px 0 rgba(255,80,100,.15);
 }
 .sq-btn-upload:hover div[data-testid="stButton"] > button {
-  transform: translateY(-2px) scale(1.03) !important;
+  transform: translateY(-3px) scale(1.04) !important;
 }
 
-/* ══════════════════════════════════════════════════════════
-   SIMULATE PORTFOLIO — cherry-red ↔ bright-green color cycle
-   Cycles: border, glow, text every 3s with smooth cross-fade
-   ══════════════════════════════════════════════════════════ */
-
-/* Keyframes for the color cycle */
-@keyframes sim-border-cycle {
-  0%,  45% { border-color: rgba(220,38,38,.72) !important; }   /* cherry red */
-  50%, 95% { border-color: rgba(34,197,94,.72) !important; }   /* bright green */
-  100%     { border-color: rgba(220,38,38,.72) !important; }
-}
-@keyframes sim-color-cycle {
-  0%,  45% { color: #ff6b6b !important; }   /* soft cherry */
-  50%, 95% { color: #4ade80 !important; }   /* bright green */
-  100%     { color: #ff6b6b !important; }
-}
-@keyframes sim-glow-cycle {
-  0%,  45% {
-    box-shadow: 0 4px 24px rgba(220,38,38,.35),
-                inset 0 1px 0 rgba(255,80,80,.1) !important;
-  }
-  50%, 95% {
-    box-shadow: 0 4px 24px rgba(34,197,94,.35),
-                inset 0 1px 0 rgba(80,255,140,.1) !important;
-  }
-  100% {
-    box-shadow: 0 4px 24px rgba(220,38,38,.35),
-                inset 0 1px 0 rgba(255,80,80,.1) !important;
-  }
-}
-@keyframes sim-bg-cycle {
-  0%,  45% { background: linear-gradient(160deg,#1a0505 0%,#2a0808 50%,#120202 100%) !important; }
-  50%, 95% { background: linear-gradient(160deg,#021a08 0%,#042a10 50%,#01120a 100%) !important; }
-  100%     { background: linear-gradient(160deg,#1a0505 0%,#2a0808 50%,#120202 100%) !important; }
-}
-
-.sq-btn-simulate {
-  position: relative;
-  border-radius: 10px;
-  overflow: hidden;
-}
+/* ── SIMULATE — sea blue visual tile ── */
 .sq-btn-simulate-bg {
   position: absolute; inset: 0;
   border-radius: 10px; z-index: 0;
   pointer-events: none;
-  animation: sim-bg-cycle 6s ease-in-out infinite;
+  background: linear-gradient(145deg, #010d1a 0%, #021828 50%, #010b15 100%);
 }
 .sq-btn-simulate-chart {
   position: absolute; bottom: 0; left: 0;
-  width: 200%; height: 52%; z-index: 1;
+  width: 200%; height: 48%; z-index: 1;
   animation: chart-scroll 9s linear infinite;
-  pointer-events: none; opacity: .55;
+  pointer-events: none; opacity: .4;
+  filter: hue-rotate(180deg) saturate(1.4);
 }
 .sq-btn-simulate-vignette {
   position: absolute; inset: 0; z-index: 2;
   border-radius: 10px;
-  background: linear-gradient(180deg,rgba(0,0,0,.55) 0%,transparent 55%,rgba(0,0,0,.35) 100%);
+  background: linear-gradient(180deg,rgba(0,0,0,.5) 0%,transparent 55%,rgba(0,0,0,.3) 100%);
   pointer-events: none;
 }
 @keyframes chart-scroll { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
 
-/* The actual Streamlit button over the layers */
 .sq-btn-simulate div[data-testid="stButton"] > button {
   width: 100% !important;
-  height: 4.8rem !important;
+  aspect-ratio: 1 / 1 !important;
+  min-height: 5.8rem !important;
   background: transparent !important;
-  border-width: 1.5px !important;
-  border-style: solid !important;
+  border: 1.5px solid rgba(0,120,180,.55) !important;
   border-radius: 10px !important;
   padding: 0 !important;
   position: relative !important;
   z-index: 3 !important;
   font-family: 'Space Mono', monospace !important;
-  font-size: .6rem !important;
+  font-size: .54rem !important;
   letter-spacing: .14em !important;
   text-transform: uppercase !important;
-  line-height: 1.55 !important;
+  line-height: 1.6 !important;
+  color: #38bdf8 !important;
   display: flex !important;
   flex-direction: column !important;
   align-items: center !important;
   justify-content: center !important;
   white-space: pre-line !important;
   overflow: hidden !important;
+  box-shadow: 0 0 0 1px rgba(0,120,180,.12),
+              0 4px 28px rgba(0,105,148,.32),
+              inset 0 1px 0 rgba(56,189,248,.08) !important;
+  text-shadow: 0 0 18px rgba(56,189,248,.5) !important;
   transition: transform .22s cubic-bezier(.34,1.56,.64,1) !important;
-  /* Color animations */
-  animation: sim-border-cycle 6s ease-in-out infinite,
-             sim-color-cycle  6s ease-in-out infinite,
-             sim-glow-cycle   6s ease-in-out infinite !important;
 }
 .sq-btn-simulate div[data-testid="stButton"] > button:hover {
-  transform: translateY(-3px) scale(1.03) !important;
-  filter: brightness(1.25) !important;
+  transform: translateY(-3px) scale(1.04) !important;
+  border-color: rgba(0,150,220,.9) !important;
+  box-shadow: 0 0 0 1px rgba(0,150,220,.22),
+              0 0 40px rgba(0,105,148,.5),
+              inset 0 1px 0 rgba(56,189,248,.15) !important;
+  filter: brightness(1.2) !important;
 }
 .sq-btn-simulate.pf-open div[data-testid="stButton"] > button {
+  border-color: rgba(0,150,220,.9) !important;
   filter: brightness(1.3) !important;
-  transform: translateY(-1px) !important;
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -5637,7 +5605,7 @@ _CHART_SVG = (
     "%3C/svg%3E"
 )
 
-_btn_upload, _btn_portfolio, _search_col = st.columns([1, 2.4, 6.6], gap="small")
+_btn_upload, _btn_portfolio, _search_col = st.columns([1.4, 1.4, 7.2], gap="small")
 
 with _btn_upload:
     st.markdown(
