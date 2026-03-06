@@ -3978,305 +3978,232 @@ def apply_theme(theme_name: str) -> None:
 # ─── 7. KEYBOARD SHORTCUTS ──────────────────────────────────────────────────
 
 def inject_keyboard_shortcuts() -> None:
-    """Inject keyboard shortcuts + floating dynamic side bar."""
-    import streamlit.components.v1 as _cv1
-    _cv1.html("""
+    """Inject fixed side-bar + keyboard shortcuts via st.markdown (no iframe gap)."""
+    st.markdown("""
 <style>
-/* ── Floating Side Bar ── */
-#rag-sidebar {
+/* ══ DYNAMIC FIXED SIDE BARS ══════════════════════════════════════════════ */
+#rag-floatbar {
   position: fixed;
   right: 0;
   top: 50%;
   transform: translateY(-50%);
-  z-index: 99999;
+  z-index: 999999;
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 3px;
   pointer-events: none;
 }
-.rag-side-btn {
+.rfb-btn {
   position: relative;
-  width: 52px;
-  height: 110px;
+  width: 10px;
+  height: 90px;
   cursor: pointer;
   pointer-events: all;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   border: none;
   outline: none;
   background: none;
   padding: 0;
-  transition: width .35s cubic-bezier(.34,1.56,.64,1);
+  transition: width .4s cubic-bezier(.34,1.56,.64,1);
+  overflow: hidden;
+  border-radius: 8px 0 0 8px;
 }
-.rag-side-btn:first-child { border-radius: 14px 0 0 0; }
-.rag-side-btn:last-child  { border-radius: 0 0 0 14px; }
+.rfb-btn:hover, .rfb-btn.rfb-active { width: 80px; }
 
-/* Coloured pill face */
-.rag-side-face {
+/* Coloured background face */
+.rfb-face {
   position: absolute;
   inset: 0;
-  border-radius: inherit;
-  transition: all .35s cubic-bezier(.34,1.56,.64,1);
-  box-shadow: -4px 0 28px rgba(0,0,0,.5);
+  border-radius: 8px 0 0 8px;
+  border: 1.5px solid currentColor;
+  border-right: none;
+  background: rgba(1,13,26,.95);
+  transition: box-shadow .4s ease, background .3s ease;
 }
-/* Peek tab — narrow strip visible at edge */
-.rag-side-tab {
+.rfb-btn:hover .rfb-face,
+.rfb-btn.rfb-active .rfb-face {
+  box-shadow: -4px 0 40px rgba(56,189,248,.5);
+  background: rgba(1,18,36,.98);
+}
+.rfb-btn.rfb-active .rfb-face {
+  box-shadow: -4px 0 60px rgba(56,189,248,.8), -2px 0 20px rgba(56,189,248,.5);
+}
+
+/* Content: icon + label (vertical) */
+.rfb-content {
   position: absolute;
-  right: 0;
-  top: 0; bottom: 0;
-  width: 8px;
-  border-radius: inherit;
-  transition: width .35s cubic-bezier(.34,1.56,.64,1), opacity .35s ease;
-  opacity: .85;
-}
-/* Content inside button */
-.rag-side-content {
-  position: relative;
-  z-index: 2;
+  inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  width: 100%;
-  height: 100%;
+  gap: 5px;
   opacity: 0;
-  transform: translateX(12px);
-  transition: opacity .3s ease, transform .35s cubic-bezier(.34,1.56,.64,1);
+  transform: translateX(16px);
+  transition: opacity .3s ease .05s, transform .35s cubic-bezier(.34,1.56,.64,1);
   pointer-events: none;
 }
-.rag-side-icon {
-  font-size: 1.5rem;
-  line-height: 1;
-  filter: drop-shadow(0 0 8px currentColor);
+.rfb-btn:hover .rfb-content,
+.rfb-btn.rfb-active .rfb-content {
+  opacity: 1;
+  transform: translateX(0);
 }
-.rag-side-label {
+.rfb-icon {
+  font-size: 1.3rem;
+  line-height: 1;
+}
+.rfb-label {
   font-family: 'Space Mono', monospace;
-  font-size: .38rem;
+  font-size: .36rem;
   letter-spacing: .2em;
   text-transform: uppercase;
   writing-mode: vertical-rl;
-  text-orientation: mixed;
   transform: rotate(180deg);
   white-space: nowrap;
 }
 
-/* Expanded state — hover or active */
-.rag-side-btn:hover,
-.rag-side-btn.active {
-  width: 72px;
+/* Narrow peek strip (visible when collapsed) */
+.rfb-strip {
+  position: absolute;
+  right: 0; top: 0; bottom: 0;
+  width: 6px;
+  border-radius: 4px 0 0 4px;
+  transition: width .4s cubic-bezier(.34,1.56,.64,1), opacity .3s ease;
+  opacity: .9;
 }
-.rag-side-btn:hover .rag-side-content,
-.rag-side-btn.active .rag-side-content {
-  opacity: 1;
-  transform: translateX(0);
-}
-.rag-side-btn:hover .rag-side-tab,
-.rag-side-btn.active .rag-side-tab {
+.rfb-btn:hover .rfb-strip,
+.rfb-btn.rfb-active .rfb-strip {
   width: 100%;
-  opacity: 1;
-}
-/* Active (panel open) — extra glow */
-.rag-side-btn.active .rag-side-face {
-  box-shadow: -6px 0 50px rgba(56,189,248,.6), -2px 0 16px rgba(56,189,248,.4);
+  opacity: 0;
 }
 
-/* Upload btn — upload colour (dynamic, set by JS) */
-#rsb-upload .rag-side-tab  { background: var(--rsb-up-col, #38bdf8); }
-#rsb-upload .rag-side-face { background: linear-gradient(135deg, var(--rsb-up-bg1, #010d1a) 0%, var(--rsb-up-bg2, #021828) 100%); border: 1.5px solid var(--rsb-up-col, #38bdf8); border-right: none; }
-#rsb-upload .rag-side-icon  { color: var(--rsb-up-col, #38bdf8); }
-#rsb-upload .rag-side-label { color: var(--rsb-up-col, #38bdf8); }
-
-/* Simulate btn */
-#rsb-simulate .rag-side-tab  { background: var(--rsb-sim-col, #0ea5e9); }
-#rsb-simulate .rag-side-face { background: linear-gradient(135deg, var(--rsb-sim-bg1, #010d1a) 0%, var(--rsb-sim-bg2, #021828) 100%); border: 1.5px solid var(--rsb-sim-col, #0ea5e9); border-right: none; }
-#rsb-simulate .rag-side-icon  { color: var(--rsb-sim-col, #0ea5e9); }
-#rsb-simulate .rag-side-label { color: var(--rsb-sim-col, #0ea5e9); }
-
-/* Divider between the two */
-.rag-side-divider {
-  height: 1px;
-  background: rgba(255,255,255,.07);
-  margin: 0;
-  pointer-events: none;
-}
-
-/* Scroll progress indicator strip on left edge of bar */
-#rag-sidebar::before {
+/* Scroll progress line on left edge */
+#rag-floatbar::before {
   content: '';
   position: absolute;
-  left: 0; top: 0;
+  left: -3px; top: 0;
   width: 2px;
-  height: var(--scroll-pct, 0%);
-  background: linear-gradient(180deg, #38bdf8, #7c3aed);
+  height: var(--rfb-scroll, 0%);
+  background: linear-gradient(180deg, #38bdf8, #a855f7);
   border-radius: 2px;
-  transition: height .1s linear;
+  transition: height .08s linear;
   pointer-events: none;
 }
 </style>
 
-<div id="rag-sidebar">
-  <button class="rag-side-btn" id="rsb-upload" title="Upload documents">
-    <div class="rag-side-face"></div>
-    <div class="rag-side-tab"></div>
-    <div class="rag-side-content">
-      <span class="rag-side-icon">↑</span>
-      <span class="rag-side-label">Upload</span>
+<div id="rag-floatbar">
+  <button class="rfb-btn" id="rfb-upload" style="color:#38bdf8">
+    <div class="rfb-face"></div>
+    <div class="rfb-strip" style="background:#38bdf8"></div>
+    <div class="rfb-content" style="color:#38bdf8">
+      <span class="rfb-icon">↑</span>
+      <span class="rfb-label">Upload</span>
     </div>
   </button>
-  <div class="rag-side-divider"></div>
-  <button class="rag-side-btn" id="rsb-simulate" title="Simulate Portfolio">
-    <div class="rag-side-face"></div>
-    <div class="rag-side-tab"></div>
-    <div class="rag-side-content">
-      <span class="rag-side-icon">◈</span>
-      <span class="rag-side-label">Portfolio</span>
+  <button class="rfb-btn" id="rfb-portfolio" style="color:#0ea5e9">
+    <div class="rfb-face"></div>
+    <div class="rfb-strip" style="background:#0ea5e9"></div>
+    <div class="rfb-content" style="color:#0ea5e9">
+      <span class="rfb-icon">◈</span>
+      <span class="rfb-label">Portfolio</span>
     </div>
   </button>
 </div>
 
 <script>
 (function(){
-  // ── colour palettes that shift as user scrolls ──────────────────────
-  // Each stop: [scrollFraction, uploadColour, simulateColour, darkBg1, darkBg2]
-  var STOPS = [
-    [0.00, '#38bdf8', '#0ea5e9', '#010d1a', '#021828'],  // top  — sky blue
-    [0.15, '#818cf8', '#6366f1', '#0a0810', '#100e1a'],  // indigo
-    [0.30, '#34d399', '#10b981', '#011510', '#021f15'],  // emerald
-    [0.45, '#f59e0b', '#d97706', '#15100a', '#1f1605'],  // amber
-    [0.60, '#f472b6', '#ec4899', '#150a10', '#1f0e18'],  // pink
-    [0.75, '#a78bfa', '#8b5cf6', '#0e0a18', '#150f22'],  // violet
-    [0.90, '#fb923c', '#ea580c', '#180c05', '#22100a'],  // orange
-    [1.00, '#38bdf8', '#0ea5e9', '#010d1a', '#021828'],  // bottom — back to blue
+  // Colour palette cycling with scroll
+  var PALETTE = [
+    [0.00, '#38bdf8', '#0ea5e9'],
+    [0.15, '#818cf8', '#6366f1'],
+    [0.30, '#34d399', '#10b981'],
+    [0.45, '#f59e0b', '#d97706'],
+    [0.60, '#f472b6', '#ec4899'],
+    [0.75, '#a78bfa', '#8b5cf6'],
+    [0.90, '#fb923c', '#ea580c'],
+    [1.00, '#38bdf8', '#0ea5e9'],
   ];
 
-  function lerp(a, b, t) { return a + (b - a) * t; }
-
-  function hexToRgb(h) {
-    h = h.replace('#','');
-    if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
-    return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+  function hexR(h){h=h.replace('#','');return parseInt(h.slice(0,2),16);}
+  function hexG(h){h=h.replace('#','');return parseInt(h.slice(2,4),16);}
+  function hexB(h){h=h.replace('#','');return parseInt(h.slice(4,6),16);}
+  function lerp(a,b,t){return a+(b-a)*t;}
+  function lerpHex(c1,c2,t){
+    var r=Math.round(lerp(hexR(c1),hexR(c2),t)).toString(16).padStart(2,'0');
+    var g=Math.round(lerp(hexG(c1),hexG(c2),t)).toString(16).padStart(2,'0');
+    var b=Math.round(lerp(hexB(c1),hexB(c2),t)).toString(16).padStart(2,'0');
+    return '#'+r+g+b;
   }
-  function rgbToHex(r,g,b) {
-    return '#' + [r,g,b].map(function(v){ return Math.round(v).toString(16).padStart(2,'0'); }).join('');
-  }
-  function lerpColour(c1, c2, t) {
-    var a = hexToRgb(c1), b = hexToRgb(c2);
-    return rgbToHex(lerp(a[0],b[0],t), lerp(a[1],b[1],t), lerp(a[2],b[2],t));
-  }
-
-  function coloursAtScroll(pct) {
-    for (var i = 0; i < STOPS.length-1; i++) {
-      var s0 = STOPS[i], s1 = STOPS[i+1];
-      if (pct >= s0[0] && pct <= s1[0]) {
-        var t = (pct - s0[0]) / (s1[0] - s0[0]);
-        return {
-          upCol:  lerpColour(s0[1], s1[1], t),
-          simCol: lerpColour(s0[2], s1[2], t),
-          bg1:    lerpColour(s0[3], s1[3], t),
-          bg2:    lerpColour(s0[4], s1[4], t),
-        };
+  function colsAtPct(p){
+    for(var i=0;i<PALETTE.length-1;i++){
+      var s=PALETTE[i],e=PALETTE[i+1];
+      if(p>=s[0]&&p<=e[0]){
+        var t=(p-s[0])/(e[0]-s[0]);
+        return [lerpHex(s[1],e[1],t), lerpHex(s[2],e[2],t)];
       }
     }
-    return { upCol: STOPS[0][1], simCol: STOPS[0][2], bg1: STOPS[0][3], bg2: STOPS[0][4] };
+    return [PALETTE[0][1],PALETTE[0][2]];
   }
 
-  // ── Apply colours ────────────────────────────────────────────────────
-  var bar = null;
-  function applyColours(c) {
-    if (!bar) return;
-    bar.style.setProperty('--rsb-up-col',  c.upCol);
-    bar.style.setProperty('--rsb-sim-col', c.simCol);
-    bar.style.setProperty('--rsb-up-bg1',  c.bg1);
-    bar.style.setProperty('--rsb-up-bg2',  c.bg2);
-    bar.style.setProperty('--rsb-sim-bg1', c.bg1);
-    bar.style.setProperty('--rsb-sim-bg2', c.bg2);
+  function applyColours(upCol, simCol){
+    var up  = document.getElementById('rfb-upload');
+    var sim = document.getElementById('rfb-portfolio');
+    if(!up||!sim) return;
+    up.style.color  = upCol;
+    sim.style.color = simCol;
+    up.querySelector('.rfb-strip').style.background  = upCol;
+    sim.querySelector('.rfb-strip').style.background = simCol;
+    up.querySelector('.rfb-content').style.color  = upCol;
+    sim.querySelector('.rfb-content').style.color = simCol;
   }
 
-  // ── Scroll listener — runs in parent frame ───────────────────────────
-  function onScroll() {
-    var scrollEl = document.documentElement;
-    var maxScroll = scrollEl.scrollHeight - scrollEl.clientHeight;
-    var pct = maxScroll > 0 ? scrollEl.scrollTop / maxScroll : 0;
-    bar.style.setProperty('--scroll-pct', Math.round(pct * 100) + '%');
-    applyColours(coloursAtScroll(pct));
+  function onScroll(){
+    var el = document.documentElement;
+    var max = el.scrollHeight - el.clientHeight;
+    var pct = max>0 ? el.scrollTop/max : 0;
+    var bar = document.getElementById('rag-floatbar');
+    if(bar) bar.style.setProperty('--rfb-scroll', Math.round(pct*100)+'%');
+    var cols = colsAtPct(pct);
+    applyColours(cols[0], cols[1]);
   }
 
-  // ── Click handlers — find the real Streamlit buttons and click them ──
-  function clickStreamlitBtn(idx) {
-    // Look in parent frame for buttons matching our keys
-    try {
-      var pDoc = window.parent.document;
-      var btns = pDoc.querySelectorAll('[data-testid="baseButton-secondary"]');
-      if (btns[idx]) { btns[idx].click(); return; }
-      // fallback: try stButton buttons
-      var allBtns = pDoc.querySelectorAll('.stButton > button');
-      if (allBtns[idx]) allBtns[idx].click();
-    } catch(e) {}
+  // Click → find corresponding Streamlit button and click it
+  function clickStreamlitBtn(idx){
+    var btns = document.querySelectorAll('[data-testid="stMainBlockContainer"] [data-testid="baseButton-secondary"]');
+    if(btns[idx]){ btns[idx].click(); return; }
+    var all = document.querySelectorAll('[data-testid="stMainBlockContainer"] .stButton > button');
+    if(all[idx]) all[idx].click();
   }
 
-  // ── Init ────────────────────────────────────────────────────────────
-  function init() {
-    bar = window.parent.document.getElementById('rag-sidebar');
-    if (!bar) {
-      // bar lives in this iframe, move it to parent body
-      bar = document.getElementById('rag-sidebar');
-      try {
-        var pBody = window.parent.document.body;
-        pBody.appendChild(bar);
-      } catch(e) {}
-      bar = window.parent.document.getElementById('rag-sidebar') || document.getElementById('rag-sidebar');
-    }
+  document.addEventListener('DOMContentLoaded', function(){
+    document.addEventListener('scroll', onScroll, {passive:true});
+    onScroll();
 
-    // Scroll listener on parent window
-    try {
-      window.parent.addEventListener('scroll', onScroll, { passive: true });
-      window.parent.document.addEventListener('scroll', onScroll, { passive: true });
-    } catch(e) {}
-    window.addEventListener('scroll', onScroll, { passive: true });
-    onScroll(); // apply initial colours
+    var upBtn  = document.getElementById('rfb-upload');
+    var simBtn = document.getElementById('rfb-portfolio');
 
-    // Click: Upload (index 0)
-    var upBtn = bar ? bar.querySelector('#rsb-upload') : document.getElementById('rsb-upload');
-    if (upBtn) {
-      upBtn.addEventListener('click', function() {
+    if(upBtn) upBtn.addEventListener('click', function(){
+      clickStreamlitBtn(0);
+      upBtn.classList.toggle('rfb-active');
+    });
+    if(simBtn) simBtn.addEventListener('click', function(){
+      clickStreamlitBtn(1);
+      simBtn.classList.toggle('rfb-active');
+    });
+  });
+
+  // Keyboard: Ctrl+U = upload
+  if(!window._ragKbLoaded){
+    window._ragKbLoaded = true;
+    document.addEventListener('keydown', function(e){
+      if((e.ctrlKey||e.metaKey) && e.key==='u'){
+        e.preventDefault();
         clickStreamlitBtn(0);
-        upBtn.classList.toggle('active');
-      });
-    }
-    // Click: Simulate (index 1)
-    var simBtn = bar ? bar.querySelector('#rsb-simulate') : document.getElementById('rsb-simulate');
-    if (simBtn) {
-      simBtn.addEventListener('click', function() {
-        clickStreamlitBtn(1);
-        simBtn.classList.toggle('active');
-      });
-    }
-  }
-
-  // ── Keyboard shortcuts ───────────────────────────────────────────────
-  if (!window._ragShortcutsLoaded) {
-    window._ragShortcutsLoaded = true;
-    try {
-      window.parent.document.addEventListener('keydown', function(e) {
-        var ctrl = e.ctrlKey || e.metaKey;
-        if (ctrl && e.key === 'u') {
-          e.preventDefault();
-          clickStreamlitBtn(0);
-        }
-      });
-    } catch(ee) {}
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
+      }
+    });
   }
 })();
 </script>
-    """, height=0)
+    """, unsafe_allow_html=True)
 
 
 def render_portfolio_panel(groq_api_key: str) -> None:
@@ -5878,6 +5805,27 @@ apply_theme(st.session_state.get("app_theme", "Royal Velvet"))
 inject_keyboard_shortcuts()
 
 # ─────────────────────────────────────────────────────────────────────────────
+# HERO
+# ─────────────────────────────────────────────────────────────────────────────
+st.markdown("""
+<div class="rag-header">
+  <div class="rag-kicker">Financial Intelligence Platform</div>
+  <h1>Interrogate Your<br><em>Financial Documents</em></h1>
+  <p>Semantic search and AI-powered analysis across Annual Reports,
+     10-Ks &amp; Earnings Transcripts. Live markets &amp; crypto always on.</p>
+  <div class="badge-row">
+    <span class="badge v">FinBERT Embeddings</span>
+    <span class="badge v">Source-backed Answers</span>
+    <span class="badge v">Llama 3.3 · 70B</span>
+    <span class="badge">Groq</span>
+    <span class="badge g">Live Data</span>
+    <span class="badge b">PDF · Excel · CSV · DOCX</span>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # TOP ACTION BAR  — [＋ Upload]  [Simulate Portfolio]  [Search]
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -6246,91 +6194,6 @@ if st.session_state.show_portfolio:
     st.markdown("<hr style='border-color:rgba(139,58,139,.1);margin:.6rem 0 1rem;'>",
                 unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────────────────────────────────────
-# CHAT PANEL  (slides open below analytics when 💬 clicked)
-# ─────────────────────────────────────────────────────────────────────────────
-if st.session_state.show_chat:
-    st.markdown('<div class="chat-panel">'
-                '<div class="chat-panel-hdr">'
-                '<span class="chat-panel-title">◈ Ask Anything — Markets · Crypto · Documents</span>'
-                '</div>'
-                '<div class="chat-panel-body">',
-                unsafe_allow_html=True)
-
-    # ── Mode Toggle ────────────────────────────────────────────────────────
-    _mode_cols = st.columns([2, 8])
-    with _mode_cols[0]:
-        _analyst = st.toggle(
-            "📊 Analyst Mode",
-            value=st.session_state.analyst_mode,
-            key="analyst_toggle",
-            help="OFF = Chat Mode (free-form answers)  ·  ON = Analyst Mode (structured financial extraction)",
-        )
-        if _analyst != st.session_state.analyst_mode:
-            st.session_state.analyst_mode = _analyst
-            st.rerun()
-    with _mode_cols[1]:
-        if st.session_state.analyst_mode:
-            st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;color:#F0C040;'
-                        'padding:.3rem .5rem;background:rgba(240,192,64,.06);border:1px solid rgba(240,192,64,.2);'
-                        'border-radius:5px;">📊 Analyst Mode — returns structured metrics table, '
-                        'risks &amp; outlook as a JSON-parsed report card</div>',
-                        unsafe_allow_html=True)
-        else:
-            st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;color:#C084C8;'
-                        'padding:.3rem .5rem;background:rgba(192,132,200,.05);border:1px solid rgba(192,132,200,.15);'
-                        'border-radius:5px;">💬 Chat Mode — conversational answers with source evidence panel</div>',
-                        unsafe_allow_html=True)
-
-    st.markdown("<hr style='border-color:rgba(139,58,139,.12);margin:.4rem 0 .6rem;'>",
-                unsafe_allow_html=True)
-
-    if not st.session_state.messages:
-        st.markdown("""
-        <div style="text-align:center;padding:2rem 1rem;">
-          <div style="font-size:2rem;margin-bottom:.6rem;opacity:.5;">◈</div>
-          <div style="font-family:'Cormorant Garamond',serif;font-size:1.4rem;font-weight:300;
-                      font-style:italic;color:#4A3858;">Ready without uploads</div>
-          <div style="font-family:Syne,sans-serif;font-size:.76rem;color:#4A3858;
-                      margin-top:.4rem;max-width:340px;margin-left:auto;margin-right:auto;line-height:1.8;">
-            Ask about live stocks, gold, crypto, FX rates — no documents needed.<br>
-            Upload a report above to unlock document Q&amp;A.
-          </div>
-        </div>""", unsafe_allow_html=True)
-
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            is_analyst = msg.get("analyst_mode", False)
-            if msg["role"] == "assistant" and is_analyst:
-                # Render structured analyst output card
-                render_analyst_output(msg["content"], msg.get("question",""))
-            else:
-                st.markdown(msg["content"])
-            # ── Source Evidence Panel ─────────────────────────────────────
-            if msg.get("sources"):
-                render_source_panel(msg["sources"])
-
-    st.markdown("</div></div>", unsafe_allow_html=True)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# HERO
-# ─────────────────────────────────────────────────────────────────────────────
-st.markdown("""
-<div class="rag-header">
-  <div class="rag-kicker">Financial Intelligence Platform</div>
-  <h1>Interrogate Your<br><em>Financial Documents</em></h1>
-  <p>Semantic search and AI-powered analysis across Annual Reports,
-     10-Ks &amp; Earnings Transcripts. Live markets &amp; crypto always on.</p>
-  <div class="badge-row">
-    <span class="badge v">FinBERT Embeddings</span>
-    <span class="badge v">Source-backed Answers</span>
-    <span class="badge v">Llama 3.3 · 70B</span>
-    <span class="badge">Groq</span>
-    <span class="badge g">Live Data</span>
-    <span class="badge b">PDF · Excel · CSV · DOCX</span>
-  </div>
-</div>
-""", unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STAT STRIP
@@ -6517,6 +6380,74 @@ slider.addEventListener('mouseleave',()=>{{timer=setInterval(next,3000);}});
 
 _hf_html = _build_hf_carousel(_HF_ANNOUNCEMENTS)
 st.components.v1.html(_hf_html, height=260, scrolling=False)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CHAT PANEL  (slides open below analytics when 💬 clicked)
+# ─────────────────────────────────────────────────────────────────────────────
+if st.session_state.show_chat:
+    st.markdown('<div class="chat-panel">'
+                '<div class="chat-panel-hdr">'
+                '<span class="chat-panel-title">◈ Ask Anything — Markets · Crypto · Documents</span>'
+                '</div>'
+                '<div class="chat-panel-body">',
+                unsafe_allow_html=True)
+
+    # ── Mode Toggle ────────────────────────────────────────────────────────
+    _mode_cols = st.columns([2, 8])
+    with _mode_cols[0]:
+        _analyst = st.toggle(
+            "📊 Analyst Mode",
+            value=st.session_state.analyst_mode,
+            key="analyst_toggle",
+            help="OFF = Chat Mode (free-form answers)  ·  ON = Analyst Mode (structured financial extraction)",
+        )
+        if _analyst != st.session_state.analyst_mode:
+            st.session_state.analyst_mode = _analyst
+            st.rerun()
+    with _mode_cols[1]:
+        if st.session_state.analyst_mode:
+            st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;color:#F0C040;'
+                        'padding:.3rem .5rem;background:rgba(240,192,64,.06);border:1px solid rgba(240,192,64,.2);'
+                        'border-radius:5px;">📊 Analyst Mode — returns structured metrics table, '
+                        'risks &amp; outlook as a JSON-parsed report card</div>',
+                        unsafe_allow_html=True)
+        else:
+            st.markdown('<div style="font-family:Space Mono,monospace;font-size:.5rem;color:#C084C8;'
+                        'padding:.3rem .5rem;background:rgba(192,132,200,.05);border:1px solid rgba(192,132,200,.15);'
+                        'border-radius:5px;">💬 Chat Mode — conversational answers with source evidence panel</div>',
+                        unsafe_allow_html=True)
+
+    st.markdown("<hr style='border-color:rgba(139,58,139,.12);margin:.4rem 0 .6rem;'>",
+                unsafe_allow_html=True)
+
+    if not st.session_state.messages:
+        st.markdown("""
+        <div style="text-align:center;padding:2rem 1rem;">
+          <div style="font-size:2rem;margin-bottom:.6rem;opacity:.5;">◈</div>
+          <div style="font-family:'Cormorant Garamond',serif;font-size:1.4rem;font-weight:300;
+                      font-style:italic;color:#4A3858;">Ready without uploads</div>
+          <div style="font-family:Syne,sans-serif;font-size:.76rem;color:#4A3858;
+                      margin-top:.4rem;max-width:340px;margin-left:auto;margin-right:auto;line-height:1.8;">
+            Ask about live stocks, gold, crypto, FX rates — no documents needed.<br>
+            Upload a report above to unlock document Q&amp;A.
+          </div>
+        </div>""", unsafe_allow_html=True)
+
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            is_analyst = msg.get("analyst_mode", False)
+            if msg["role"] == "assistant" and is_analyst:
+                # Render structured analyst output card
+                render_analyst_output(msg["content"], msg.get("question",""))
+            else:
+                st.markdown(msg["content"])
+            # ── Source Evidence Panel ─────────────────────────────────────
+            if msg.get("sources"):
+                render_source_panel(msg["sources"])
+
+    st.markdown("</div></div>", unsafe_allow_html=True)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # NEWS CAROUSELS
