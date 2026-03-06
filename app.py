@@ -428,15 +428,14 @@ div[data-testid="stButton"] button.tf-active{
 }
 
 /* ═══════════════════════════════════════════════════════
-   TOP ACTION BAR — two big square buttons + search
-   Upload  → cherry red  (#DC143C)
-   Simulate → sea blue   (#006994)
-   Both identical square size, aesthetic glow on hover
+   TOP ACTION BAR — two big equal square buttons, sea blue
+   Upload + Simulate Portfolio  →  sea blue (#006994)
+   Pop-out effect on click (active/open state)
    ═══════════════════════════════════════════════════════ */
 
 div[data-testid="stHorizontalBlock"]:has(.sq-btn-upload) {
   align-items: stretch !important;
-  gap: 0.6rem !important;
+  gap: 1rem !important;
 }
 
 /* ── Shared square button base ── */
@@ -444,11 +443,11 @@ div[data-testid="stHorizontalBlock"]:has(.sq-btn-upload) {
 .sq-btn-simulate {
   position: relative;
   display: block;
-  border-radius: 10px;
+  border-radius: 14px;
   overflow: hidden;
 }
 
-/* ── UPLOAD — cherry red visual tile ── */
+/* ── UPLOAD — sea blue visual tile ── */
 .sq-btn-upload-plus {
   display: flex;
   flex-direction: column;
@@ -456,63 +455,88 @@ div[data-testid="stHorizontalBlock"]:has(.sq-btn-upload) {
   justify-content: center;
   width: 100%;
   aspect-ratio: 1 / 1;
-  min-height: 5.8rem;
-  background: linear-gradient(145deg, #1a0208 0%, #2d0410 50%, #12010a 100%);
-  border: 1.5px solid rgba(220,20,60,.55);
-  border-radius: 10px;
+  min-height: 8rem;
+  background: linear-gradient(145deg, #010d1a 0%, #021828 50%, #010b15 100%);
+  border: 1.5px solid rgba(0,120,180,.55);
+  border-radius: 14px;
   pointer-events: none;
-  gap: 0.25rem;
-  box-shadow: 0 0 0 1px rgba(220,20,60,.12),
-              0 4px 32px rgba(220,20,60,.28),
-              inset 0 1px 0 rgba(255,80,100,.08);
-  transition: all .22s ease;
+  gap: 0.35rem;
+  box-shadow: 0 0 0 1px rgba(0,120,180,.12),
+              0 4px 32px rgba(0,105,148,.32),
+              inset 0 1px 0 rgba(56,189,248,.08);
+  transition: all .3s cubic-bezier(.34,1.56,.64,1);
 }
 .sq-btn-upload-plus-icon {
-  font-size: 2.6rem;
+  font-size: 2.8rem;
   font-weight: 200;
-  color: #ff4d6d;
+  color: #38bdf8;
   line-height: 1;
   font-family: 'Helvetica Neue', Arial, sans-serif;
   letter-spacing: -0.04em;
-  text-shadow: 0 0 20px rgba(220,20,60,.6);
+  text-shadow: 0 0 24px rgba(56,189,248,.7);
+  transition: all .3s cubic-bezier(.34,1.56,.64,1);
 }
 .sq-btn-upload-plus-label {
   font-family: 'Space Mono', monospace;
-  font-size: .44rem;
-  letter-spacing: .2em;
+  font-size: .5rem;
+  letter-spacing: .22em;
   text-transform: uppercase;
-  color: rgba(255,100,120,.8);
+  color: rgba(56,189,248,.8);
+  transition: all .3s ease;
 }
+/* Invisible overlay button */
 .sq-btn-upload div[data-testid="stButton"] {
-  margin-top: -6.0rem !important;
+  margin-top: -8.2rem !important;
 }
 .sq-btn-upload div[data-testid="stButton"] > button {
   width: 100% !important;
   aspect-ratio: 1 / 1 !important;
-  min-height: 5.8rem !important;
+  min-height: 8rem !important;
   background: transparent !important;
   border: 2px solid transparent !important;
-  border-radius: 10px !important;
+  border-radius: 14px !important;
   color: transparent !important;
   box-shadow: none !important;
   padding: 0 !important;
-  transition: transform .22s cubic-bezier(.34,1.56,.64,1) !important;
+  transition: transform .3s cubic-bezier(.34,1.56,.64,1) !important;
 }
+/* Hover */
 .sq-btn-upload:hover .sq-btn-upload-plus {
-  border-color: rgba(220,20,60,.9);
-  background: linear-gradient(145deg, #2a0510 0%, #420818 50%, #1e0210 100%);
-  box-shadow: 0 0 0 1px rgba(220,20,60,.25),
-              0 0 40px rgba(220,20,60,.45),
-              inset 0 1px 0 rgba(255,80,100,.15);
+  border-color: rgba(0,160,240,.9);
+  background: linear-gradient(145deg, #01121f 0%, #032030 50%, #010e18 100%);
+  box-shadow: 0 0 0 1px rgba(0,150,220,.25),
+              0 0 50px rgba(0,120,180,.55),
+              inset 0 1px 0 rgba(56,189,248,.18);
+}
+.sq-btn-upload:hover .sq-btn-upload-plus-icon {
+  text-shadow: 0 0 36px rgba(56,189,248,1);
 }
 .sq-btn-upload:hover div[data-testid="stButton"] > button {
-  transform: translateY(-3px) scale(1.04) !important;
+  transform: translateY(-4px) scale(1.05) !important;
+}
+/* Active / open (panel is showing) — pop-out burst */
+.sq-btn-upload.up-open .sq-btn-upload-plus {
+  border-color: rgba(56,189,248,.95) !important;
+  background: linear-gradient(145deg, #011524 0%, #042638 50%, #011018 100%) !important;
+  box-shadow: 0 0 0 2px rgba(56,189,248,.35),
+              0 0 70px rgba(0,160,240,.7),
+              0 0 120px rgba(0,120,180,.35),
+              inset 0 1px 0 rgba(56,189,248,.25) !important;
+  transform: translateY(-6px) scale(1.06);
+}
+.sq-btn-upload.up-open .sq-btn-upload-plus-icon {
+  transform: scale(1.15);
+  text-shadow: 0 0 50px rgba(56,189,248,1), 0 0 80px rgba(0,180,255,.6) !important;
+}
+.sq-btn-upload.up-open .sq-btn-upload-plus-label {
+  color: rgba(56,189,248,1);
+  letter-spacing: .28em;
 }
 
 /* ── SIMULATE — sea blue visual tile ── */
 .sq-btn-simulate-bg {
   position: absolute; inset: 0;
-  border-radius: 10px; z-index: 0;
+  border-radius: 14px; z-index: 0;
   pointer-events: none;
   background: linear-gradient(145deg, #010d1a 0%, #021828 50%, #010b15 100%);
 }
@@ -522,10 +546,11 @@ div[data-testid="stHorizontalBlock"]:has(.sq-btn-upload) {
   animation: chart-scroll 9s linear infinite;
   pointer-events: none; opacity: .4;
   filter: hue-rotate(180deg) saturate(1.4);
+  transition: opacity .3s ease;
 }
 .sq-btn-simulate-vignette {
   position: absolute; inset: 0; z-index: 2;
-  border-radius: 10px;
+  border-radius: 14px;
   background: linear-gradient(180deg,rgba(0,0,0,.5) 0%,transparent 55%,rgba(0,0,0,.3) 100%);
   pointer-events: none;
 }
@@ -534,18 +559,18 @@ div[data-testid="stHorizontalBlock"]:has(.sq-btn-upload) {
 .sq-btn-simulate div[data-testid="stButton"] > button {
   width: 100% !important;
   aspect-ratio: 1 / 1 !important;
-  min-height: 5.8rem !important;
+  min-height: 8rem !important;
   background: transparent !important;
   border: 1.5px solid rgba(0,120,180,.55) !important;
-  border-radius: 10px !important;
+  border-radius: 14px !important;
   padding: 0 !important;
   position: relative !important;
   z-index: 3 !important;
   font-family: 'Space Mono', monospace !important;
-  font-size: .54rem !important;
+  font-size: .58rem !important;
   letter-spacing: .14em !important;
   text-transform: uppercase !important;
-  line-height: 1.6 !important;
+  line-height: 1.7 !important;
   color: #38bdf8 !important;
   display: flex !important;
   flex-direction: column !important;
@@ -557,29 +582,32 @@ div[data-testid="stHorizontalBlock"]:has(.sq-btn-upload) {
               0 4px 28px rgba(0,105,148,.32),
               inset 0 1px 0 rgba(56,189,248,.08) !important;
   text-shadow: 0 0 18px rgba(56,189,248,.5) !important;
-  transition: transform .22s cubic-bezier(.34,1.56,.64,1) !important;
+  transition: transform .3s cubic-bezier(.34,1.56,.64,1),
+              border-color .3s ease,
+              box-shadow .3s ease !important;
 }
 .sq-btn-simulate div[data-testid="stButton"] > button:hover {
-  transform: translateY(-3px) scale(1.04) !important;
-  border-color: rgba(0,150,220,.9) !important;
-  box-shadow: 0 0 0 1px rgba(0,150,220,.22),
-              0 0 40px rgba(0,105,148,.5),
-              inset 0 1px 0 rgba(56,189,248,.15) !important;
-  filter: brightness(1.2) !important;
+  transform: translateY(-4px) scale(1.05) !important;
+  border-color: rgba(0,160,240,.9) !important;
+  box-shadow: 0 0 0 1px rgba(0,150,220,.25),
+              0 0 50px rgba(0,120,180,.55),
+              inset 0 1px 0 rgba(56,189,248,.18) !important;
+  filter: brightness(1.25) !important;
 }
+/* Active / open — pop-out burst */
 .sq-btn-simulate.pf-open div[data-testid="stButton"] > button {
-  border-color: rgba(0,150,220,.9) !important;
-  filter: brightness(1.3) !important;
+  border-color: rgba(56,189,248,.95) !important;
+  box-shadow: 0 0 0 2px rgba(56,189,248,.35),
+              0 0 70px rgba(0,160,240,.7),
+              0 0 120px rgba(0,120,180,.35),
+              inset 0 1px 0 rgba(56,189,248,.25) !important;
+  filter: brightness(1.4) !important;
+  transform: translateY(-6px) scale(1.06) !important;
+  text-shadow: 0 0 30px rgba(56,189,248,1), 0 0 60px rgba(0,180,255,.6) !important;
 }
-
-/* ══════════════════════════════════════════════════════════
-   SEARCH BAR — same row, vertically centred
-   ══════════════════════════════════════════════════════════ */
-div[data-testid="stTextInput"] input {
-  height: 4.8rem !important;
-  border-radius: 10px !important;
-  font-family: 'Space Mono', monospace !important;
-  font-size: .75rem !important;
+.sq-btn-simulate.pf-open .sq-btn-simulate-chart {
+  opacity: .65;
+  animation-duration: 5s;
 }
 .upload-panel{
   background:linear-gradient(135deg,rgba(107,45,107,.14) 0%,rgba(13,11,18,.97) 100%);
@@ -5605,13 +5633,14 @@ _CHART_SVG = (
     "%3C/svg%3E"
 )
 
-_btn_upload, _btn_portfolio, _search_col = st.columns([1.4, 1.4, 7.2], gap="small")
+_btn_upload, _btn_portfolio = st.columns([1, 1], gap="medium")
 
 with _btn_upload:
+    _up_cls = "sq-btn-upload up-open" if st.session_state.show_upload else "sq-btn-upload"
     st.markdown(
-        '<div class="sq-btn-upload">'
+        f'<div class="{_up_cls}">'
         '<div class="sq-btn-upload-plus">'
-        '<span class="sq-btn-upload-plus-icon">+</span>'
+        '<span class="sq-btn-upload-plus-icon">↑</span>'
         '<span class="sq-btn-upload-plus-label">Upload</span>'
         '</div>',
         unsafe_allow_html=True,
@@ -5650,67 +5679,7 @@ with _btn_portfolio:
 
 
 
-with _search_col:
-    # Inline global search
-    _raw_q = st.text_input(
-        "global_search",
-        value=st.session_state.search_query,
-        placeholder="🔍  Search documents — revenue 2023, risk factors, gross margin…",
-        label_visibility="collapsed",
-        key="g_search_input",
-    )
-    if _raw_q and _raw_q != st.session_state.search_query:
-        st.session_state.search_query = _raw_q
-        hits = []
-        if st.session_state.vectorstore:
-            try:
-                vs     = st.session_state.vectorstore
-                chunks = vs.get("chunks", [])
-                meta   = vs.get("meta",   [])
-                vec    = vs.get("vectorizer")
-                mat    = vs.get("tfidf_matrix")
-                if vec and mat is not None and chunks:
-                    from sklearn.metrics.pairwise import cosine_similarity
-                    q_vec = vec.transform([_raw_q])
-                    sims  = cosine_similarity(q_vec, mat).flatten()
-                    top5  = sims.argsort()[::-1][:5]
-                    for idx in top5:
-                        if sims[idx] > 0:
-                            m = meta[idx] if idx < len(meta) else {}
-                            hits.append({"filename": m.get("filename","—"),
-                                         "score":    round(float(sims[idx]), 3),
-                                         "snippet":  chunks[idx][:300]})
-            except: pass
-        st.session_state.search_results = hits
 
-    if not _raw_q and st.session_state.search_query:
-        st.session_state.search_query = ""
-        st.session_state.search_results = []
-
-# Search results inline below bar
-if st.session_state.search_query and st.session_state.search_results:
-    st.markdown(f'<div class="sr-wrap"><div class="sr-title">'
-                f'◈ {len(st.session_state.search_results)} results for '
-                f'"{_ht.escape(st.session_state.search_query)}"</div>',
-                unsafe_allow_html=True)
-    for hit in st.session_state.search_results:
-        rel  = int(hit["score"] * 100)
-        bc2  = "#4ADE80" if rel >= 75 else ("#F0C040" if rel >= 50 else "#9A8AAA")
-        st.markdown(f'<div class="sr-hit">'
-                    f'<div class="sr-fname">📄 {_ht.escape(hit["filename"])} &nbsp;'
-                    f'<span style="background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.22);'
-                    f'color:{bc2};font-family:Space Mono,monospace;font-size:.46rem;'
-                    f'padding:.04rem .3rem;border-radius:3px;">{rel}% match</span></div>'
-                    f'<div class="sr-snippet">{_ht.escape(hit["snippet"])}…</div></div>',
-                    unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-elif st.session_state.search_query and not st.session_state.search_results:
-    st.markdown(f'<div style="font-family:Space Mono,monospace;font-size:.6rem;color:#4A3858;'
-                f'padding:.35rem .7rem;background:rgba(107,45,107,.05);border:1px solid var(--border);'
-                f'border-radius:8px;margin-bottom:.6rem;">'
-                f'No results for "{_ht.escape(st.session_state.search_query)}" — '
-                f'upload a document first, or use Chat for live market queries.'
-                f'</div>', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # UPLOAD PANEL  (slides open below action bar when 📂 clicked)
