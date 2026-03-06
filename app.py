@@ -438,9 +438,8 @@ div[data-testid="stHorizontalBlock"]:has(.sq-btn-upload) {
   gap: 1rem !important;
 }
 
-/* ── Shared square button base ── */
-.sq-btn-upload,
-.sq-btn-simulate {
+/* ── Shared square button base — upload only ── */
+.sq-btn-upload {
   position: relative;
   display: block;
   border-radius: 14px;
@@ -533,81 +532,181 @@ div[data-testid="stHorizontalBlock"]:has(.sq-btn-upload) {
   letter-spacing: .28em;
 }
 
-/* ── SIMULATE — sea blue visual tile ── */
-.sq-btn-simulate-bg {
-  position: absolute; inset: 0;
-  border-radius: 14px; z-index: 0;
-  pointer-events: none;
-  background: linear-gradient(145deg, #010d1a 0%, #021828 50%, #010b15 100%);
-}
-.sq-btn-simulate-chart {
-  position: absolute; bottom: 0; left: 0;
-  width: 200%; height: 48%; z-index: 1;
-  animation: chart-scroll 9s linear infinite;
-  pointer-events: none; opacity: .4;
-  filter: hue-rotate(180deg) saturate(1.4);
-  transition: opacity .3s ease;
-}
-.sq-btn-simulate-vignette {
-  position: absolute; inset: 0; z-index: 2;
-  border-radius: 14px;
-  background: linear-gradient(180deg,rgba(0,0,0,.5) 0%,transparent 55%,rgba(0,0,0,.3) 100%);
-  pointer-events: none;
-}
-@keyframes chart-scroll { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
+/* ══ SIMULATE PORTFOLIO — circular globe market button ══════════════════════ */
 
+/* Wrapper keeps square proportions but hides overflow for circle */
+.sq-btn-simulate {
+  border-radius: 50% !important;
+  overflow: visible !important;    /* allow outer ring glow */
+}
+
+/* The circular visual face — pure CSS, no image deps */
+#sim-globe-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 9rem;
+  height: 9rem;
+  border-radius: 50%;
+  position: relative;
+  cursor: pointer;
+  margin: 0 auto;
+  /* Outer orbital ring */
+  box-shadow:
+    0 0 0 2px rgba(56,189,248,.18),
+    0 0 0 6px rgba(56,189,248,.06),
+    0 0 40px rgba(0,120,180,.35),
+    0 8px 32px rgba(0,0,0,.6);
+  transition: box-shadow .4s ease, transform .4s cubic-bezier(.34,1.56,.64,1);
+  background: radial-gradient(circle at 38% 36%, #031a2e 0%, #010d1a 60%, #000608 100%);
+  border: 1.5px solid rgba(56,189,248,.35);
+  overflow: hidden;
+}
+#sim-globe-btn:hover {
+  transform: scale(1.07) translateY(-4px);
+  box-shadow:
+    0 0 0 2px rgba(56,189,248,.4),
+    0 0 0 10px rgba(56,189,248,.1),
+    0 0 70px rgba(0,160,240,.55),
+    0 12px 40px rgba(0,0,0,.7);
+}
+.sim-globe-btn-active #sim-globe-btn {
+  box-shadow:
+    0 0 0 2px rgba(56,189,248,.7),
+    0 0 0 10px rgba(56,189,248,.18),
+    0 0 100px rgba(0,160,240,.75),
+    0 0 180px rgba(0,120,180,.3),
+    0 12px 40px rgba(0,0,0,.7) !important;
+  transform: scale(1.1) translateY(-6px) !important;
+}
+
+/* Spinning orbit ring */
+#sim-globe-btn::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  border: 1px dashed rgba(56,189,248,.2);
+  animation: sim-orbit 8s linear infinite;
+  pointer-events: none;
+}
+#sim-globe-btn::after {
+  content: '';
+  position: absolute;
+  inset: -14px;
+  border-radius: 50%;
+  border: 1px dashed rgba(0,160,240,.12);
+  animation: sim-orbit 14s linear infinite reverse;
+  pointer-events: none;
+}
+@keyframes sim-orbit { to { transform: rotate(360deg); } }
+
+/* Canvas for mini chart + market data */
+#sim-globe-canvas {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+/* Text overlay */
+#sim-globe-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 4;
+  pointer-events: none;
+  gap: 2px;
+}
+.sim-flag {
+  font-size: 1.6rem;
+  line-height: 1;
+  filter: drop-shadow(0 0 6px rgba(0,0,0,.8));
+  transition: all .4s ease;
+}
+.sim-mkt-name {
+  font-family: 'Space Mono', monospace;
+  font-size: .38rem;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: rgba(56,189,248,.7);
+  transition: all .4s ease;
+}
+.sim-mkt-val {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 1.05rem;
+  font-weight: 300;
+  color: #e2f8ff;
+  line-height: 1;
+  transition: all .4s ease;
+  text-shadow: 0 0 14px rgba(56,189,248,.4);
+}
+.sim-mkt-chg {
+  font-family: 'Space Mono', monospace;
+  font-size: .42rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  transition: all .4s ease;
+}
+.sim-mkt-chg.up  { color: #4ade80; text-shadow: 0 0 10px rgba(74,222,128,.5); }
+.sim-mkt-chg.dn  { color: #f87171; text-shadow: 0 0 10px rgba(248,113,113,.5); }
+
+/* Label below the circle */
+.sim-globe-label {
+  font-family: 'Space Mono', monospace;
+  font-size: .42rem;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  color: rgba(56,189,248,.55);
+  text-align: center;
+  margin-top: .5rem;
+  transition: color .3s ease;
+}
+.sim-globe-btn-active .sim-globe-label { color: rgba(56,189,248,.9); }
+
+/* Streamlit invisible overlay button — circular */
+.sq-btn-simulate div[data-testid="stButton"] {
+  position: absolute !important;
+  top: 0 !important; left: 50% !important;
+  transform: translateX(-50%) !important;
+  width: 9rem !important;
+  margin-top: 0 !important;
+}
 .sq-btn-simulate div[data-testid="stButton"] > button {
-  width: 100% !important;
-  aspect-ratio: 1 / 1 !important;
-  min-height: 8rem !important;
+  width: 9rem !important;
+  height: 9rem !important;
+  border-radius: 50% !important;
   background: transparent !important;
-  border: 1.5px solid rgba(0,120,180,.55) !important;
-  border-radius: 14px !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: transparent !important;
   padding: 0 !important;
   position: relative !important;
-  z-index: 3 !important;
-  font-family: 'Space Mono', monospace !important;
-  font-size: .58rem !important;
-  letter-spacing: .14em !important;
-  text-transform: uppercase !important;
-  line-height: 1.7 !important;
-  color: #38bdf8 !important;
+  z-index: 10 !important;
+  cursor: pointer !important;
+}
+.sq-btn-simulate {
   display: flex !important;
   flex-direction: column !important;
   align-items: center !important;
   justify-content: center !important;
-  white-space: pre-line !important;
-  overflow: hidden !important;
-  box-shadow: 0 0 0 1px rgba(0,120,180,.12),
-              0 4px 28px rgba(0,105,148,.32),
-              inset 0 1px 0 rgba(56,189,248,.08) !important;
-  text-shadow: 0 0 18px rgba(56,189,248,.5) !important;
-  transition: transform .3s cubic-bezier(.34,1.56,.64,1),
-              border-color .3s ease,
-              box-shadow .3s ease !important;
+  min-height: 10.5rem !important;
+  background: transparent !important;
+  border: none !important;
+  position: relative !important;
 }
-.sq-btn-simulate div[data-testid="stButton"] > button:hover {
-  transform: translateY(-4px) scale(1.05) !important;
-  border-color: rgba(0,160,240,.9) !important;
-  box-shadow: 0 0 0 1px rgba(0,150,220,.25),
-              0 0 50px rgba(0,120,180,.55),
-              inset 0 1px 0 rgba(56,189,248,.18) !important;
-  filter: brightness(1.25) !important;
+
+/* Pulse ring animation when active */
+@keyframes sim-pulse {
+  0%   { box-shadow: 0 0 0 0   rgba(56,189,248,.5); }
+  70%  { box-shadow: 0 0 0 18px rgba(56,189,248,0); }
+  100% { box-shadow: 0 0 0 0   rgba(56,189,248,0); }
 }
-/* Active / open — pop-out burst */
-.sq-btn-simulate.pf-open div[data-testid="stButton"] > button {
-  border-color: rgba(56,189,248,.95) !important;
-  box-shadow: 0 0 0 2px rgba(56,189,248,.35),
-              0 0 70px rgba(0,160,240,.7),
-              0 0 120px rgba(0,120,180,.35),
-              inset 0 1px 0 rgba(56,189,248,.25) !important;
-  filter: brightness(1.4) !important;
-  transform: translateY(-6px) scale(1.06) !important;
-  text-shadow: 0 0 30px rgba(56,189,248,1), 0 0 60px rgba(0,180,255,.6) !important;
-}
-.sq-btn-simulate.pf-open .sq-btn-simulate-chart {
-  opacity: .65;
-  animation-duration: 5s;
+.sim-globe-btn-active #sim-globe-btn {
+  animation: sim-pulse 1.8s ease-out 1;
 }
 .upload-panel{
   background:linear-gradient(135deg,rgba(107,45,107,.14) 0%,rgba(13,11,18,.97) 100%);
@@ -5850,7 +5949,7 @@ _CHART_SVG = (
     "%3C/svg%3E"
 )
 
-_btn_upload, _btn_portfolio = st.columns([1, 1], gap="medium")
+_btn_upload, _btn_portfolio = st.columns([1, 1], gap="large")
 
 with _btn_upload:
     _up_cls = "sq-btn-upload up-open" if st.session_state.show_upload else "sq-btn-upload"
@@ -5875,19 +5974,187 @@ with _btn_upload:
 with _btn_portfolio:
     _n_pf    = len(st.session_state.portfolio)
     _pf_open = st.session_state.show_portfolio
-    _pf_sub  = f"{_n_pf} Holdings" if _n_pf else "AI Assistant"
-    _pf_cls  = "sq-btn-simulate pf-open" if _pf_open else "sq-btn-simulate"
-    st.markdown(
-        f'<div class="{_pf_cls}">'
-        f'<div class="sq-btn-simulate-bg"></div>'
-        f'<img class="sq-btn-simulate-chart" src="{_CHART_SVG}" alt="" aria-hidden="true"/>'
-        f'<div class="sq-btn-simulate-vignette"></div>',
-        unsafe_allow_html=True,
-    )
+    _pf_sub  = f"{_n_pf} Holdings" if _n_pf else "Portfolio"
+    _pf_wrap_cls = "sq-btn-simulate sim-globe-btn-active" if _pf_open else "sq-btn-simulate"
+
+    _GLOBE_WIDGET = """
+<div class="sq-btn-simulate """ + _pf_wrap_cls.replace("sq-btn-simulate ","") + """" id="sim-globe-wrap">
+  <div id="sim-globe-btn">
+    <canvas id="sim-globe-canvas"></canvas>
+    <div id="sim-globe-text">
+      <span class="sim-flag" id="sim-flag">🌏</span>
+      <span class="sim-mkt-name" id="sim-mkt-name">Loading…</span>
+      <span class="sim-mkt-val"  id="sim-mkt-val">—</span>
+      <span class="sim-mkt-chg up" id="sim-mkt-chg">—</span>
+    </div>
+  </div>
+  <div class="sim-globe-label">Simulate Portfolio</div>
+</div>
+
+<script>
+(function(){
+  // ── Market data (static approximations, refreshed visually) ──────────
+  var MARKETS = [
+    { flag:'🇺🇸', name:'S&P 500',    val:'5,847', chg:'+0.42%', up:true,  color:'#34d399' },
+    { flag:'🇯🇵', name:'Nikkei 225', val:'38,921',chg:'+1.18%', up:true,  color:'#38bdf8' },
+    { flag:'🇬🇧', name:'FTSE 100',   val:'8,312', chg:'-0.23%', up:false, color:'#f87171' },
+    { flag:'🇩🇪', name:'DAX',        val:'18,640',chg:'+0.87%', up:true,  color:'#a78bfa' },
+    { flag:'🇨🇳', name:'Shanghai',   val:'3,241', chg:'-0.55%', up:false, color:'#f87171' },
+    { flag:'🇮🇳', name:'SENSEX',     val:'73,248',chg:'+1.34%', up:true,  color:'#fbbf24' },
+    { flag:'🇧🇷', name:'IBOVESPA',   val:'127,430',chg:'+0.61%',up:true,  color:'#34d399' },
+    { flag:'🇰🇷', name:'KOSPI',      val:'2,631', chg:'-0.18%', up:false, color:'#f87171' },
+    { flag:'🇦🇺', name:'ASX 200',    val:'7,943', chg:'+0.29%', up:true,  color:'#38bdf8' },
+    { flag:'🇫🇷', name:'CAC 40',     val:'7,521', chg:'+0.52%', up:true,  color:'#a78bfa' },
+    { flag:'🇨🇦', name:'TSX',        val:'22,105',chg:'+0.33%', up:true,  color:'#34d399' },
+    { flag:'🇿🇦', name:'JSE TOP40',  val:'71,832',chg:'-0.41%', up:false, color:'#f87171' },
+    { flag:'🇸🇦', name:'Tadawul',    val:'11,942',chg:'+0.78%', up:true,  color:'#fbbf24' },
+    { flag:'🇸🇬', name:'STI',        val:'3,387', chg:'+0.12%', up:true,  color:'#38bdf8' },
+    { flag:'🇭🇰', name:'Hang Seng',  val:'17,284',chg:'-0.93%', up:false, color:'#f87171' },
+    { flag:'🇮🇩', name:'IDX',        val:'7,126', chg:'+0.45%', up:true,  color:'#34d399' },
+    { flag:'🇲🇽', name:'IPC',        val:'54,312',chg:'+0.21%', up:true,  color:'#fbbf24' },
+    { flag:'🇳🇴', name:'OBX',        val:'1,412', chg:'+1.05%', up:true,  color:'#a78bfa' },
+    { flag:'🌐', name:'Crypto Mkt',  val:'$2.8T', chg:'+2.11%', up:true,  color:'#fb923c' },
+    { flag:'🥇', name:'Gold',        val:'$3,082',chg:'+0.68%', up:true,  color:'#fbbf24' },
+  ];
+
+  var idx = 0;
+  var canvas = document.getElementById('sim-globe-canvas');
+  var ctx    = canvas ? canvas.getContext('2d') : null;
+
+  function resize() {
+    if (!canvas) return;
+    canvas.width  = canvas.offsetWidth  || 144;
+    canvas.height = canvas.offsetHeight || 144;
+  }
+
+  // Draw animated sparkline chart inside the globe
+  var chartData = [];
+  function generateChart(up) {
+    chartData = [];
+    var v = 50;
+    for (var i = 0; i < 32; i++) {
+      v += (Math.random() - (up ? 0.42 : 0.58)) * 8;
+      v = Math.max(10, Math.min(90, v));
+      chartData.push(v);
+    }
+  }
+
+  function drawChart(color, up) {
+    if (!ctx) return;
+    var w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    // Subtle grid lines
+    ctx.strokeStyle = 'rgba(56,189,248,.06)';
+    ctx.lineWidth = 0.5;
+    for (var y = h*0.3; y < h*0.85; y += h*0.15) {
+      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke();
+    }
+
+    if (!chartData.length) return;
+    var pad = 18, bottom = h - 16, top = 22;
+    var mn = Math.min.apply(null,chartData), mx = Math.max.apply(null,chartData);
+    var range = mx - mn || 10;
+
+    function px(i) { return pad + (i/(chartData.length-1))*(w - pad*2); }
+    function py(v) { return bottom - ((v-mn)/range)*(bottom-top); }
+
+    // Fill gradient
+    var grad = ctx.createLinearGradient(0, top, 0, bottom);
+    grad.addColorStop(0, color.replace(')',',0.25)').replace('rgb','rgba'));
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.beginPath();
+    ctx.moveTo(px(0), bottom);
+    for (var i=0; i<chartData.length; i++) ctx.lineTo(px(i), py(chartData[i]));
+    ctx.lineTo(px(chartData.length-1), bottom);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // Line
+    ctx.beginPath();
+    ctx.moveTo(px(0), py(chartData[0]));
+    for (var j=1; j<chartData.length; j++) ctx.lineTo(px(j), py(chartData[j]));
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.4;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 6;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // End dot
+    var ex = px(chartData.length-1), ey = py(chartData[chartData.length-1]);
+    ctx.beginPath();
+    ctx.arc(ex, ey, 3, 0, Math.PI*2);
+    ctx.fillStyle = color;
+    ctx.shadowColor = color; ctx.shadowBlur = 10;
+    ctx.fill(); ctx.shadowBlur = 0;
+  }
+
+  function hexToRgb(hex) {
+    hex = hex.replace('#','');
+    return 'rgb('+parseInt(hex.slice(0,2),16)+','+parseInt(hex.slice(2,4),16)+','+parseInt(hex.slice(4,6),16)+')';
+  }
+
+  var transitioning = false;
+  function showMarket(i) {
+    var m = MARKETS[i % MARKETS.length];
+    var flag = document.getElementById('sim-flag');
+    var name = document.getElementById('sim-mkt-name');
+    var val  = document.getElementById('sim-mkt-val');
+    var chg  = document.getElementById('sim-mkt-chg');
+    if (!flag) return;
+
+    // Fade out
+    [flag,name,val,chg].forEach(function(el){
+      el.style.opacity='0'; el.style.transform='translateY(-6px)';
+      el.style.transition='opacity .25s ease, transform .25s ease';
+    });
+
+    // Glow border shift
+    var gb = document.getElementById('sim-globe-btn');
+    if (gb) {
+      gb.style.borderColor = m.color + '88';
+      gb.style.transition = 'border-color .6s ease, box-shadow .6s ease';
+    }
+
+    generateChart(m.up);
+    drawChart(hexToRgb(m.color), m.up);
+
+    setTimeout(function() {
+      flag.textContent = m.flag;
+      name.textContent = m.name;
+      val.textContent  = m.val;
+      chg.textContent  = (m.up ? '▲ ' : '▼ ') + m.chg;
+      chg.className    = 'sim-mkt-chg ' + (m.up ? 'up' : 'dn');
+      [flag,name,val,chg].forEach(function(el){
+        el.style.opacity='1'; el.style.transform='translateY(0)';
+        el.style.transition='opacity .3s ease .05s, transform .3s ease .05s';
+      });
+    }, 270);
+  }
+
+  function tick() {
+    showMarket(idx);
+    idx = (idx + 1) % MARKETS.length;
+  }
+
+  // Init
+  setTimeout(function(){
+    resize();
+    tick();
+    setInterval(tick, 3000);
+    window.addEventListener('resize', function(){ resize(); drawChart('rgb(56,189,248)',true); });
+  }, 200);
+})();
+</script>
+"""
+    st.markdown(_GLOBE_WIDGET, unsafe_allow_html=True)
+
     if st.button(
-        f"Simulate Portfolio\n{_pf_sub}",
+        "\u200b",
         key="top_portfolio_btn",
-        use_container_width=True,
+        use_container_width=False,
         help="Build & AI-simulate your global stock portfolio",
     ):
         st.session_state.show_portfolio = not _pf_open
