@@ -428,286 +428,16 @@ div[data-testid="stButton"] button.tf-active{
 }
 
 /* ═══════════════════════════════════════════════════════
-   TOP ACTION BAR — two big equal square buttons, sea blue
-   Upload + Simulate Portfolio  →  sea blue (#006994)
-   Pop-out effect on click (active/open state)
+   TOP ACTION BAR — iframe-based buttons, no CSS hack needed
    ═══════════════════════════════════════════════════════ */
 
-div[data-testid="stHorizontalBlock"]:has(.sq-btn-upload) {
-  align-items: stretch !important;
-  gap: 1rem !important;
+/* Hide the hidden Streamlit trigger buttons completely */
+.stHidden-upload-trigger,
+.stHidden-portfolio-trigger {
+  display: none !important;
 }
 
-/* ── Shared square button base — upload only ── */
-.sq-btn-upload {
-  position: relative;
-  display: block;
-  border-radius: 14px;
-  overflow: hidden;
-}
-
-/* ── UPLOAD — sea blue visual tile ── */
-.sq-btn-upload-plus {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  aspect-ratio: 1 / 1;
-  min-height: 8rem;
-  background: linear-gradient(145deg, #010d1a 0%, #021828 50%, #010b15 100%);
-  border: 1.5px solid rgba(0,120,180,.55);
-  border-radius: 14px;
-  pointer-events: none;
-  gap: 0.35rem;
-  box-shadow: 0 0 0 1px rgba(0,120,180,.12),
-              0 4px 32px rgba(0,105,148,.32),
-              inset 0 1px 0 rgba(56,189,248,.08);
-  transition: all .3s cubic-bezier(.34,1.56,.64,1);
-}
-.sq-btn-upload-plus-icon {
-  font-size: 2.8rem;
-  font-weight: 200;
-  color: #38bdf8;
-  line-height: 1;
-  font-family: 'Helvetica Neue', Arial, sans-serif;
-  letter-spacing: -0.04em;
-  text-shadow: 0 0 24px rgba(56,189,248,.7);
-  transition: all .3s cubic-bezier(.34,1.56,.64,1);
-}
-.sq-btn-upload-plus-label {
-  font-family: 'Space Mono', monospace;
-  font-size: .5rem;
-  letter-spacing: .22em;
-  text-transform: uppercase;
-  color: rgba(56,189,248,.8);
-  transition: all .3s ease;
-}
-/* Invisible overlay button */
-.sq-btn-upload div[data-testid="stButton"] {
-  margin-top: -8.2rem !important;
-}
-.sq-btn-upload div[data-testid="stButton"] > button {
-  width: 100% !important;
-  aspect-ratio: 1 / 1 !important;
-  min-height: 8rem !important;
-  background: transparent !important;
-  border: 2px solid transparent !important;
-  border-radius: 14px !important;
-  color: transparent !important;
-  box-shadow: none !important;
-  padding: 0 !important;
-  transition: transform .3s cubic-bezier(.34,1.56,.64,1) !important;
-}
-/* Hover */
-.sq-btn-upload:hover .sq-btn-upload-plus {
-  border-color: rgba(0,160,240,.9);
-  background: linear-gradient(145deg, #01121f 0%, #032030 50%, #010e18 100%);
-  box-shadow: 0 0 0 1px rgba(0,150,220,.25),
-              0 0 50px rgba(0,120,180,.55),
-              inset 0 1px 0 rgba(56,189,248,.18);
-}
-.sq-btn-upload:hover .sq-btn-upload-plus-icon {
-  text-shadow: 0 0 36px rgba(56,189,248,1);
-}
-.sq-btn-upload:hover div[data-testid="stButton"] > button {
-  transform: translateY(-4px) scale(1.05) !important;
-}
-/* Active / open (panel is showing) — pop-out burst */
-.sq-btn-upload.up-open .sq-btn-upload-plus {
-  border-color: rgba(56,189,248,.95) !important;
-  background: linear-gradient(145deg, #011524 0%, #042638 50%, #011018 100%) !important;
-  box-shadow: 0 0 0 2px rgba(56,189,248,.35),
-              0 0 70px rgba(0,160,240,.7),
-              0 0 120px rgba(0,120,180,.35),
-              inset 0 1px 0 rgba(56,189,248,.25) !important;
-  transform: translateY(-6px) scale(1.06);
-}
-.sq-btn-upload.up-open .sq-btn-upload-plus-icon {
-  transform: scale(1.15);
-  text-shadow: 0 0 50px rgba(56,189,248,1), 0 0 80px rgba(0,180,255,.6) !important;
-}
-.sq-btn-upload.up-open .sq-btn-upload-plus-label {
-  color: rgba(56,189,248,1);
-  letter-spacing: .28em;
-}
-
-/* ══ SIMULATE PORTFOLIO — circular globe market button ══════════════════════ */
-
-/* Wrapper keeps square proportions but hides overflow for circle */
-.sq-btn-simulate {
-  border-radius: 50% !important;
-  overflow: visible !important;    /* allow outer ring glow */
-}
-
-/* The circular visual face — pure CSS, no image deps */
-#sim-globe-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 9rem;
-  height: 9rem;
-  border-radius: 50%;
-  position: relative;
-  cursor: pointer;
-  margin: 0 auto;
-  /* Outer orbital ring */
-  box-shadow:
-    0 0 0 2px rgba(56,189,248,.18),
-    0 0 0 6px rgba(56,189,248,.06),
-    0 0 40px rgba(0,120,180,.35),
-    0 8px 32px rgba(0,0,0,.6);
-  transition: box-shadow .4s ease, transform .4s cubic-bezier(.34,1.56,.64,1);
-  background: radial-gradient(circle at 38% 36%, #031a2e 0%, #010d1a 60%, #000608 100%);
-  border: 1.5px solid rgba(56,189,248,.35);
-  overflow: hidden;
-}
-#sim-globe-btn:hover {
-  transform: scale(1.07) translateY(-4px);
-  box-shadow:
-    0 0 0 2px rgba(56,189,248,.4),
-    0 0 0 10px rgba(56,189,248,.1),
-    0 0 70px rgba(0,160,240,.55),
-    0 12px 40px rgba(0,0,0,.7);
-}
-.sim-globe-btn-active #sim-globe-btn {
-  box-shadow:
-    0 0 0 2px rgba(56,189,248,.7),
-    0 0 0 10px rgba(56,189,248,.18),
-    0 0 100px rgba(0,160,240,.75),
-    0 0 180px rgba(0,120,180,.3),
-    0 12px 40px rgba(0,0,0,.7) !important;
-  transform: scale(1.1) translateY(-6px) !important;
-}
-
-/* Spinning orbit ring */
-#sim-globe-btn::before {
-  content: '';
-  position: absolute;
-  inset: -8px;
-  border-radius: 50%;
-  border: 1px dashed rgba(56,189,248,.2);
-  animation: sim-orbit 8s linear infinite;
-  pointer-events: none;
-}
-#sim-globe-btn::after {
-  content: '';
-  position: absolute;
-  inset: -14px;
-  border-radius: 50%;
-  border: 1px dashed rgba(0,160,240,.12);
-  animation: sim-orbit 14s linear infinite reverse;
-  pointer-events: none;
-}
-@keyframes sim-orbit { to { transform: rotate(360deg); } }
-
-/* Canvas for mini chart + market data */
-#sim-globe-canvas {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  pointer-events: none;
-}
-
-/* Text overlay */
-#sim-globe-text {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  z-index: 4;
-  pointer-events: none;
-  gap: 2px;
-}
-.sim-flag {
-  font-size: 1.6rem;
-  line-height: 1;
-  filter: drop-shadow(0 0 6px rgba(0,0,0,.8));
-  transition: all .4s ease;
-}
-.sim-mkt-name {
-  font-family: 'Space Mono', monospace;
-  font-size: .38rem;
-  letter-spacing: .18em;
-  text-transform: uppercase;
-  color: rgba(56,189,248,.7);
-  transition: all .4s ease;
-}
-.sim-mkt-val {
-  font-family: 'Cormorant Garamond', serif;
-  font-size: 1.05rem;
-  font-weight: 300;
-  color: #e2f8ff;
-  line-height: 1;
-  transition: all .4s ease;
-  text-shadow: 0 0 14px rgba(56,189,248,.4);
-}
-.sim-mkt-chg {
-  font-family: 'Space Mono', monospace;
-  font-size: .42rem;
-  font-weight: 700;
-  letter-spacing: .04em;
-  transition: all .4s ease;
-}
-.sim-mkt-chg.up  { color: #4ade80; text-shadow: 0 0 10px rgba(74,222,128,.5); }
-.sim-mkt-chg.dn  { color: #f87171; text-shadow: 0 0 10px rgba(248,113,113,.5); }
-
-/* Label below the circle */
-.sim-globe-label {
-  font-family: 'Space Mono', monospace;
-  font-size: .42rem;
-  letter-spacing: .2em;
-  text-transform: uppercase;
-  color: rgba(56,189,248,.55);
-  text-align: center;
-  margin-top: .5rem;
-  transition: color .3s ease;
-}
-.sim-globe-btn-active .sim-globe-label { color: rgba(56,189,248,.9); }
-
-/* Streamlit invisible overlay button — circular */
-.sq-btn-simulate div[data-testid="stButton"] {
-  position: absolute !important;
-  top: 0 !important; left: 50% !important;
-  transform: translateX(-50%) !important;
-  width: 9rem !important;
-  margin-top: 0 !important;
-}
-.sq-btn-simulate div[data-testid="stButton"] > button {
-  width: 9rem !important;
-  height: 9rem !important;
-  border-radius: 50% !important;
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  color: transparent !important;
-  padding: 0 !important;
-  position: relative !important;
-  z-index: 10 !important;
-  cursor: pointer !important;
-}
-.sq-btn-simulate {
-  display: flex !important;
-  flex-direction: column !important;
-  align-items: center !important;
-  justify-content: center !important;
-  min-height: 10.5rem !important;
-  background: transparent !important;
-  border: none !important;
-  position: relative !important;
-}
-
-/* Pulse ring animation when active */
-@keyframes sim-pulse {
-  0%   { box-shadow: 0 0 0 0   rgba(56,189,248,.5); }
-  70%  { box-shadow: 0 0 0 18px rgba(56,189,248,0); }
-  100% { box-shadow: 0 0 0 0   rgba(56,189,248,0); }
-}
-.sim-globe-btn-active #sim-globe-btn {
-  animation: sim-pulse 1.8s ease-out 1;
-}
+/* Upload panel slide-in */
 .upload-panel{
   background:linear-gradient(135deg,rgba(107,45,107,.14) 0%,rgba(13,11,18,.97) 100%);
   border:1px solid rgba(139,58,139,.4);border-radius:14px;
@@ -5925,241 +5655,495 @@ st.markdown("""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TOP ACTION BAR  — [＋ Upload]  [Simulate Portfolio]  [Search]
+# TOP ACTION BAR — Upload (square) + Simulate Portfolio (circle globe)
+# Both rendered as one components.html iframe for real JS execution
+# Click → postMessage → parent Streamlit rerun via hidden buttons
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Inline SVG chart watermark — two lines, one red one green, matching the cycle theme
-_CHART_SVG = (
-    "data:image/svg+xml,"
-    "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 520 64' preserveAspectRatio='none'%3E"
-    "%3Cdefs%3E"
-    "%3ClinearGradient id='rg' x1='0' y1='0' x2='0' y2='1'%3E"
-    "%3Cstop offset='0' stop-color='%23dc2626' stop-opacity='.22'/%3E"
-    "%3Cstop offset='1' stop-color='%23dc2626' stop-opacity='0'/%3E"
-    "%3C/linearGradient%3E"
-    "%3ClinearGradient id='gg' x1='0' y1='0' x2='0' y2='1'%3E"
-    "%3Cstop offset='0' stop-color='%2322c55e' stop-opacity='.22'/%3E"
-    "%3Cstop offset='1' stop-color='%2322c55e' stop-opacity='0'/%3E"
-    "%3C/linearGradient%3E"
-    "%3C/defs%3E"
-    "%3Cpolyline points='0,58 30,48 60,52 90,36 120,42 150,22 180,28 210,12 240,18 270,6 300,12 330,2 360,9 390,20 420,14 450,26 480,18 520,28'"
-    " fill='url(%23rg)' stroke='%23dc2626' stroke-width='1.8'/%3E"
-    "%3Cpolyline points='0,62 30,54 60,58 90,46 120,50 150,36 180,40 210,28 240,32 270,20 300,24 330,14 360,20 390,32 420,24 450,36 480,28 520,38'"
-    " fill='url(%23gg)' stroke='%2322c55e' stroke-width='1.4' stroke-dasharray='5 3' opacity='.7'/%3E"
-    "%3C/svg%3E"
-)
+_pf_open_state = "true" if st.session_state.show_portfolio else "false"
+_up_open_state = "true" if st.session_state.show_upload    else "false"
 
-_btn_upload, _btn_portfolio = st.columns([1, 1], gap="large")
+_ACTION_BAR_HTML = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Cormorant+Garamond:wght@300;400&display=swap');
 
-with _btn_upload:
-    _up_cls = "sq-btn-upload up-open" if st.session_state.show_upload else "sq-btn-upload"
-    st.markdown(
-        f'<div class="{_up_cls}">'
-        '<div class="sq-btn-upload-plus">'
-        '<span class="sq-btn-upload-plus-icon">↑</span>'
-        '<span class="sq-btn-upload-plus-label">Upload</span>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
-    if st.button(
-        "\u200b",
-        key="top_upload_btn",
-        use_container_width=True,
-        help="Upload PDF · Excel · CSV · DOCX · TXT",
-    ):
-        st.session_state.show_upload = not st.session_state.show_upload
-        st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  html, body {{ background: transparent; overflow: hidden; }}
 
-with _btn_portfolio:
-    _n_pf    = len(st.session_state.portfolio)
-    _pf_open = st.session_state.show_portfolio
-    _pf_sub  = f"{_n_pf} Holdings" if _n_pf else "Portfolio"
-    _pf_wrap_cls = "sq-btn-simulate sim-globe-btn-active" if _pf_open else "sq-btn-simulate"
+  body {{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2.5rem;
+    height: 170px;
+    padding: 12px 20px;
+    font-family: 'Space Mono', monospace;
+  }}
 
-    _GLOBE_WIDGET = """
-<div class="sq-btn-simulate """ + _pf_wrap_cls.replace("sq-btn-simulate ","") + """" id="sim-globe-wrap">
-  <div id="sim-globe-btn">
-    <canvas id="sim-globe-canvas"></canvas>
-    <div id="sim-globe-text">
-      <span class="sim-flag" id="sim-flag">🌏</span>
-      <span class="sim-mkt-name" id="sim-mkt-name">Loading…</span>
-      <span class="sim-mkt-val"  id="sim-mkt-val">—</span>
-      <span class="sim-mkt-chg up" id="sim-mkt-chg">—</span>
+  /* ═══ UPLOAD BUTTON — elegant dark square ═══════════════════════════════ */
+  #upload-btn {{
+    width: 140px;
+    height: 140px;
+    border-radius: 18px;
+    background: linear-gradient(145deg, #010e1c 0%, #021b2e 45%, #010912 100%);
+    border: 1.5px solid rgba(56,189,248,.4);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    box-shadow:
+      0 0 0 1px rgba(56,189,248,.08),
+      0 6px 40px rgba(0,100,160,.4),
+      inset 0 1px 0 rgba(56,189,248,.07);
+    transition: all .35s cubic-bezier(.34,1.56,.64,1);
+    flex-shrink: 0;
+  }}
+  #upload-btn::before {{
+    content: '';
+    position: absolute;
+    top: -40%; left: -40%;
+    width: 180%; height: 180%;
+    background: radial-gradient(ellipse at 40% 40%, rgba(56,189,248,.06) 0%, transparent 60%);
+    pointer-events: none;
+  }}
+  /* Animated corner accents */
+  #upload-btn::after {{
+    content: '';
+    position: absolute;
+    inset: 6px;
+    border-radius: 12px;
+    border: 1px solid transparent;
+    border-top-color: rgba(56,189,248,.25);
+    border-left-color: rgba(56,189,248,.15);
+    pointer-events: none;
+    transition: border-color .3s ease;
+  }}
+  #upload-btn:hover {{
+    transform: translateY(-5px) scale(1.04);
+    border-color: rgba(56,189,248,.8);
+    box-shadow:
+      0 0 0 1px rgba(56,189,248,.2),
+      0 0 60px rgba(0,160,240,.55),
+      0 16px 40px rgba(0,0,0,.6),
+      inset 0 1px 0 rgba(56,189,248,.15);
+  }}
+  #upload-btn:hover::after {{
+    border-top-color: rgba(56,189,248,.6);
+    border-left-color: rgba(56,189,248,.4);
+  }}
+  #upload-btn.active {{
+    border-color: rgba(56,189,248,.9);
+    transform: translateY(-6px) scale(1.05);
+    box-shadow:
+      0 0 0 2px rgba(56,189,248,.3),
+      0 0 80px rgba(0,160,240,.65),
+      0 16px 40px rgba(0,0,0,.7),
+      inset 0 1px 0 rgba(56,189,248,.2);
+  }}
+  .upload-icon {{
+    width: 44px;
+    height: 44px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }}
+  /* SVG arrow drawn with CSS */
+  .upload-arrow {{
+    width: 2px;
+    height: 22px;
+    background: linear-gradient(180deg, #38bdf8, rgba(56,189,248,.3));
+    border-radius: 2px;
+    position: relative;
+    box-shadow: 0 0 10px rgba(56,189,248,.6);
+  }}
+  .upload-arrow::before,
+  .upload-arrow::after {{
+    content: '';
+    position: absolute;
+    top: 0;
+    width: 10px;
+    height: 2px;
+    background: #38bdf8;
+    border-radius: 2px;
+    box-shadow: 0 0 8px rgba(56,189,248,.6);
+  }}
+  .upload-arrow::before {{ left: -8px; transform: rotate(45deg); transform-origin: right center; }}
+  .upload-arrow::after  {{ right: -8px; transform: rotate(-45deg); transform-origin: left center; }}
+  /* Horizontal bar at bottom of arrow */
+  .upload-base {{
+    width: 28px;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(56,189,248,.8), transparent);
+    border-radius: 2px;
+    margin-top: 2px;
+  }}
+  .upload-label {{
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: rgba(56,189,248,.75);
+    text-shadow: 0 0 12px rgba(56,189,248,.4);
+  }}
+  .upload-sublabel {{
+    font-size: 7px;
+    letter-spacing: 1.5px;
+    color: rgba(56,189,248,.35);
+    text-transform: uppercase;
+  }}
+
+  /* Scan line animation */
+  @keyframes scan {{
+    0%   {{ top: -100%; opacity: 0; }}
+    15%  {{ opacity: .4; }}
+    85%  {{ opacity: .3; }}
+    100% {{ top: 200%; opacity: 0; }}
+  }}
+  .scan-line {{
+    position: absolute;
+    left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(56,189,248,.5), transparent);
+    top: -100%;
+    animation: scan 3s ease-in-out infinite;
+    pointer-events: none;
+  }}
+
+  /* ═══ SIMULATE BUTTON — circle globe ═══════════════════════════════════ */
+  #sim-wrap {{
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }}
+  #globe {{
+    width: 140px;
+    height: 140px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 38% 34%, #04233d 0%, #010f1e 50%, #000508 100%);
+    border: 1.5px solid rgba(56,189,248,.35);
+    position: relative;
+    cursor: pointer;
+    overflow: hidden;
+    box-shadow:
+      0 0 0 3px rgba(56,189,248,.06),
+      0 0 0 7px rgba(56,189,248,.03),
+      0 0 45px rgba(0,110,170,.4),
+      0 8px 32px rgba(0,0,0,.7);
+    transition: all .4s cubic-bezier(.34,1.56,.64,1);
+  }}
+  #globe:hover {{
+    transform: translateY(-5px) scale(1.06);
+    border-color: rgba(56,189,248,.75);
+    box-shadow:
+      0 0 0 3px rgba(56,189,248,.15),
+      0 0 0 8px rgba(56,189,248,.06),
+      0 0 70px rgba(0,150,230,.6),
+      0 14px 40px rgba(0,0,0,.7);
+  }}
+  #globe.active {{
+    border-color: rgba(56,189,248,.9);
+    transform: translateY(-6px) scale(1.08);
+    box-shadow:
+      0 0 0 3px rgba(56,189,248,.28),
+      0 0 0 10px rgba(56,189,248,.1),
+      0 0 100px rgba(0,160,240,.75),
+      0 0 160px rgba(0,120,180,.3),
+      0 14px 40px rgba(0,0,0,.8);
+  }}
+
+  /* Orbit rings */
+  .orbit {{
+    position: absolute;
+    border-radius: 50%;
+    border: 1px dashed rgba(56,189,248,.18);
+    pointer-events: none;
+  }}
+  .orbit-1 {{ inset: -10px; animation: orbit 9s linear infinite; }}
+  .orbit-2 {{ inset: -18px; border-color: rgba(56,189,248,.08); animation: orbit 16s linear infinite reverse; }}
+  @keyframes orbit {{ to {{ transform: rotate(360deg); }} }}
+
+  /* Dot on orbit ring */
+  .orbit-dot {{
+    position: absolute;
+    width: 4px; height: 4px;
+    border-radius: 50%;
+    background: #38bdf8;
+    box-shadow: 0 0 6px #38bdf8;
+    top: -2px; left: calc(50% - 2px);
+  }}
+
+  /* Canvas chart background */
+  #globe-canvas {{
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    pointer-events: none;
+  }}
+
+  /* Overlay text */
+  #globe-info {{
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 5;
+    pointer-events: none;
+    gap: 2px;
+    padding: 8px;
+  }}
+  .g-flag  {{
+    font-size: 28px;
+    line-height: 1;
+    filter: drop-shadow(0 1px 4px rgba(0,0,0,.9));
+    transition: opacity .25s ease, transform .25s ease;
+  }}
+  .g-name  {{
+    font-size: 8px;
+    letter-spacing: 2px;
+    color: rgba(56,189,248,.8);
+    text-transform: uppercase;
+    text-shadow: 0 0 8px rgba(0,0,0,.9);
+    transition: opacity .25s ease, transform .25s ease;
+  }}
+  .g-val   {{
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 18px;
+    font-weight: 300;
+    color: #e8f6ff;
+    line-height: 1.1;
+    text-shadow: 0 0 14px rgba(56,189,248,.35);
+    transition: opacity .25s ease, transform .25s ease;
+  }}
+  .g-chg   {{
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    transition: opacity .25s ease, transform .25s ease;
+  }}
+  .g-chg.up  {{ color: #4ade80; text-shadow: 0 0 10px rgba(74,222,128,.6); }}
+  .g-chg.dn  {{ color: #f87171; text-shadow: 0 0 10px rgba(248,113,113,.6); }}
+  .fade-out {{ opacity: 0 !important; transform: translateY(-5px) !important; }}
+
+  #sim-label {{
+    font-size: 8px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: rgba(56,189,248,.5);
+    transition: color .3s ease;
+  }}
+  #globe.active ~ #sim-label {{ color: rgba(56,189,248,.9); }}
+</style>
+</head>
+<body>
+
+<!-- UPLOAD BUTTON -->
+<div id="upload-btn" onclick="clickUpload()">
+  <div class="scan-line"></div>
+  <div class="upload-icon">
+    <div class="upload-arrow"></div>
+  </div>
+  <div class="upload-base"></div>
+  <div class="upload-label">Upload</div>
+  <div class="upload-sublabel">PDF · XLS · CSV · DOCX</div>
+</div>
+
+<!-- SIMULATE GLOBE -->
+<div id="sim-wrap">
+  <div id="globe" onclick="clickSim()">
+    <div class="orbit orbit-1"><div class="orbit-dot"></div></div>
+    <div class="orbit orbit-2"></div>
+    <canvas id="globe-canvas"></canvas>
+    <div id="globe-info">
+      <span class="g-flag" id="g-flag">🌐</span>
+      <span class="g-name" id="g-name">Markets</span>
+      <span class="g-val"  id="g-val">—</span>
+      <span class="g-chg up" id="g-chg">Loading…</span>
     </div>
   </div>
-  <div class="sim-globe-label">Simulate Portfolio</div>
+  <div id="sim-label">Simulate Portfolio</div>
 </div>
 
 <script>
-(function(){
-  // ── Market data (static approximations, refreshed visually) ──────────
-  var MARKETS = [
-    { flag:'🇺🇸', name:'S&P 500',    val:'5,847', chg:'+0.42%', up:true,  color:'#34d399' },
-    { flag:'🇯🇵', name:'Nikkei 225', val:'38,921',chg:'+1.18%', up:true,  color:'#38bdf8' },
-    { flag:'🇬🇧', name:'FTSE 100',   val:'8,312', chg:'-0.23%', up:false, color:'#f87171' },
-    { flag:'🇩🇪', name:'DAX',        val:'18,640',chg:'+0.87%', up:true,  color:'#a78bfa' },
-    { flag:'🇨🇳', name:'Shanghai',   val:'3,241', chg:'-0.55%', up:false, color:'#f87171' },
-    { flag:'🇮🇳', name:'SENSEX',     val:'73,248',chg:'+1.34%', up:true,  color:'#fbbf24' },
-    { flag:'🇧🇷', name:'IBOVESPA',   val:'127,430',chg:'+0.61%',up:true,  color:'#34d399' },
-    { flag:'🇰🇷', name:'KOSPI',      val:'2,631', chg:'-0.18%', up:false, color:'#f87171' },
-    { flag:'🇦🇺', name:'ASX 200',    val:'7,943', chg:'+0.29%', up:true,  color:'#38bdf8' },
-    { flag:'🇫🇷', name:'CAC 40',     val:'7,521', chg:'+0.52%', up:true,  color:'#a78bfa' },
-    { flag:'🇨🇦', name:'TSX',        val:'22,105',chg:'+0.33%', up:true,  color:'#34d399' },
-    { flag:'🇿🇦', name:'JSE TOP40',  val:'71,832',chg:'-0.41%', up:false, color:'#f87171' },
-    { flag:'🇸🇦', name:'Tadawul',    val:'11,942',chg:'+0.78%', up:true,  color:'#fbbf24' },
-    { flag:'🇸🇬', name:'STI',        val:'3,387', chg:'+0.12%', up:true,  color:'#38bdf8' },
-    { flag:'🇭🇰', name:'Hang Seng',  val:'17,284',chg:'-0.93%', up:false, color:'#f87171' },
-    { flag:'🇮🇩', name:'IDX',        val:'7,126', chg:'+0.45%', up:true,  color:'#34d399' },
-    { flag:'🇲🇽', name:'IPC',        val:'54,312',chg:'+0.21%', up:true,  color:'#fbbf24' },
-    { flag:'🇳🇴', name:'OBX',        val:'1,412', chg:'+1.05%', up:true,  color:'#a78bfa' },
-    { flag:'🌐', name:'Crypto Mkt',  val:'$2.8T', chg:'+2.11%', up:true,  color:'#fb923c' },
-    { flag:'🥇', name:'Gold',        val:'$3,082',chg:'+0.68%', up:true,  color:'#fbbf24' },
-  ];
+var MARKETS = [
+  {{flag:'🇺🇸',name:'S&P 500',   val:'5,847',  chg:'+0.42%',up:true, col:'#34d399'}},
+  {{flag:'🇯🇵',name:'Nikkei 225',val:'38,921', chg:'+1.18%',up:true, col:'#38bdf8'}},
+  {{flag:'🇬🇧',name:'FTSE 100',  val:'8,312',  chg:'-0.23%',up:false,col:'#f87171'}},
+  {{flag:'🇩🇪',name:'DAX',       val:'18,640', chg:'+0.87%',up:true, col:'#a78bfa'}},
+  {{flag:'🇨🇳',name:'Shanghai',  val:'3,241',  chg:'-0.55%',up:false,col:'#f87171'}},
+  {{flag:'🇮🇳',name:'SENSEX',    val:'73,248', chg:'+1.34%',up:true, col:'#fbbf24'}},
+  {{flag:'🇧🇷',name:'IBOVESPA',  val:'127,430',chg:'+0.61%',up:true, col:'#34d399'}},
+  {{flag:'🇰🇷',name:'KOSPI',     val:'2,631',  chg:'-0.18%',up:false,col:'#f87171'}},
+  {{flag:'🇦🇺',name:'ASX 200',   val:'7,943',  chg:'+0.29%',up:true, col:'#38bdf8'}},
+  {{flag:'🇫🇷',name:'CAC 40',    val:'7,521',  chg:'+0.52%',up:true, col:'#a78bfa'}},
+  {{flag:'🇨🇦',name:'TSX',       val:'22,105', chg:'+0.33%',up:true, col:'#34d399'}},
+  {{flag:'🇿🇦',name:'JSE TOP40', val:'71,832', chg:'-0.41%',up:false,col:'#f87171'}},
+  {{flag:'🇸🇦',name:'Tadawul',   val:'11,942', chg:'+0.78%',up:true, col:'#fbbf24'}},
+  {{flag:'🇸🇬',name:'STI',       val:'3,387',  chg:'+0.12%',up:true, col:'#38bdf8'}},
+  {{flag:'🇭🇰',name:'Hang Seng', val:'17,284', chg:'-0.93%',up:false,col:'#f87171'}},
+  {{flag:'🇮🇩',name:'IDX',       val:'7,126',  chg:'+0.45%',up:true, col:'#34d399'}},
+  {{flag:'🇲🇽',name:'IPC',       val:'54,312', chg:'+0.21%',up:true, col:'#fbbf24'}},
+  {{flag:'🇳🇴',name:'OBX',       val:'1,412',  chg:'+1.05%',up:true, col:'#a78bfa'}},
+  {{flag:'🌐',name:'Crypto',     val:'$2.8T',  chg:'+2.11%',up:true, col:'#fb923c'}},
+  {{flag:'🥇',name:'Gold',       val:'$3,082', chg:'+0.68%',up:true, col:'#fbbf24'}},
+];
 
-  var idx = 0;
-  var canvas = document.getElementById('sim-globe-canvas');
-  var ctx    = canvas ? canvas.getContext('2d') : null;
+var idx = 0;
+var canvas = document.getElementById('globe-canvas');
+var ctx = canvas.getContext('2d');
+var chartData = [];
 
-  function resize() {
-    if (!canvas) return;
-    canvas.width  = canvas.offsetWidth  || 144;
-    canvas.height = canvas.offsetHeight || 144;
-  }
+// Set active states from Python
+var pfOpen = {_pf_open_state};
+var upOpen = {_up_open_state};
+if (pfOpen) document.getElementById('globe').classList.add('active');
+if (upOpen) document.getElementById('upload-btn').classList.add('active');
 
-  // Draw animated sparkline chart inside the globe
-  var chartData = [];
-  function generateChart(up) {
-    chartData = [];
-    var v = 50;
-    for (var i = 0; i < 32; i++) {
-      v += (Math.random() - (up ? 0.42 : 0.58)) * 8;
-      v = Math.max(10, Math.min(90, v));
-      chartData.push(v);
-    }
-  }
+function resize() {{
+  canvas.width  = canvas.offsetWidth  || 140;
+  canvas.height = canvas.offsetHeight || 140;
+}}
 
-  function drawChart(color, up) {
-    if (!ctx) return;
-    var w = canvas.width, h = canvas.height;
-    ctx.clearRect(0, 0, w, h);
+function genChart(up) {{
+  chartData = [];
+  var v = 50;
+  for (var i = 0; i < 36; i++) {{
+    v += (Math.random() - (up ? 0.44 : 0.56)) * 7;
+    v = Math.max(8, Math.min(92, v));
+    chartData.push(v);
+  }}
+}}
 
-    // Subtle grid lines
-    ctx.strokeStyle = 'rgba(56,189,248,.06)';
-    ctx.lineWidth = 0.5;
-    for (var y = h*0.3; y < h*0.85; y += h*0.15) {
-      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke();
-    }
+function hexToRgba(h, a) {{
+  h = h.replace('#','');
+  return 'rgba('+parseInt(h.slice(0,2),16)+','+parseInt(h.slice(2,4),16)+','+parseInt(h.slice(4,6),16)+','+a+')';
+}}
 
-    if (!chartData.length) return;
-    var pad = 18, bottom = h - 16, top = 22;
-    var mn = Math.min.apply(null,chartData), mx = Math.max.apply(null,chartData);
-    var range = mx - mn || 10;
+function drawChart(col, up) {{
+  if (!ctx) return;
+  var w = canvas.width, h = canvas.height;
+  ctx.clearRect(0,0,w,h);
+  if (!chartData.length) return;
 
-    function px(i) { return pad + (i/(chartData.length-1))*(w - pad*2); }
-    function py(v) { return bottom - ((v-mn)/range)*(bottom-top); }
+  var pad = 14, bot = h - 12, top = 18;
+  var mn = Math.min.apply(null,chartData), mx = Math.max.apply(null,chartData);
+  var rng = mx - mn || 8;
+  function px(i) {{ return pad + (i/(chartData.length-1))*(w-pad*2); }}
+  function py(v) {{ return bot - ((v-mn)/rng)*(bot-top); }}
 
-    // Fill gradient
-    var grad = ctx.createLinearGradient(0, top, 0, bottom);
-    grad.addColorStop(0, color.replace(')',',0.25)').replace('rgb','rgba'));
-    grad.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.beginPath();
-    ctx.moveTo(px(0), bottom);
-    for (var i=0; i<chartData.length; i++) ctx.lineTo(px(i), py(chartData[i]));
-    ctx.lineTo(px(chartData.length-1), bottom);
-    ctx.closePath();
-    ctx.fillStyle = grad;
-    ctx.fill();
+  // Grid lines
+  ctx.strokeStyle = 'rgba(255,255,255,.04)';
+  ctx.lineWidth = .5;
+  for (var y = top; y < bot; y += (bot-top)/3) {{
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke();
+  }}
 
-    // Line
-    ctx.beginPath();
-    ctx.moveTo(px(0), py(chartData[0]));
-    for (var j=1; j<chartData.length; j++) ctx.lineTo(px(j), py(chartData[j]));
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1.4;
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 6;
-    ctx.stroke();
-    ctx.shadowBlur = 0;
+  // Fill
+  var grad = ctx.createLinearGradient(0,top,0,bot);
+  grad.addColorStop(0, hexToRgba(col,.22));
+  grad.addColorStop(1, hexToRgba(col,0));
+  ctx.beginPath();
+  ctx.moveTo(px(0), bot);
+  chartData.forEach(function(v,i) {{ ctx.lineTo(px(i), py(v)); }});
+  ctx.lineTo(px(chartData.length-1), bot);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
 
-    // End dot
-    var ex = px(chartData.length-1), ey = py(chartData[chartData.length-1]);
-    ctx.beginPath();
-    ctx.arc(ex, ey, 3, 0, Math.PI*2);
-    ctx.fillStyle = color;
-    ctx.shadowColor = color; ctx.shadowBlur = 10;
-    ctx.fill(); ctx.shadowBlur = 0;
-  }
+  // Line
+  ctx.beginPath();
+  chartData.forEach(function(v,i) {{
+    if (i===0) ctx.moveTo(px(i),py(v)); else ctx.lineTo(px(i),py(v));
+  }});
+  ctx.strokeStyle = col;
+  ctx.lineWidth = 1.6;
+  ctx.shadowColor = col; ctx.shadowBlur = 8;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
 
-  function hexToRgb(hex) {
-    hex = hex.replace('#','');
-    return 'rgb('+parseInt(hex.slice(0,2),16)+','+parseInt(hex.slice(2,4),16)+','+parseInt(hex.slice(4,6),16)+')';
-  }
+  // Endpoint dot
+  var ex=px(chartData.length-1), ey=py(chartData[chartData.length-1]);
+  ctx.beginPath(); ctx.arc(ex,ey,3.5,0,Math.PI*2);
+  ctx.fillStyle = col;
+  ctx.shadowColor = col; ctx.shadowBlur = 12;
+  ctx.fill(); ctx.shadowBlur = 0;
+}}
 
-  var transitioning = false;
-  function showMarket(i) {
-    var m = MARKETS[i % MARKETS.length];
-    var flag = document.getElementById('sim-flag');
-    var name = document.getElementById('sim-mkt-name');
-    var val  = document.getElementById('sim-mkt-val');
-    var chg  = document.getElementById('sim-mkt-chg');
-    if (!flag) return;
+function fadeItems(out, cb) {{
+  var items = [document.getElementById('g-flag'),
+               document.getElementById('g-name'),
+               document.getElementById('g-val'),
+               document.getElementById('g-chg')];
+  items.forEach(function(el) {{
+    if (out) {{ el.classList.add('fade-out'); }}
+    else     {{ el.classList.remove('fade-out'); }}
+  }});
+  if (cb) setTimeout(cb, 280);
+}}
 
-    // Fade out
-    [flag,name,val,chg].forEach(function(el){
-      el.style.opacity='0'; el.style.transform='translateY(-6px)';
-      el.style.transition='opacity .25s ease, transform .25s ease';
-    });
-
-    // Glow border shift
-    var gb = document.getElementById('sim-globe-btn');
-    if (gb) {
-      gb.style.borderColor = m.color + '88';
-      gb.style.transition = 'border-color .6s ease, box-shadow .6s ease';
-    }
-
-    generateChart(m.up);
-    drawChart(hexToRgb(m.color), m.up);
-
-    setTimeout(function() {
-      flag.textContent = m.flag;
-      name.textContent = m.name;
-      val.textContent  = m.val;
-      chg.textContent  = (m.up ? '▲ ' : '▼ ') + m.chg;
-      chg.className    = 'sim-mkt-chg ' + (m.up ? 'up' : 'dn');
-      [flag,name,val,chg].forEach(function(el){
-        el.style.opacity='1'; el.style.transform='translateY(0)';
-        el.style.transition='opacity .3s ease .05s, transform .3s ease .05s';
-      });
-    }, 270);
-  }
-
-  function tick() {
-    showMarket(idx);
-    idx = (idx + 1) % MARKETS.length;
-  }
-
-  // Init
-  setTimeout(function(){
+function showMarket(i) {{
+  var m = MARKETS[i % MARKETS.length];
+  fadeItems(true, function() {{
+    document.getElementById('g-flag').textContent = m.flag;
+    document.getElementById('g-name').textContent = m.name;
+    document.getElementById('g-val').textContent  = m.val;
+    var chgEl = document.getElementById('g-chg');
+    chgEl.textContent  = (m.up ? '▲ ' : '▼ ') + m.chg;
+    chgEl.className    = 'g-chg ' + (m.up ? 'up' : 'dn');
+    document.getElementById('globe').style.borderColor = m.col + 'aa';
+    genChart(m.up);
     resize();
-    tick();
-    setInterval(tick, 3000);
-    window.addEventListener('resize', function(){ resize(); drawChart('rgb(56,189,248)',true); });
-  }, 200);
-})();
-</script>
-"""
-    st.markdown(_GLOBE_WIDGET, unsafe_allow_html=True)
+    drawChart(m.col, m.up);
+    fadeItems(false);
+  }});
+}}
 
-    if st.button(
-        "\u200b",
-        key="top_portfolio_btn",
-        use_container_width=False,
-        help="Build & AI-simulate your global stock portfolio",
-    ):
-        st.session_state.show_portfolio = not _pf_open
-        st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
+function clickUpload() {{
+  document.getElementById('upload-btn').classList.toggle('active');
+  window.parent.postMessage({{type:'streamlit:setComponentValue', value:'upload'}}, '*');
+}}
+function clickSim() {{
+  document.getElementById('globe').classList.toggle('active');
+  window.parent.postMessage({{type:'streamlit:setComponentValue', value:'portfolio'}}, '*');
+}}
+
+// Init
+setTimeout(function() {{
+  resize();
+  showMarket(0);
+  setInterval(function() {{
+    idx = (idx + 1) % MARKETS.length;
+    showMarket(idx);
+  }}, 3000);
+}}, 100);
+window.addEventListener('resize', function() {{ resize(); }});
+</script>
+</body>
+</html>"""
+
+# Render the iframe button panel
+import streamlit.components.v1 as _cv1
+_btn_click = _cv1.html(_ACTION_BAR_HTML, height=170)
+
+# Hidden real Streamlit buttons that get triggered by JS postMessage via component value
+# Since components.html returns the value set by postMessage
+if _btn_click == "upload":
+    st.session_state.show_upload = not st.session_state.show_upload
+    st.rerun()
+elif _btn_click == "portfolio":
+    st.session_state.show_portfolio = not st.session_state.show_portfolio
+    st.rerun()
 
 
 
