@@ -129,7 +129,10 @@ html,body,[class*="css"]{font-family:'Syne',sans-serif!important;color:var(--tex
 .stApp,[data-testid="stAppViewContainer"]{background:
   radial-gradient(ellipse 110% 55% at 0% 0%,rgba(107,45,107,.20) 0%,transparent 55%),
   radial-gradient(ellipse  80% 50% at 100% 100%,rgba(107,45,107,.14) 0%,transparent 55%),
-  var(--black)!important}
+  linear-gradient(rgba(255,255,255,.022) 1px, transparent 1px),
+  linear-gradient(90deg, rgba(255,255,255,.022) 1px, transparent 1px),
+  var(--black)!important;
+  background-size:auto,auto,32px 32px,32px 32px!important}
 [data-testid="stMain"],[data-testid="block-container"]{background:transparent!important;
   padding-top:0!important;max-width:1120px!important}
 [data-testid="stSidebar"]{background:var(--panel)!important;
@@ -144,17 +147,29 @@ code,pre{font-family:'Space Mono',monospace!important}
   color:var(--text-ghost)!important;text-transform:uppercase!important;letter-spacing:.18em!important}
 [data-testid="stMetricValue"]{font-family:'Cormorant Garamond',serif!important;font-size:1.7rem!important;
   font-weight:300!important;color:var(--accent)!important}
-.stButton>button{background:transparent!important;border:1px solid var(--border)!important;
-  border-radius:6px!important;color:var(--text-dim)!important;font-family:'Syne',sans-serif!important;
+.stButton>button{
+  background:rgba(255,255,255,.04)!important;
+  backdrop-filter:blur(8px)!important;
+  border:1px solid var(--border)!important;
+  border-radius:8px!important;color:var(--text-dim)!important;
+  font-family:'Syne',sans-serif!important;
   font-size:.8rem!important;transition:all .22s ease!important;text-align:left!important}
-.stButton>button:hover{background:rgba(107,45,107,.14)!important;border-color:var(--velvet-gl)!important;
-  color:var(--accent)!important;box-shadow:0 0 18px rgba(107,45,107,.22)!important;transform:translateY(-1px)!important}
+.stButton>button:hover{
+  background:rgba(107,45,107,.16)!important;border-color:var(--velvet-gl)!important;
+  color:var(--accent)!important;
+  box-shadow:0 0 20px rgba(107,45,107,.25),inset 0 0 12px rgba(107,45,107,.06)!important;
+  transform:translateY(-1px)!important}
 .stTextInput input,.stTextArea textarea{background:var(--card)!important;
   border:1px solid var(--border)!important;border-radius:8px!important;color:var(--text)!important}
 [data-testid="stChatInput"]{background:var(--card-2)!important;border:1px solid var(--border-l)!important;
-  border-radius:14px!important;box-shadow:0 0 30px rgba(107,45,107,.12)!important}
+  border-radius:14px!important;
+  box-shadow:0 0 0 1px rgba(107,45,107,.08),0 0 20px rgba(107,45,107,.18),0 4px 24px rgba(0,0,0,.3)!important;
+  transition:all .25s ease!important}
+[data-testid="stChatInput"]:focus-within{
+  border-color:rgba(192,132,200,.65)!important;
+  box-shadow:0 0 0 2px rgba(107,45,107,.15),0 0 35px rgba(107,45,107,.28),0 0 60px rgba(107,45,107,.1)!important
+}
 [data-testid="stChatInput"] textarea{background:transparent!important;border:none!important;color:var(--text)!important}
-[data-testid="stChatInput"]:focus-within{border-color:rgba(139,58,139,.7)!important}
 [data-testid="stChatMessage"]{background:var(--card)!important;border:1px solid var(--border)!important;
   border-radius:12px!important;padding:.8rem 1rem!important;margin-bottom:.5rem!important}
 [data-testid="stFileUploader"]{background:rgba(107,45,107,.05)!important;
@@ -220,10 +235,12 @@ hr{border-color:var(--border)!important}
 .rag-kicker::before{content:'';display:inline-block;width:20px;height:1px;background:var(--velvet-gl);opacity:.6}
 .rag-header h1{font-family:'Cormorant Garamond',serif!important;font-size:3.2rem!important;
   font-weight:300!important;line-height:1.0!important;color:var(--text)!important;
-  margin:0 0 .2rem!important;letter-spacing:-.02em!important}
+  margin:0 0 .2rem!important;letter-spacing:-.02em!important;
+  text-shadow:0 0 28px rgba(192,132,200,.35),0 2px 12px rgba(107,45,107,.3)}
 .rag-header h1 em{font-style:italic;
   background:linear-gradient(135deg,var(--velvet-gl) 0%,var(--accent) 100%);
-  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+  filter:drop-shadow(0 0 8px rgba(192,132,200,.45))}
 .rag-header p{font-family:'Syne',sans-serif;font-size:.86rem;color:var(--text-dim);
   margin:.6rem 0 0!important;max-width:480px}
 .badge-row{display:flex;gap:.4rem;margin-top:.9rem;flex-wrap:wrap}
@@ -304,9 +321,10 @@ hr{border-color:var(--border)!important}
 .news-card-hover:hover{transform:translateY(-4px);box-shadow:0 12px 36px rgba(0,0,0,.4)}
 .stat-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;
   background:rgba(107,45,107,.22);border-radius:10px;overflow:hidden;
-  border:1px solid rgba(107,45,107,.22);margin-bottom:1.4rem}
-.stat-cell{background:var(--card);padding:1rem 1.2rem;position:relative;transition:background .25s}
-.stat-cell:hover{background:var(--card-2)}
+  border:1px solid rgba(107,45,107,.22);margin-bottom:1.4rem;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.stat-cell{background:rgba(13,11,18,.75);padding:1rem 1.2rem;position:relative;transition:background .25s}
+.stat-cell:hover{background:rgba(18,14,26,.9)}
 .stat-cell::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
   background:linear-gradient(90deg,var(--velvet),var(--accent));opacity:0;transition:opacity .25s}
 .stat-cell:hover::before{opacity:1}
@@ -318,8 +336,13 @@ hr{border-color:var(--border)!important}
 .stat-val-mono{font-family:'Space Mono',monospace;font-size:.68rem;color:var(--accent);line-height:1.4}
 
 /* ── MARKET MOOD ── */
-.mood-bar-wrap{background:var(--card);border:1px solid var(--border);border-radius:12px;
-  padding:1rem 1.4rem;margin-bottom:1.4rem}
+
+.mood-bar-wrap{
+  background:rgba(13,11,18,.72);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  border:1px solid var(--border);border-radius:12px;
+  padding:1rem 1.4rem;margin-bottom:1.4rem;
+  box-shadow:0 4px 30px rgba(0,0,0,.2),inset 0 1px 0 rgba(192,132,200,.05)}
 .mood-title{font-family:'Space Mono',monospace;font-size:.58rem;letter-spacing:.2em;
   text-transform:uppercase;color:var(--velvet-gl);margin-bottom:.7rem}
 .mood-track{height:6px;border-radius:3px;
@@ -416,8 +439,12 @@ hr{border-color:var(--border)!important}
 .chips-row{display:flex;gap:.6rem;flex-wrap:wrap}
 
 /* ── MARKET PANELS ── */
-.fx-panel,.comm-panel,.crypto-panel{background:var(--card);border:1px solid var(--border);
-  border-radius:12px;padding:1.1rem 1.4rem .9rem;margin-bottom:1.4rem}
+.fx-panel,.comm-panel,.crypto-panel{
+  background:rgba(13,11,18,.70);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  border:1px solid var(--border);
+  border-radius:12px;padding:1.1rem 1.4rem .9rem;margin-bottom:1.4rem;
+  box-shadow:0 4px 28px rgba(0,0,0,.18),inset 0 1px 0 rgba(255,255,255,.03)}
 .fx-panel-title,.comm-title,.crypto-title{font-family:'Cormorant Garamond',serif;
   font-size:1.1rem;font-weight:300;color:var(--text);margin-bottom:.9rem;
   display:flex;align-items:center;gap:.5rem}
@@ -429,9 +456,49 @@ hr{border-color:var(--border)!important}
   background:linear-gradient(180deg,#fb923c,#C084C8);border-radius:2px}
 
 /* ── MISC ── */
-.sb-lbl{font-family:'Space Mono',monospace;font-size:.54rem;letter-spacing:.22em;
+.sb-lbl{font-family:'Space Mono',monospace;font-size:.52rem;letter-spacing:.22em;
   text-transform:uppercase;color:var(--velvet-gl);padding:1.2rem 0 .45rem;
-  border-top:1px solid var(--border);margin-top:.5rem}
+  border-top:1px solid var(--border);margin-top:.6rem;
+  display:flex;align-items:center;gap:.5rem}
+.sb-lbl::after{content:'';flex:1;height:1px;
+  background:linear-gradient(90deg,rgba(139,58,139,.3),transparent);
+  margin-left:.4rem}
+/* Section spacing boost */
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div{margin-bottom:.1rem}
+/* Glassmorphism on expanders and sidebar widgets */
+[data-testid="stSidebar"] [data-testid="stExpander"]{
+  background:rgba(255,255,255,.03)!important;
+  backdrop-filter:blur(8px)!important;
+  border:1px solid rgba(255,255,255,.07)!important;
+  border-radius:8px!important}
+/* Quick Ask button glassmorphism */
+[data-testid="stSidebar"] .stButton>button{
+  background:rgba(255,255,255,.03)!important;
+  backdrop-filter:blur(10px)!important;
+  border:1px solid rgba(139,58,139,.2)!important;
+  border-radius:8px!important;
+  transition:all .22s ease!important}
+[data-testid="stSidebar"] .stButton>button:hover{
+  background:rgba(124,58,237,.12)!important;
+  border-color:rgba(192,132,200,.55)!important;
+  color:var(--accent)!important;
+  box-shadow:0 0 16px rgba(107,45,107,.25),inset 0 0 12px rgba(107,45,107,.08)!important;
+  transform:translateX(2px)!important}
+/* AI Status indicator */
+.ai-status{
+  display:flex;flex-direction:column;gap:.3rem;
+  background:rgba(255,255,255,.025);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  border:1px solid rgba(255,255,255,.07);
+  border-radius:8px;padding:.6rem .75rem;margin-top:.5rem}
+.ai-status-row{display:flex;align-items:center;justify-content:space-between;
+  font-family:'Space Mono',monospace;font-size:.48rem;color:#4A3858}
+.ai-status-row span{color:#9A8AAA;font-size:.5rem}
+.ai-status-dot{width:4px;height:4px;border-radius:50%;background:#4ade80;
+  box-shadow:0 0 5px #4ade80;display:inline-block;margin-right:.3rem;
+  animation:blink 2s infinite}
+/* Section spacing between main content blocks */
+.section-gap{height:1.8rem}
 .key-ok{display:flex;align-items:center;gap:.5rem;background:rgba(74,222,128,.07);
   border:1px solid rgba(74,222,128,.2);color:#86efac;padding:.38rem .7rem;
   border-radius:6px;font-family:'Space Mono',monospace;font-size:.6rem}
@@ -455,8 +522,13 @@ hr{border-color:var(--border)!important}
   border:1px solid rgba(139,58,139,.45);border-radius:12px;padding:1rem 1.1rem .7rem;margin-bottom:.6rem}
 .upload-drawer-title{font-family:'Space Mono',monospace;font-size:.62rem;letter-spacing:.15em;
   text-transform:uppercase;color:var(--velvet-gl);margin-bottom:.6rem}
-.src-card{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--velvet-gl);
-  border-radius:0 8px 8px 0;padding:.7rem .9rem;margin:.4rem 0;font-size:.82rem}
+.src-card{
+  background:rgba(13,11,18,.72);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  border:1px solid var(--border);border-left:3px solid var(--velvet-gl);
+  border-radius:0 8px 8px 0;padding:.7rem .9rem;margin:.4rem 0;font-size:.82rem;
+  transition:border-left-color .2s ease,box-shadow .2s ease}
+.src-card:hover{border-left-color:var(--accent);box-shadow:0 0 16px rgba(107,45,107,.15)}
 .src-name{font-family:'Space Mono',monospace;font-size:.7rem;color:var(--accent);margin-bottom:.15rem}
 .src-score{font-family:'Space Mono',monospace;font-size:.62rem;color:var(--text-ghost)}
 .src-preview{color:var(--text-dim);line-height:1.55;margin-top:.2rem}
@@ -536,10 +608,24 @@ div[data-testid="stButton"] button.tf-active{
 
 /* Upload panel slide-in */
 .upload-panel{
-  background:linear-gradient(135deg,rgba(107,45,107,.14) 0%,rgba(13,11,18,.97) 100%);
-  border:1px solid rgba(139,58,139,.4);border-radius:14px;
+  background:linear-gradient(135deg,rgba(107,45,107,.16) 0%,rgba(13,11,18,.96) 100%);
+  border:1px solid rgba(139,58,139,.5);border-radius:14px;
   padding:1.1rem 1.3rem .9rem;margin-bottom:1rem;
   animation:slideDown .22s ease;
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  box-shadow:
+    0 0 25px rgba(107,45,107,.22),
+    0 0 60px rgba(107,45,107,.08),
+    inset 0 0 20px rgba(107,45,107,.06),
+    inset 0 1px 0 rgba(192,132,200,.1);
+  transition:box-shadow .3s ease;
+}
+.upload-panel:hover{
+  box-shadow:
+    0 0 35px rgba(107,45,107,.32),
+    0 0 80px rgba(107,45,107,.12),
+    inset 0 0 25px rgba(107,45,107,.09),
+    inset 0 1px 0 rgba(192,132,200,.15);
 }
 @keyframes slideDown{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
 .upload-panel-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:.7rem}
@@ -550,9 +636,12 @@ div[data-testid="stButton"] button.tf-active{
 
 /* Inline analytics panel (shown after upload, below upload bar) */
 .analytics-inline-panel{
-  background:var(--card);border:1px solid var(--border);border-radius:14px;
+  background:rgba(13,11,18,.75);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  border:1px solid var(--border);border-radius:14px;
   padding:1.1rem 1.3rem 1rem;margin-bottom:1.1rem;
   animation:fadeIn .3s ease;
+  box-shadow:0 4px 32px rgba(0,0,0,.2),inset 0 1px 0 rgba(192,132,200,.05)
 }
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 .aip-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem}
@@ -566,9 +655,12 @@ div[data-testid="stButton"] button.tf-active{
 
 /* Floating chat panel */
 .chat-panel{
-  background:var(--card);border:1px solid var(--border-l);border-radius:14px;
+  background:rgba(13,11,18,.82);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  border:1px solid var(--border-l);border-radius:14px;
   margin-bottom:1.1rem;overflow:hidden;
   animation:slideDown .22s ease;
+  box-shadow:0 4px 40px rgba(107,45,107,.15),0 0 0 1px rgba(192,132,200,.04);
 }
 .chat-panel-hdr{
   padding:.65rem 1rem .55rem;
@@ -6087,7 +6179,7 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown('<div class="sb-lbl" style="border-top:none;padding-top:0;margin-top:0;">Configuration</div>',
+    st.markdown('<div class="sb-lbl" style="border-top:none;padding-top:0;margin-top:0;">⚙️ Configuration</div>',
                 unsafe_allow_html=True)
     default_key = st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY",""))
     if default_key:
@@ -6118,7 +6210,7 @@ with st.sidebar:
                 unsafe_allow_html=True)
 
     if st.session_state.file_names:
-        st.markdown('<div class="sb-lbl">Knowledge Base</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sb-lbl">📂 Knowledge Base</div>', unsafe_allow_html=True)
         c1, c2 = st.columns(2)
         c1.metric("Chunks", st.session_state.chunk_count)
         c2.metric("Docs",   st.session_state.uploaded_docs)
@@ -6134,15 +6226,22 @@ with st.sidebar:
                         f'color:{dc};margin-right:.25rem;">{ext}</span>{short}</div>',
                         unsafe_allow_html=True)
 
-    st.markdown('<div class="sb-lbl">Quick Ask</div>', unsafe_allow_html=True)
-    for q_item in ["What is USD/INR today?","Compare INR vs JPY vs Yuan",
-                   "Gold price today?","Bitcoin vs Ethereum?",
-                   "What was total revenue?","Main risk factors?","EPS change YoY?"]:
-        if st.button(q_item, use_container_width=True, key=f"qa_{q_item[:14]}"):
+    st.markdown('<div class="sb-lbl">💬 Quick Ask</div>', unsafe_allow_html=True)
+    _quick_items = [
+        ("💱", "What is USD/INR today?"),
+        ("📊", "Compare INR vs JPY vs Yuan"),
+        ("🥇", "Gold price today?"),
+        ("₿",  "Bitcoin vs Ethereum?"),
+        ("📈", "What was total revenue?"),
+        ("⚠️", "Main risk factors?"),
+        ("📉", "EPS change YoY?"),
+    ]
+    for icon, q_item in _quick_items:
+        if st.button(f"{icon}  {q_item}", use_container_width=True, key=f"qa_{q_item[:14]}"):
             st.session_state["_prefill"] = q_item
 
     # ── Retrieval info ────────────────────────────────────────────────────
-    st.markdown('<div class="sb-lbl">⚙ Retrieval</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sb-lbl">🔍 Retrieval</div>', unsafe_allow_html=True)
     st.markdown(
         '<div style="font-family:Space Mono,monospace;font-size:.44rem;color:#4A3858;line-height:1.7;">'
         'TF-IDF + BM25 hybrid retrieval<br>'
@@ -6176,7 +6275,21 @@ with st.sidebar:
             unsafe_allow_html=True,
         )
 
-    st.markdown('<div class="sb-lbl">Actions</div>', unsafe_allow_html=True)
+    # ── AI Status Indicator ───────────────────────────────────────────────
+    _chunks_now = st.session_state.chunk_count
+    _docs_now   = st.session_state.uploaded_docs
+    _lat_est    = f"{0.8 + (_chunks_now * 0.000004 * 1000):.1f}s" if _chunks_now else "~1.0s"
+    _retrieval_mode = "Hybrid + CE Rerank" if _ce_on else "BM25 + TF-IDF · RRF"
+    st.markdown(f"""
+<div class="ai-status">
+  <div class="ai-status-row">AI Engine <span><span class="ai-status-dot"></span>Groq · Llama 3.3 · 70B</span></div>
+  <div class="ai-status-row">Retrieval <span>{_retrieval_mode}</span></div>
+  <div class="ai-status-row">Est. Latency <span>{_lat_est}</span></div>
+  <div class="ai-status-row">Docs Loaded <span>{'📂 ' + str(_docs_now) + ' doc' + ('s' if _docs_now != 1 else '') if _docs_now else '—'}</span></div>
+</div>
+""", unsafe_allow_html=True)
+
+    st.markdown('<div class="sb-lbl">🛠 Actions</div>', unsafe_allow_html=True)
     col_a1, col_a2 = st.columns(2)
     with col_a1:
         if st.button("✕ Clear Chat", use_container_width=True):
@@ -6242,6 +6355,15 @@ st.markdown("""
     <span class="badge g">Live Data</span>
     <span class="badge b">PDF · Excel · CSV · DOCX</span>
   </div>
+</div>
+""", unsafe_allow_html=True)
+
+# Glow divider — hero to content transition
+st.markdown("""
+<div style="height:1px;background:linear-gradient(90deg,
+  transparent 0%,rgba(139,58,139,.4) 20%,rgba(192,132,200,.7) 50%,
+  rgba(139,58,139,.4) 80%,transparent 100%);
+  margin:0 0 1.2rem;box-shadow:0 0 12px rgba(107,45,107,.2);">
 </div>
 """, unsafe_allow_html=True)
 
@@ -6655,8 +6777,14 @@ _cv1.html(_ACTION_BAR_HTML, height=230)
 if st.session_state.show_upload:
     st.markdown('<div class="upload-panel">'
                 '<div class="upload-panel-hdr">'
-                '<div><div class="upload-panel-title">◈ Upload Financial Documents</div>'
-                '<div class="upload-panel-formats">Supported: PDF · XLSX · XLS · CSV · DOCX · TXT</div>'
+                '<div>'
+                '<div class="upload-panel-title">◈ Upload Financial Reports</div>'
+                '<div class="upload-panel-formats">'
+                '📄 10-K &nbsp;·&nbsp; 📊 Excel &nbsp;·&nbsp; 📑 Annual Reports &nbsp;·&nbsp; 🎙 Earnings Transcripts'
+                '</div>'
+                '<div style="font-family:Space Mono,monospace;font-size:.46rem;color:#4A3858;margin-top:.25rem;">'
+                'Supported: PDF · XLSX · XLS · CSV · DOCX · TXT'
+                '</div>'
                 '</div></div>',
                 unsafe_allow_html=True)
     inline_files = st.file_uploader(
@@ -7078,6 +7206,7 @@ st.markdown(f"""
     <div class="stat-val-mono" style="color:#4ade80;font-size:.62rem;">{_latency_est}{'  ·  Queries: '+str(_n_queries_done) if _n_queries_done else ''}</div></div>
 </div>
 """, unsafe_allow_html=True)
+st.markdown('<div class="section-gap"></div>', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MARKET MOOD + GLOBAL INDICES
@@ -7324,6 +7453,7 @@ if st.session_state.show_chat:
 # ─────────────────────────────────────────────────────────────────────────────
 # NEWS CAROUSELS
 # ─────────────────────────────────────────────────────────────────────────────
+st.markdown('<div class="section-gap"></div>', unsafe_allow_html=True)
 news_items   = get_all_news()
 policy_items = get_policy_news()
 car_col1, car_col2 = st.columns(2)
@@ -7341,6 +7471,7 @@ with car_col2:
 # ─────────────────────────────────────────────────────────────────────────────
 # COMMODITIES
 # ─────────────────────────────────────────────────────────────────────────────
+st.markdown('<div class="section-gap"></div>', unsafe_allow_html=True)
 comm_quotes = fetch_multi_quotes(tuple(COMMODITY_SYMS.keys()))
 comm_chips  = "".join(
     make_chip_html(sym, f"{name} · {unit}", info["price"], info["pct"], prefix="$", decimals=dec, icon=icon)
