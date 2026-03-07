@@ -206,6 +206,8 @@ hr{border-color:var(--border)!important}
   33%{transform:translate(12px,-8px) scale(1.08)}
   66%{transform:translate(-8px,10px) scale(.95)}
 }
+@keyframes fadeInUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeInDown{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
 .rag-header{position:relative;padding:2rem 2.2rem;
   background:linear-gradient(135deg,
     rgba(107,45,107,.28) 0%,
@@ -213,10 +215,10 @@ hr{border-color:var(--border)!important}
     rgba(56,30,80,.18) 70%,
     rgba(107,45,107,.16) 100%);
   background-size:300% 300%;
-  animation:heroGradientShift 12s ease infinite;
+  animation:heroGradientShift 12s ease infinite,fadeInDown .6s ease both;
   border:1px solid rgba(255,255,255,.09);border-radius:18px;
   box-shadow:0 8px 60px rgba(0,0,0,.55),inset 0 1px 0 rgba(192,132,200,.07);
-  margin-bottom:1.4rem;overflow:hidden}
+  margin-bottom:0;overflow:hidden}
 .rag-header::before{content:'';position:absolute;top:-80px;right:-80px;width:340px;height:340px;
   border-radius:50%;background:radial-gradient(circle,rgba(107,45,107,.30) 0%,transparent 70%);
   pointer-events:none;animation:orbFloat 8s ease-in-out infinite}
@@ -231,24 +233,38 @@ hr{border-color:var(--border)!important}
 .hero-tagline strong{color:#C084C8}
 .rag-kicker{font-family:'Space Mono',monospace;font-size:.6rem;letter-spacing:.3em;
   color:var(--velvet-gl);text-transform:uppercase;margin-bottom:.9rem;
-  display:flex;align-items:center;gap:.6rem}
+  display:flex;align-items:center;gap:.6rem;
+  animation:fadeInUp .5s ease .1s both}
 .rag-kicker::before{content:'';display:inline-block;width:20px;height:1px;background:var(--velvet-gl);opacity:.6}
 .rag-header h1{font-family:'Cormorant Garamond',serif!important;font-size:3.2rem!important;
   font-weight:300!important;line-height:1.0!important;color:var(--text)!important;
   margin:0 0 .2rem!important;letter-spacing:-.02em!important;
-  text-shadow:0 0 28px rgba(192,132,200,.35),0 2px 12px rgba(107,45,107,.3)}
+  text-shadow:0 0 28px rgba(192,132,200,.35),0 2px 12px rgba(107,45,107,.3);
+  animation:fadeInUp .55s ease .2s both!important}
 .rag-header h1 em{font-style:italic;
   background:linear-gradient(135deg,var(--velvet-gl) 0%,var(--accent) 100%);
   -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
   filter:drop-shadow(0 0 8px rgba(192,132,200,.45))}
 .rag-header p{font-family:'Syne',sans-serif;font-size:.86rem;color:var(--text-dim);
-  margin:.6rem 0 0!important;max-width:480px}
+  margin:.6rem 0 0!important;max-width:480px;
+  animation:fadeInUp .55s ease .3s both}
 .badge-row{display:flex;gap:.4rem;margin-top:.9rem;flex-wrap:wrap}
-.badge{font-family:'Space Mono',monospace;font-size:.62rem;letter-spacing:.08em;padding:.2rem .55rem;
-  border-radius:999px;border:1px solid var(--border);color:var(--text-ghost);background:rgba(255,255,255,.04)}
-.badge.v{border-color:rgba(139,58,139,.5);color:var(--accent);background:rgba(107,45,107,.12)}
-.badge.g{border-color:rgba(74,222,128,.3);color:#86efac;background:rgba(74,222,128,.07)}
-.badge.b{border-color:rgba(96,165,250,.4);color:#60a5fa;background:rgba(96,165,250,.07)}
+.badge{font-family:'Space Mono',monospace;font-size:.62rem;letter-spacing:.08em;padding:.25rem .6rem;
+  border-radius:999px;border:1px solid var(--border);color:var(--text-ghost);
+  background:rgba(255,255,255,.04);
+  transition:all .22s ease;cursor:default}
+.badge:hover{transform:translateY(-2px);box-shadow:0 4px 14px rgba(107,45,107,.25)}
+.badge.v{
+  border-color:rgba(139,58,139,.6);color:var(--accent);
+  background:linear-gradient(120deg,rgba(107,45,107,.18),rgba(147,51,234,.12));
+  box-shadow:0 0 10px rgba(107,45,107,.15),inset 0 1px 0 rgba(192,132,200,.08)}
+.badge.v:hover{box-shadow:0 0 18px rgba(107,45,107,.35),inset 0 1px 0 rgba(192,132,200,.12)}
+.badge.g{border-color:rgba(74,222,128,.4);color:#86efac;
+  background:linear-gradient(120deg,rgba(74,222,128,.09),rgba(52,211,153,.06));
+  box-shadow:0 0 8px rgba(74,222,128,.1)}
+.badge.b{border-color:rgba(96,165,250,.45);color:#60a5fa;
+  background:linear-gradient(120deg,rgba(96,165,250,.09),rgba(59,130,246,.06));
+  box-shadow:0 0 8px rgba(96,165,250,.1)}
 
 /* ── TICKER TAPE ── */
 @keyframes tickerScroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
@@ -274,9 +290,16 @@ hr{border-color:var(--border)!important}
 .use-case-card{background:rgba(13,11,18,.8);border:1px solid rgba(139,58,139,.2);
   border-radius:12px;padding:.85rem 1rem;cursor:pointer;
   transition:all .25s cubic-bezier(.34,1.56,.64,1);text-decoration:none;display:block;
-  backdrop-filter:blur(8px)}
-.use-case-card:hover{background:rgba(107,45,107,.14);border-color:rgba(192,132,200,.55);
-  transform:translateY(-3px);box-shadow:0 8px 30px rgba(107,45,107,.22)}
+  backdrop-filter:blur(8px);
+  animation:fadeInUp .5s ease both}
+.use-case-card:nth-child(1){animation-delay:.05s}
+.use-case-card:nth-child(2){animation-delay:.1s}
+.use-case-card:nth-child(3){animation-delay:.15s}
+.use-case-card:nth-child(4){animation-delay:.2s}
+.use-case-card:nth-child(5){animation-delay:.25s}
+.use-case-card:nth-child(6){animation-delay:.3s}
+.use-case-card:hover{background:rgba(107,45,107,.16);border-color:rgba(192,132,200,.6);
+  transform:translateY(-4px) scale(1.01);box-shadow:0 10px 32px rgba(107,45,107,.25)}
 .use-case-icon{font-size:1.3rem;margin-bottom:.4rem}
 .use-case-title{font-family:'Syne',sans-serif;font-size:.78rem;font-weight:600;color:#EDE8F5;margin-bottom:.2rem}
 .use-case-desc{font-family:'Space Mono',monospace;font-size:.5rem;color:#4A3858;line-height:1.5}
@@ -322,7 +345,8 @@ hr{border-color:var(--border)!important}
 .stat-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;
   background:rgba(107,45,107,.22);border-radius:10px;overflow:hidden;
   border:1px solid rgba(107,45,107,.22);margin-bottom:1.4rem;
-  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  animation:fadeInUp .5s ease .15s both}
 .stat-cell{background:rgba(13,11,18,.75);padding:1rem 1.2rem;position:relative;transition:background .25s}
 .stat-cell:hover{background:rgba(18,14,26,.9)}
 .stat-cell::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
@@ -342,7 +366,8 @@ hr{border-color:var(--border)!important}
   backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
   border:1px solid var(--border);border-radius:12px;
   padding:1rem 1.4rem;margin-bottom:1.4rem;
-  box-shadow:0 4px 30px rgba(0,0,0,.2),inset 0 1px 0 rgba(192,132,200,.05)}
+  box-shadow:0 4px 30px rgba(0,0,0,.2),inset 0 1px 0 rgba(192,132,200,.05);
+  animation:fadeInUp .5s ease .25s both}
 .mood-title{font-family:'Space Mono',monospace;font-size:.58rem;letter-spacing:.2em;
   text-transform:uppercase;color:var(--velvet-gl);margin-bottom:.7rem}
 .mood-track{height:6px;border-radius:3px;
@@ -6358,15 +6383,24 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Glow divider — hero to content transition
+# Bridge zone — fills visual gap between hero and action bar with radial ambient light
 st.markdown("""
-<div style="height:1px;background:linear-gradient(90deg,
-  transparent 0%,rgba(139,58,139,.4) 20%,rgba(192,132,200,.7) 50%,
-  rgba(139,58,139,.4) 80%,transparent 100%);
-  margin:0 0 1.2rem;box-shadow:0 0 12px rgba(107,45,107,.2);">
+<div style="
+  position:relative;
+  height:32px;
+  margin:-.2rem 0 -.4rem;
+  background:radial-gradient(ellipse 70% 100% at 50% 50%,
+    rgba(107,45,107,.13) 0%, transparent 75%);
+  overflow:visible;
+  pointer-events:none;">
+  <div style="
+    position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+    width:60%;height:1px;
+    background:linear-gradient(90deg,transparent,rgba(192,132,200,.3),transparent);
+    box-shadow:0 0 10px rgba(107,45,107,.15);">
+  </div>
 </div>
 """, unsafe_allow_html=True)
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TOP ACTION BAR — Upload (square) + Simulate Portfolio (circle globe)
@@ -6426,7 +6460,7 @@ _ACTION_BAR_HTML = f"""<!DOCTYPE html>
     display:flex;
     align-items:center;
     justify-content:center;
-    gap:clamp(16px,3vw,40px);
+    gap:clamp(40px,6vw,90px);
     height:100%;
     padding:10px clamp(8px,2vw,24px);
     font-family:'Space Mono',monospace;
@@ -6500,7 +6534,12 @@ _ACTION_BAR_HTML = f"""<!DOCTYPE html>
     top:-5%;animation:scan 3.5s ease-in-out infinite;pointer-events:none}}
 
   /* Arrow icon */
-  .up-icon{{display:flex;flex-direction:column;align-items:center;gap:3px}}
+  @keyframes pulseGlow{{
+    0%,100%{{filter:drop-shadow(0 0 5px rgba(56,189,248,.55));opacity:.85}}
+    50%{{filter:drop-shadow(0 0 18px rgba(56,189,248,.9));opacity:1}}
+  }}
+  .up-icon{{display:flex;flex-direction:column;align-items:center;gap:3px;
+    animation:pulseGlow 3s ease-in-out infinite}}
   .up-shaft{{
     width:2.5px;height:clamp(20px,3vw,30px);
     background:linear-gradient(180deg,#38bdf8,rgba(56,189,248,.25));
@@ -6550,6 +6589,7 @@ _ACTION_BAR_HTML = f"""<!DOCTYPE html>
       0 10px 36px rgba(0,0,0,.75);
     transition:all .4s cubic-bezier(.34,1.56,.64,1);
     user-select:none;
+    animation:rotateGlow 6s ease-in-out infinite;
   }}
   #globe:hover{{
     transform:translateY(-6px) scale(1.06);
@@ -6571,6 +6611,12 @@ _ACTION_BAR_HTML = f"""<!DOCTYPE html>
       0 16px 44px rgba(0,0,0,.8);
   }}
   /* Orbit rings */
+  @keyframes rotateGlow{{
+    0%{{box-shadow:0 0 25px rgba(0,200,255,.3),0 0 50px rgba(0,150,200,.15);}}
+    33%{{box-shadow:0 0 35px rgba(0,220,200,.45),0 0 70px rgba(0,180,220,.2);}}
+    66%{{box-shadow:0 0 20px rgba(56,189,248,.35),0 0 55px rgba(0,130,190,.15);}}
+    100%{{box-shadow:0 0 25px rgba(0,200,255,.3),0 0 50px rgba(0,150,200,.15);}}
+  }}
   .orbit{{position:absolute;border-radius:50%;border:1px dashed rgba(56,189,248,.18);pointer-events:none}}
   .o1{{inset:-11px;animation:orb 10s linear infinite}}
   .o2{{inset:-20px;border-color:rgba(56,189,248,.07);animation:orb 18s linear infinite reverse}}
@@ -6767,10 +6813,9 @@ window.addEventListener('resize',function(){{resize();drawChart(MARKETS[idx%MARK
 import streamlit.components.v1 as _cv1
 _cv1.html(_ACTION_BAR_HTML, height=230)
 
-
-
-
-
+# ─────────────────────────────────────────────────────────────────────────────
+# UPLOAD PANEL  (slides open below action bar when 📂 clicked)
+# ─────────────────────────────────────────────────────────────────────────────
 # ─────────────────────────────────────────────────────────────────────────────
 # UPLOAD PANEL  (slides open below action bar when 📂 clicked)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -7875,21 +7920,21 @@ st.markdown("<hr style='border-color:rgba(139,58,139,.15);margin:1.4rem 0;'>", u
 # ─────────────────────────────────────────────────────────────────────────────
 # CHAT INPUT  (always rendered so st.chat_input works; messages show in panel above)
 # ─────────────────────────────────────────────────────────────────────────────
-# Inject rotating placeholder via JS
+# Inject rotating placeholder via JS with AI icon
 st.markdown("""
 <script>
 (function(){
   const hints=[
-    "What risks are mentioned in Tesla's 2023 10-K?",
-    "Compare Apple vs Microsoft revenue growth",
-    "Summarize NVIDIA's earnings call highlights",
-    "What is the current Gold price?",
-    "Analyze Bitcoin vs Ethereum performance",
-    "What was total revenue this year?",
-    "Main risk factors in the uploaded document?",
-    "What's the USD/INR rate today?",
-    "EPS change year over year?",
-    "Breakdown operating margins by segment"
+    "🤖  Ask: What risks are in Tesla's 2023 10-K?",
+    "🤖  Ask: Compare Apple vs Microsoft revenue growth",
+    "🤖  Ask: Summarize NVIDIA's earnings call highlights",
+    "🤖  Ask: What is the current Gold price?",
+    "🤖  Ask: Analyze Bitcoin vs Ethereum performance",
+    "🤖  Ask: What was total revenue this year?",
+    "🤖  Ask: Main risk factors in the uploaded document?",
+    "🤖  Ask: What's the USD/INR rate today?",
+    "🤖  Ask: EPS change year over year?",
+    "🤖  Ask: Breakdown operating margins by segment"
   ];
   let idx=0;
   function rotate(){
@@ -7916,7 +7961,23 @@ if q:
 
     st.session_state.messages.append({"role":"user","content":q})
 
-    with st.spinner("🔍 Retrieving financial data…" if st.session_state.vectorstore else "⚡ Generating insights…"):
+    with st.spinner("🔍 Searching financial documents…" if st.session_state.vectorstore else "⚡ Connecting to Groq · Llama 3.3…"):
+        # ── AI Processing pipeline stages display ─────────────────────────
+        _proc_ph = st.empty()
+        def _show_stage(stage_idx: int, stages_done: list[str]):
+            _all = ["📋 Parsing query","🔍 Retrieving context","🧠 Generating embeddings","✨ Generating answer"]
+            _html = '<div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.4rem;">'
+            for i, s in enumerate(_all):
+                if s in stages_done:
+                    _html += f'<span style="font-family:Space Mono,monospace;font-size:.48rem;padding:.2rem .55rem;border-radius:5px;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.3);color:#4ade80;">{s}</span>'
+                elif i == stage_idx:
+                    _html += f'<span style="font-family:Space Mono,monospace;font-size:.48rem;padding:.2rem .55rem;border-radius:5px;background:rgba(192,132,200,.1);border:1px solid rgba(192,132,200,.4);color:#C084C8;animation:blink 1s infinite;">{s} …</span>'
+                else:
+                    _html += f'<span style="font-family:Space Mono,monospace;font-size:.48rem;padding:.2rem .55rem;border-radius:5px;background:rgba(255,255,255,.02);border:1px solid rgba(74,58,80,.3);color:#4A3858;">{s}</span>'
+            _html += '</div>'
+            _proc_ph.markdown(_html, unsafe_allow_html=True)
+
+        _show_stage(0, [])
         try:
             from openai import OpenAI
             oai = OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
@@ -7963,6 +8024,7 @@ if q:
 
             # ── Document retrieval ─────────────────────────────────────────
             doc_context = ""; sources_data = []
+            _show_stage(1, ["📋 Parsing query"])
             if st.session_state.vectorstore:
                 vs = st.session_state.vectorstore
 
@@ -8117,6 +8179,7 @@ if q:
                     )
 
             # ── Branch: Analyst Mode vs Chat Mode ────────────────────────
+            _show_stage(3, ["📋 Parsing query","🔍 Retrieving context","🧠 Generating embeddings"])
             if st.session_state.analyst_mode:
                 # Analyst Mode: JSON-structured extraction
                 user_msg = build_analyst_prompt(q, live_context, doc_context)
@@ -8187,6 +8250,7 @@ if q:
                     "confidence": _conf, "chunks_used": _n_sources,
                 })
 
+            _proc_ph.empty()
             st.rerun()
 
         except Exception as e:
