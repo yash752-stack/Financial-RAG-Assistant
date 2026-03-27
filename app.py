@@ -6651,12 +6651,31 @@ _ACTION_BAR_HTML = f"""<!DOCTYPE html>
   .fade-out{{opacity:0!important;transform:translateY(-6px)!important}}
 
   #sim-label{{
-    font-size:clamp(8px,0.9vw,10px);letter-spacing:3px;
-    text-transform:uppercase;color:rgba(56,189,248,.5);
-    transition:color .3s ease;
+    font-size:clamp(12px,1.4vw,15px);
+    letter-spacing:2.5px;
+    text-transform:uppercase;
+    color:rgba(56,189,248,.96);
+    font-weight:700;
+    text-shadow:0 0 12px rgba(56,189,248,.45);
+    transition:all .3s cubic-bezier(.34,1.56,.64,1);
+    background:rgba(0,40,70,.65);
+    border:1.5px solid rgba(56,189,248,.45);
+    border-radius:24px;
+    padding:6px 18px;
+    margin-top:6px;
+    white-space:nowrap;
+    box-shadow:0 0 14px rgba(56,189,248,.15),inset 0 1px 0 rgba(56,189,248,.1);
+    cursor:pointer;
   }}
   #globe.active ~ #sim-label,
-  #globe:hover  ~ #sim-label{{color:rgba(56,189,248,.9)}}
+  #globe:hover  ~ #sim-label{{
+    color:#fff;
+    background:rgba(0,80,150,.8);
+    border-color:rgba(56,189,248,.9);
+    box-shadow:0 0 28px rgba(56,189,248,.5),inset 0 1px 0 rgba(56,189,248,.2);
+    text-shadow:0 0 20px rgba(56,189,248,.9);
+    transform:translateY(-2px) scale(1.04);
+  }}
 </style>
 </head>
 <body>
@@ -6683,7 +6702,7 @@ _ACTION_BAR_HTML = f"""<!DOCTYPE html>
       <span class="g-chg up" id="g-chg">Loading…</span>
     </div>
   </div>
-  <div id="sim-label">Simulate Portfolio</div>
+  <div id="sim-label" onclick="doPortfolio()">◈ &nbsp;Simulate Portfolio</div>
 </div>
 
 <script>
