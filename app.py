@@ -6570,6 +6570,110 @@ _ACTION_BAR_HTML = f"""<!DOCTYPE html>
     color:rgba(56,189,248,.35);text-transform:uppercase;
   }}
 
+  /* ══ MARKET MOOD SQUARE ════════════════════════════════════════════════ */
+  #mood-wrap{{
+    display:flex;flex-direction:column;align-items:center;
+    gap:8px;flex-shrink:0;
+  }}
+  #mood-sq{{
+    width:clamp(120px,18vw,175px);
+    height:clamp(120px,18vw,175px);
+    border-radius:18px;
+    background:linear-gradient(145deg,#050d15 0%,#0a1a10 55%,#030b0a 100%);
+    border:1.5px solid rgba(74,222,128,.38);
+    position:relative;overflow:hidden;cursor:pointer;
+    box-shadow:
+      0 0 0 4px rgba(74,222,128,.05),
+      0 0 50px rgba(0,120,80,.35),
+      0 10px 36px rgba(0,0,0,.75);
+    transition:all .35s cubic-bezier(.34,1.56,.64,1);
+    user-select:none;
+    animation:moodPulse 5s ease-in-out infinite;
+  }}
+  @keyframes moodPulse{{
+    0%,100%{{box-shadow:0 0 20px rgba(74,222,128,.25),0 0 40px rgba(0,120,80,.15);}}
+    50%{{box-shadow:0 0 35px rgba(74,222,128,.45),0 0 70px rgba(0,150,100,.25);}}
+  }}
+  #mood-sq:hover{{
+    transform:translateY(-5px) scale(1.04);
+    border-color:rgba(74,222,128,.85);
+    box-shadow:0 0 0 4px rgba(74,222,128,.12),0 0 70px rgba(0,180,100,.55),0 16px 44px rgba(0,0,0,.75);
+  }}
+  /* Scan line for mood square */
+  .mood-scan{{position:absolute;left:0;right:0;height:1px;
+    background:linear-gradient(90deg,transparent,rgba(74,222,128,.45),transparent);
+    top:-5%;animation:scan 4s ease-in-out infinite 1s;pointer-events:none}}
+  /* Corner accents */
+  #mood-sq::before{{content:'';position:absolute;inset:8px;border-radius:12px;
+    border:1px solid transparent;
+    border-top-color:rgba(74,222,128,.25);border-left-color:rgba(74,222,128,.14);
+    pointer-events:none;transition:border-color .3s;}}
+  #mood-sq:hover::before{{border-top-color:rgba(74,222,128,.6);border-left-color:rgba(74,222,128,.38);}}
+  /* Inner content */
+  #mood-inner{{position:absolute;inset:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:3px;padding:10px;}}
+  .mq-flag{{font-size:clamp(24px,3.5vw,36px);line-height:1;
+    transition:opacity .25s,transform .25s;filter:drop-shadow(0 1px 6px rgba(0,0,0,.9));}}
+  .mq-name{{font-size:clamp(7px,.9vw,10px);letter-spacing:2px;color:rgba(74,222,128,.85);
+    text-transform:uppercase;transition:opacity .25s,transform .25s;
+    text-shadow:0 0 8px rgba(0,0,0,.9);white-space:nowrap;}}
+  .mq-val{{font-family:'Cormorant Garamond',serif;
+    font-size:clamp(16px,2.2vw,24px);font-weight:300;
+    color:#e8fff2;line-height:1.1;
+    text-shadow:0 0 16px rgba(74,222,128,.3);transition:opacity .25s,transform .25s;}}
+  .mq-chg{{font-size:clamp(10px,1.2vw,13px);font-weight:700;letter-spacing:1px;
+    transition:opacity .25s,transform .25s;}}
+  .mq-chg.up{{color:#4ade80;text-shadow:0 0 12px rgba(74,222,128,.7);}}
+  .mq-chg.dn{{color:#f87171;text-shadow:0 0 12px rgba(248,113,113,.7);}}
+  .mq-fade{{opacity:0!important;transform:translateY(-5px)!important;}}
+  /* Country selector grid */
+  #country-grid{{
+    display:grid;
+    grid-template-columns:repeat(5,1fr);
+    gap:4px;
+    width:clamp(120px,18vw,175px);
+  }}
+  .cg-btn{{
+    background:rgba(0,30,18,.7);
+    border:1px solid rgba(74,222,128,.18);
+    border-radius:6px;
+    padding:3px 2px;
+    cursor:pointer;
+    font-size:clamp(14px,2vw,20px);
+    line-height:1;
+    text-align:center;
+    transition:all .18s ease;
+    position:relative;
+  }}
+  .cg-btn:hover{{
+    background:rgba(74,222,128,.12);
+    border-color:rgba(74,222,128,.6);
+    transform:scale(1.15);
+    box-shadow:0 0 10px rgba(74,222,128,.3);
+    z-index:2;
+  }}
+  .cg-btn.selected{{
+    background:rgba(74,222,128,.2);
+    border-color:rgba(74,222,128,.85);
+    box-shadow:0 0 14px rgba(74,222,128,.4);
+  }}
+  /* Mood label under square */
+  #mood-label{{
+    font-size:clamp(10px,1.2vw,13px);
+    letter-spacing:2px;
+    text-transform:uppercase;
+    color:rgba(74,222,128,.9);
+    font-weight:700;
+    background:rgba(0,35,20,.65);
+    border:1.5px solid rgba(74,222,128,.4);
+    border-radius:20px;
+    padding:5px 14px;
+    margin-top:2px;
+    white-space:nowrap;
+    text-shadow:0 0 10px rgba(74,222,128,.4);
+    box-shadow:0 0 12px rgba(74,222,128,.12);
+  }}
+
   /* ══ GLOBE — circle ════════════════════════════════════════════════════ */
   #sim-wrap{{
     display:flex;flex-direction:column;align-items:center;
@@ -6688,6 +6792,41 @@ _ACTION_BAR_HTML = f"""<!DOCTYPE html>
   </div>
   <div class="up-title">Upload</div>
   <div class="up-sub">PDF · XLS · CSV · DOCX</div>
+</div>
+
+<div id="mood-wrap">
+  <div id="mood-sq" onclick="cycleMoodMarket()">
+    <div class="mood-scan"></div>
+    <div id="mood-inner">
+      <span class="mq-flag" id="mq-flag">🌐</span>
+      <span class="mq-name" id="mq-name">Global</span>
+      <span class="mq-val"  id="mq-val">—</span>
+      <span class="mq-chg up" id="mq-chg">Loading…</span>
+    </div>
+  </div>
+  <div id="country-grid">
+    <button class="cg-btn selected" data-idx="0"  onclick="pinMood(0)"  title="S&P 500">🇺🇸</button>
+    <button class="cg-btn"          data-idx="1"  onclick="pinMood(1)"  title="Nikkei">🇯🇵</button>
+    <button class="cg-btn"          data-idx="2"  onclick="pinMood(2)"  title="FTSE">🇬🇧</button>
+    <button class="cg-btn"          data-idx="3"  onclick="pinMood(3)"  title="DAX">🇩🇪</button>
+    <button class="cg-btn"          data-idx="4"  onclick="pinMood(4)"  title="Shanghai">🇨🇳</button>
+    <button class="cg-btn"          data-idx="5"  onclick="pinMood(5)"  title="SENSEX">🇮🇳</button>
+    <button class="cg-btn"          data-idx="6"  onclick="pinMood(6)"  title="IBOVESPA">🇧🇷</button>
+    <button class="cg-btn"          data-idx="7"  onclick="pinMood(7)"  title="KOSPI">🇰🇷</button>
+    <button class="cg-btn"          data-idx="8"  onclick="pinMood(8)"  title="ASX 200">🇦🇺</button>
+    <button class="cg-btn"          data-idx="9"  onclick="pinMood(9)"  title="CAC 40">🇫🇷</button>
+    <button class="cg-btn"          data-idx="10" onclick="pinMood(10)" title="TSX">🇨🇦</button>
+    <button class="cg-btn"          data-idx="11" onclick="pinMood(11)" title="JSE">🇿🇦</button>
+    <button class="cg-btn"          data-idx="12" onclick="pinMood(12)" title="Tadawul">🇸🇦</button>
+    <button class="cg-btn"          data-idx="13" onclick="pinMood(13)" title="STI">🇸🇬</button>
+    <button class="cg-btn"          data-idx="14" onclick="pinMood(14)" title="Hang Seng">🇭🇰</button>
+    <button class="cg-btn"          data-idx="15" onclick="pinMood(15)" title="IDX">🇮🇩</button>
+    <button class="cg-btn"          data-idx="16" onclick="pinMood(16)" title="IPC">🇲🇽</button>
+    <button class="cg-btn"          data-idx="17" onclick="pinMood(17)" title="OBX">🇳🇴</button>
+    <button class="cg-btn"          data-idx="18" onclick="pinMood(18)" title="Crypto">🌐</button>
+    <button class="cg-btn"          data-idx="19" onclick="pinMood(19)" title="Gold">🥇</button>
+  </div>
+  <div id="mood-label">◈ &nbsp;Market Mood</div>
 </div>
 
 <div id="sim-wrap">
@@ -6821,8 +6960,67 @@ function doPortfolio(){{
   clickParentBtn('◈');
 }}
 
+// ── Mood Square logic ──────────────────────────────────────────────────
+var moodPinned = false;  // when true, square shows pinned country and stops auto-cycling
+var moodIdx    = 0;      // which MARKETS index is currently pinned / showing
+var moodTimer  = null;
+
+function updateMoodSquare(m){{
+  var els=[document.getElementById('mq-flag'),document.getElementById('mq-name'),
+           document.getElementById('mq-val'),document.getElementById('mq-chg')];
+  els.forEach(function(e){{e.classList.add('mq-fade');}});
+  document.getElementById('mood-sq').style.borderColor = m.col+'88';
+  setTimeout(function(){{
+    document.getElementById('mq-flag').textContent = m.flag;
+    document.getElementById('mq-name').textContent = m.name;
+    document.getElementById('mq-val').textContent  = m.val;
+    var c = document.getElementById('mq-chg');
+    c.textContent = (m.up ? '▲ ' : '▼ ') + m.chg;
+    c.className   = 'mq-chg ' + (m.up ? 'up' : 'dn');
+    els.forEach(function(e){{e.classList.remove('mq-fade');}});
+  }}, 220);
+}}
+
+function pinMood(i){{
+  moodPinned = true;
+  moodIdx    = i;
+  // Update button styles
+  var btns = document.querySelectorAll('.cg-btn');
+  btns.forEach(function(b){{b.classList.remove('selected');}});
+  var sel = document.querySelector('.cg-btn[data-idx="'+i+'"]');
+  if(sel) sel.classList.add('selected');
+  updateMoodSquare(MARKETS[i]);
+}}
+
+function cycleMoodMarket(){{
+  // Single click on square: cycle to next market and un-pin
+  moodPinned = false;
+  moodIdx    = (moodIdx + 1) % MARKETS.length;
+  var btns   = document.querySelectorAll('.cg-btn');
+  btns.forEach(function(b){{b.classList.remove('selected');}});
+  var sel = document.querySelector('.cg-btn[data-idx="'+moodIdx+'"]');
+  if(sel) sel.classList.add('selected');
+  updateMoodSquare(MARKETS[moodIdx]);
+}}
+
+function startMoodAuto(){{
+  clearInterval(moodTimer);
+  moodTimer = setInterval(function(){{
+    if(!moodPinned){{
+      moodIdx = (moodIdx + 1) % MARKETS.length;
+      var btns = document.querySelectorAll('.cg-btn');
+      btns.forEach(function(b){{b.classList.remove('selected');}});
+      var sel = document.querySelector('.cg-btn[data-idx="'+moodIdx+'"]');
+      if(sel) sel.classList.add('selected');
+      updateMoodSquare(MARKETS[moodIdx]);
+    }}
+  }}, 3500);
+}}
+
 setTimeout(function(){{
   resize();showMarket(0);
+  updateMoodSquare(MARKETS[0]);
+  startMoodAuto();
   setInterval(function(){{idx=(idx+1)%MARKETS.length;showMarket(idx);}},3000);
 }},120);
 window.addEventListener('resize',function(){{resize();drawChart(MARKETS[idx%MARKETS.length].col);}});
@@ -6830,7 +7028,7 @@ window.addEventListener('resize',function(){{resize();drawChart(MARKETS[idx%MARK
 </body></html>"""
 
 import streamlit.components.v1 as _cv1
-_cv1.html(_ACTION_BAR_HTML, height=230)
+_cv1.html(_ACTION_BAR_HTML, height=260)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # UPLOAD PANEL  (slides open below action bar when 📂 clicked)
