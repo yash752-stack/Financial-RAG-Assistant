@@ -9,10 +9,9 @@ Features:
   5. Visual analytics dashboard builder
   6. Benchmarking / eval harness (FinanceBench-style)
 
-No new heavy packages required beyond what's already in requirements.txt.
-The only optional additions that supercharge accuracy:
-  - rank_bm25     (pip install rank-bm25)        ← BM25 hybrid search
-  - sentence-transformers (already installed)     ← re-ranking via cross-encoder
+This module is intentionally Streamlit-friendly and mostly lightweight.
+Optional reranking paths can use sentence-transformers when installed,
+but the rest of the analytics stack works without it.
 """
 
 from __future__ import annotations

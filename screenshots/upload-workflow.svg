@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#0b0a12"/>
+  <rect x="40" y="40" width="1200" height="640" rx="26" fill="#151123" stroke="#6B2D6B" stroke-width="2"/>
+  <text x="90" y="110" fill="#EDE8F5" font-size="42" font-family="Arial">Upload Financial Reports</text>
+  <text x="90" y="150" fill="#C084C8" font-size="18" font-family="Arial">PDF • XLSX • CSV • DOCX • TXT</text>
+  <rect x="90" y="210" width="1100" height="210" rx="20" fill="#0f0c16" stroke="#8b3a8b" stroke-dasharray="10 10" stroke-width="3"/>
+  <text x="640" y="305" text-anchor="middle" fill="#D4A8D8" font-size="34" font-family="Arial">Drag and drop annual reports here</text>
+  <text x="640" y="350" text-anchor="middle" fill="#9A8AAA" font-size="22" font-family="Arial">Section-aware chunking • metric extraction • hybrid index build</text>
+  <rect x="90" y="470" width="340" height="140" rx="18" fill="#161125" stroke="#6B2D6B"/>
+  <rect x="470" y="470" width="340" height="140" rx="18" fill="#161125" stroke="#6B2D6B"/>
+  <rect x="850" y="470" width="340" height="140" rx="18" fill="#161125" stroke="#6B2D6B"/>
+  <text x="120" y="525" fill="#C084C8" font-size="20" font-family="Arial">Parse documents</text>
+  <text x="120" y="565" fill="#EDE8F5" font-size="28" font-family="Arial">10-K item detection</text>
+  <text x="500" y="525" fill="#C084C8" font-size="20" font-family="Arial">Index documents</text>
+  <text x="500" y="565" fill="#EDE8F5" font-size="28" font-family="Arial">TF-IDF + BM25</text>
+  <text x="880" y="525" fill="#C084C8" font-size="20" font-family="Arial">Auto analytics</text>
+  <text x="880" y="565" fill="#EDE8F5" font-size="28" font-family="Arial">Financial metrics</text>
+</svg>
+

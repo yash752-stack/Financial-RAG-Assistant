@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#0a0911"/>
+  <rect x="40" y="40" width="1200" height="640" rx="26" fill="#151123" stroke="#6B2D6B" stroke-width="2"/>
+  <text x="90" y="100" fill="#EDE8F5" font-size="40" font-family="Arial">Portfolio risk analytics</text>
+  <rect x="90" y="145" width="250" height="120" rx="18" fill="#1b1630"/>
+  <rect x="370" y="145" width="250" height="120" rx="18" fill="#1b1630"/>
+  <rect x="650" y="145" width="250" height="120" rx="18" fill="#1b1630"/>
+  <rect x="930" y="145" width="250" height="120" rx="18" fill="#1b1630"/>
+  <text x="115" y="190" fill="#C084C8" font-size="18" font-family="Arial">Portfolio Beta</text>
+  <text x="115" y="235" fill="#EDE8F5" font-size="34" font-family="Arial">1.12</text>
+  <text x="395" y="190" fill="#C084C8" font-size="18" font-family="Arial">VaR (95%)</text>
+  <text x="395" y="235" fill="#EDE8F5" font-size="34" font-family="Arial">$4,820</text>
+  <text x="675" y="190" fill="#C084C8" font-size="18" font-family="Arial">Sharpe</text>
+  <text x="675" y="235" fill="#EDE8F5" font-size="34" font-family="Arial">1.46</text>
+  <text x="955" y="190" fill="#C084C8" font-size="18" font-family="Arial">Diversification</text>
+  <text x="955" y="235" fill="#EDE8F5" font-size="34" font-family="Arial">78 / 100</text>
+  <rect x="90" y="315" width="520" height="280" rx="18" fill="#0f0c16" stroke="#2d243d"/>
+  <rect x="650" y="315" width="530" height="280" rx="18" fill="#0f0c16" stroke="#2d243d"/>
+  <text x="115" y="360" fill="#C084C8" font-size="20" font-family="Arial">Allocation mix</text>
+  <circle cx="300" cy="460" r="110" fill="#1c1730"/>
+  <path d="M300 460 L300 350 A110 110 0 0 1 390 520 Z" fill="#C084C8"/>
+  <path d="M300 460 L390 520 A110 110 0 0 1 250 560 Z" fill="#60a5fa"/>
+  <path d="M300 460 L250 560 A110 110 0 0 1 220 390 Z" fill="#4ade80"/>
+  <path d="M300 460 L220 390 A110 110 0 0 1 300 350 Z" fill="#f0c040"/>
+  <text x="675" y="360" fill="#C084C8" font-size="20" font-family="Arial">Risk commentary</text>
+  <text x="680" y="410" fill="#EDE8F5" font-size="22" font-family="Arial">• Tech concentration drives most portfolio beta</text>
+  <text x="680" y="455" fill="#EDE8F5" font-size="22" font-family="Arial">• 1-day VaR stays moderate vs. current allocation</text>
+  <text x="680" y="500" fill="#EDE8F5" font-size="22" font-family="Arial">• Diversification improves with non-US cyclicals</text>
+</svg>

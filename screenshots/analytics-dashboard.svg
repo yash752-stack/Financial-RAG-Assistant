@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#0a0911"/>
+  <rect x="40" y="40" width="1200" height="640" rx="26" fill="#14101f" stroke="#6B2D6B" stroke-width="2"/>
+  <text x="90" y="100" fill="#EDE8F5" font-size="40" font-family="Arial">Financial analytics dashboard</text>
+  <rect x="90" y="145" width="240" height="120" rx="18" fill="#1a1530"/>
+  <rect x="360" y="145" width="240" height="120" rx="18" fill="#1a1530"/>
+  <rect x="630" y="145" width="240" height="120" rx="18" fill="#1a1530"/>
+  <rect x="900" y="145" width="240" height="120" rx="18" fill="#1a1530"/>
+  <text x="115" y="190" fill="#C084C8" font-size="18" font-family="Arial">Revenue</text>
+  <text x="115" y="235" fill="#EDE8F5" font-size="34" font-family="Arial">$42.8B</text>
+  <text x="385" y="190" fill="#C084C8" font-size="18" font-family="Arial">Net Margin</text>
+  <text x="385" y="235" fill="#EDE8F5" font-size="34" font-family="Arial">18.4%</text>
+  <text x="655" y="190" fill="#C084C8" font-size="18" font-family="Arial">EPS</text>
+  <text x="655" y="235" fill="#EDE8F5" font-size="34" font-family="Arial">$6.12</text>
+  <text x="925" y="190" fill="#C084C8" font-size="18" font-family="Arial">Free Cash Flow</text>
+  <text x="925" y="235" fill="#EDE8F5" font-size="34" font-family="Arial">$9.7B</text>
+  <rect x="90" y="305" width="700" height="290" rx="18" fill="#0f0c16" stroke="#2d243d"/>
+  <rect x="830" y="305" width="310" height="290" rx="18" fill="#0f0c16" stroke="#2d243d"/>
+  <text x="115" y="350" fill="#C084C8" font-size="20" font-family="Arial">Metric trend chart</text>
+  <polyline fill="none" stroke="#C084C8" stroke-width="6" points="140,530 230,500 320,520 410,450 500,420 590,360 680,320"/>
+  <text x="855" y="350" fill="#C084C8" font-size="20" font-family="Arial">Section coverage</text>
+  <rect x="870" y="390" width="220" height="26" rx="10" fill="#311b46"/>
+  <rect x="870" y="435" width="170" height="26" rx="10" fill="#472766"/>
+  <rect x="870" y="480" width="130" height="26" rx="10" fill="#5b2f7f"/>
+  <text x="875" y="385" fill="#EDE8F5" font-size="16" font-family="Arial">Income Statement</text>
+  <text x="875" y="430" fill="#EDE8F5" font-size="16" font-family="Arial">Cash Flow</text>
+  <text x="875" y="475" fill="#EDE8F5" font-size="16" font-family="Arial">Risk Factors</text>
+</svg>
+
