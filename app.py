@@ -1,4 +1,1 @@
-from src.deploy_ui import main
-
-
-main()
+from src import ui  # noqa: F401
