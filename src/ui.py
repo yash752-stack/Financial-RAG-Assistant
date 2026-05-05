@@ -34,6 +34,162 @@ def _safe_secret(name: str, default: str = "") -> str:
     except Exception:
         return os.getenv(name, default)
 
+
+_SNAPSHOT_QUOTES = {
+    "AAPL": {"price": 212.48, "pct": 1.14},
+    "NVDA": {"price": 118.62, "pct": 2.41},
+    "MSFT": {"price": 428.95, "pct": 0.88},
+    "GOOGL": {"price": 176.14, "pct": -0.32},
+    "META": {"price": 512.73, "pct": 1.26},
+    "AMZN": {"price": 186.84, "pct": 0.52},
+    "TSLA": {"price": 181.23, "pct": -1.45},
+    "^GSPC": {"price": 5847.0, "pct": 0.42},
+    "^IXIC": {"price": 18496.0, "pct": 0.63},
+    "^NSEI": {"price": 22495.0, "pct": 0.78},
+    "^FTSE": {"price": 8312.0, "pct": -0.23},
+    "^N225": {"price": 38921.0, "pct": 1.18},
+    "^GDAXI": {"price": 18640.0, "pct": 0.87},
+    "GC=F": {"price": 3082.15, "pct": 0.68},
+    "CL=F": {"price": 79.54, "pct": -0.41},
+    "BTC-USD": {"price": 68240.0, "pct": 2.11},
+    "ETH-USD": {"price": 3248.0, "pct": 1.74},
+    "USDINR=X": {"price": 83.21, "pct": 0.18},
+    "USDJPY=X": {"price": 155.82, "pct": -0.12},
+    "USDCNY=X": {"price": 7.23, "pct": 0.07},
+    "EURUSD=X": {"price": 1.0814, "pct": 0.24},
+    "GBPUSD=X": {"price": 1.2642, "pct": -0.09},
+    "USDCHF=X": {"price": 0.9071, "pct": -0.14},
+    "RELIANCE.NS": {"price": 2947.45, "pct": 1.02},
+    "TCS.NS": {"price": 4026.15, "pct": 0.54},
+    "INFY.NS": {"price": 1498.2, "pct": -0.36},
+    "HDFCBANK.NS": {"price": 1521.0, "pct": 0.28},
+}
+
+_SNAPSHOT_NEWS_ITEMS = [
+    {"title": "Mega-cap tech earnings keep global equity sentiment constructive", "link": "https://www.reuters.com/", "source": "Reuters", "accent": "#60A5FA", "img_url": "https://www.reuters.com/pf/resources/images/reuters/logo-vertical-default.png"},
+    {"title": "Oil trades range-bound as traders weigh demand resilience and OPEC discipline", "link": "https://www.ft.com/", "source": "Financial Times", "accent": "#FB923C", "img_url": "https://about.ft.com/files/2020/04/ft_logo.png"},
+    {"title": "US yields steady as markets recalibrate expectations for the next policy path", "link": "https://www.wsj.com/", "source": "Wall Street Journal", "accent": "#F0C040", "img_url": "https://s.wsj.net/media/wsj_logo_black_sm.png"},
+    {"title": "Bitcoin extends gains as risk appetite broadens across digital assets", "link": "https://www.cnbc.com/", "source": "CNBC", "accent": "#C084C8", "img_url": "https://www.cnbc.com/2020/07/21/cnbc-social-card-2019.jpg"},
+]
+
+_SNAPSHOT_POLICY_ITEMS = [
+    {"title": "Central banks signal patience as inflation trends gradually cool", "link": "https://www.imf.org/", "source": "IMF", "accent": "#A78BFA", "img_url": "https://www.imf.org/-/media/Images/IMF/Shared/Icons/imf-seal.ashx"},
+    {"title": "RBI liquidity stance remains data dependent amid steady growth signals", "link": "https://www.rbi.org.in/", "source": "RBI India", "accent": "#FB923C", "img_url": "https://www.rbi.org.in/common/images/Rbi_Logo.png"},
+    {"title": "Fed communication keeps focus on growth resilience and labour-market balance", "link": "https://www.federalreserve.gov/", "source": "Federal Reserve", "accent": "#60A5FA", "img_url": "https://www.federalreserve.gov/mediacenter/files/Seal.png"},
+]
+
+_SNAPSHOT_INDIA_ARTICLES = {
+    "📰 Economic Times": [
+        {"title": "NIFTY holds firm as banks and capital goods drive late-session strength", "link": "https://economictimes.indiatimes.com/", "date": "05 May, 18:10", "summary": "Domestic cyclicals led gains while defensives stayed mixed as traders looked through global volatility."},
+        {"title": "Brokerages stay constructive on IT spend recovery into the next quarter", "link": "https://economictimes.indiatimes.com/", "date": "05 May, 17:42", "summary": "Large-cap IT names saw selective buying on hopes that client budgets will stabilise through the year."},
+    ],
+    "📰 Business Standard": [
+        {"title": "Rupee trades in a narrow band as oil and portfolio flows offset each other", "link": "https://www.business-standard.com/", "date": "05 May, 17:35", "summary": "FX desks reported balanced importer and exporter demand with the dollar index largely steady."},
+    ],
+    "🏛️ RBI Notifications": [
+        {"title": "RBI reiterates calibrated policy approach while monitoring liquidity conditions", "link": "https://www.rbi.org.in/", "date": "05 May, 16:55", "summary": "The central bank kept communication focused on inflation durability and transmission quality."},
+    ],
+    "🏛️ Finance Ministry": [
+        {"title": "Centre highlights capex momentum and manufacturing pipeline in latest briefing", "link": "https://pib.gov.in/", "date": "05 May, 16:20", "summary": "Policy commentary emphasised infrastructure execution and medium-term growth visibility."},
+    ],
+}
+
+_SNAPSHOT_FEAR_GREED = {"value": 68, "label": "Greed"}
+
+
+def _seed_from_symbol(symbol: str) -> int:
+    return sum((idx + 1) * ord(ch) for idx, ch in enumerate(symbol))
+
+
+def _snapshot_quote(symbol: str) -> dict:
+    if symbol in _SNAPSHOT_QUOTES:
+        return dict(_SNAPSHOT_QUOTES[symbol])
+    seed = _seed_from_symbol(symbol)
+    price = round(25 + (seed % 8000) / 10, 2)
+    pct = round(((seed % 480) - 240) / 100, 2)
+    return {"price": price, "pct": pct}
+
+
+@st.cache_data(ttl=3600)
+def snapshot_quotes(symbols: tuple[str, ...]) -> dict[str, dict]:
+    ordered = tuple(dict.fromkeys(symbols))
+    return {symbol: _snapshot_quote(symbol) for symbol in ordered}
+
+
+def _snapshot_index(period: str, points: int, freq: str) -> pd.DatetimeIndex:
+    end = pd.Timestamp.utcnow().floor("min")
+    return pd.date_range(end=end, periods=points, freq=freq, tz="UTC")
+
+
+@st.cache_data(ttl=3600)
+def snapshot_tf_series(symbol: str, period: str, interval: str) -> pd.Series:
+    if period == "1d":
+        points, freq = 78, "5min"
+    elif period == "5d":
+        points, freq = 65, "30min"
+    elif period == "1mo":
+        points, freq = 22, "B"
+    elif period == "3mo":
+        points, freq = 66, "B"
+    elif period == "6mo":
+        points, freq = 132, "B"
+    else:
+        points, freq = 252, "B"
+
+    idx = _snapshot_index(period, points, freq)
+    seed = _seed_from_symbol(symbol) + len(period) * 17 + len(interval) * 11
+    rng = np.random.default_rng(seed)
+    quote = _snapshot_quote(symbol)
+    end_price = quote["price"]
+    start_price = max(1.0, end_price * (0.84 + ((seed % 9) * 0.015)))
+    trend = np.linspace(start_price, end_price, points)
+    wave = np.sin(np.linspace(0, 4 * np.pi, points)) * end_price * 0.018
+    noise = rng.normal(0, max(end_price * 0.004, 0.02), size=points).cumsum() * 0.08
+    series = np.maximum(0.1, trend + wave + noise)
+    return pd.Series(series, index=idx, dtype=float, name=symbol)
+
+
+@st.cache_data(ttl=3600)
+def snapshot_stock_history(symbol: str, period: str = "1y") -> pd.DataFrame:
+    close = snapshot_tf_series(symbol, period, "1d")
+    seed = _seed_from_symbol(symbol) + len(period) * 13
+    rng = np.random.default_rng(seed)
+    open_ = close.shift(1).fillna(close.iloc[0] * (1 - 0.004))
+    spread = np.maximum(close * 0.006, 0.04)
+    high = np.maximum(open_, close) + spread
+    low = np.maximum(0.05, np.minimum(open_, close) - spread)
+    volume = rng.integers(4_000_000, 28_000_000, size=len(close))
+    return pd.DataFrame(
+        {
+            "open": open_.values,
+            "high": high.values,
+            "low": low.values,
+            "close": close.values,
+            "volume": volume,
+        },
+        index=close.index,
+    )
+
+
+def snapshot_news_items() -> list[dict]:
+    return [dict(item) for item in _SNAPSHOT_NEWS_ITEMS]
+
+
+def snapshot_policy_items() -> list[dict]:
+    return [dict(item) for item in _SNAPSHOT_POLICY_ITEMS]
+
+
+def snapshot_india_articles(active_sources: list[str]) -> list[dict]:
+    articles: list[dict] = []
+    for source in active_sources:
+        src_tag = NEWS_SOURCES.get(source, {}).get("tag", "Markets")
+        for item in _SNAPSHOT_INDIA_ARTICLES.get(source, []):
+            row = dict(item)
+            row["source"] = source
+            row["src_tag"] = src_tag
+            articles.append(row)
+    return articles
+
 # ─────────────────────────────────────────────────────────────────────────────
 # HIDE STREAMLIT CHROME + RESPONSIVE
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3770,7 +3926,7 @@ def groq_call(
                 # Jitter to avoid thundering herd
                 wait = wait * (1 + 0.1 * attempt) + (attempt * 2)
                 st.session_state["_groq_last_err"][site_key] = {
-                    "ts":    _dt.datetime.utcnow().isoformat(),
+                    "ts":    _dt.datetime.now(_dt.UTC).isoformat(),
                     "wait":  wait,
                     "msg":   err[:200],
                     "type":  "rate_limit" if is_rate else "overload",
@@ -4066,7 +4222,7 @@ def check_price_alerts() -> list[dict]:
             if not info:
                 continue
             price = info["price"]
-            ts    = _dt.datetime.utcnow().strftime("%H:%M UTC")
+            ts    = _dt.datetime.now(_dt.UTC).strftime("%H:%M UTC")
             if cfg.get("above") is not None and price >= cfg["above"]:
                 triggered.append({"sym":sym,"type":"above","price":price,
                                    "target":cfg["above"],"ts":ts})
@@ -4346,7 +4502,7 @@ def render_export_panel(summary: dict, metrics: list[dict], doc_full_text: str) 
             st.download_button(
                 "⬇ Portfolio CSV",
                 data=csv_pf,
-                file_name=f"portfolio_{_dt.datetime.utcnow().strftime('%Y%m%d')}.csv",
+                file_name=f"portfolio_{_dt.datetime.now(_dt.UTC).strftime('%Y%m%d')}.csv",
                 mime="text/csv",
                 use_container_width=True,
                 key="exp_pf_csv",
@@ -4360,7 +4516,7 @@ def render_export_panel(summary: dict, metrics: list[dict], doc_full_text: str) 
             st.download_button(
                 "⬇ Metrics CSV",
                 data=csv_m,
-                file_name=f"metrics_{_dt.datetime.utcnow().strftime('%Y%m%d')}.csv",
+                file_name=f"metrics_{_dt.datetime.now(_dt.UTC).strftime('%Y%m%d')}.csv",
                 mime="text/csv",
                 use_container_width=True,
                 key="exp_met_csv",
@@ -4373,7 +4529,7 @@ def render_export_panel(summary: dict, metrics: list[dict], doc_full_text: str) 
             st.download_button(
                 "⬇ Raw Document Text",
                 data=doc_full_text,
-                file_name=f"extracted_text_{_dt.datetime.utcnow().strftime('%Y%m%d')}.txt",
+                file_name=f"extracted_text_{_dt.datetime.now(_dt.UTC).strftime('%Y%m%d')}.txt",
                 mime="text/plain",
                 use_container_width=True,
                 key="exp_raw_txt",
@@ -4770,7 +4926,7 @@ def render_portfolio_panel(groq_api_key: str) -> None:
                 st.session_state.portfolio[sym] = {
                     "shares":   shares_in,
                     "avg_cost": buy_price,
-                    "added":    _dt.datetime.utcnow().strftime("%Y-%m-%d"),
+                    "added":    _dt.datetime.now(_dt.UTC).strftime("%Y-%m-%d"),
                 }
                 st.success(f"✓ {shares_in:,.4g} × {sym} ({info.get('short_name','')}) @ ${buy_price:,.2f}")
                 st.rerun()
@@ -4803,7 +4959,7 @@ def render_portfolio_panel(groq_api_key: str) -> None:
                             st.session_state.portfolio[ps] = {
                                 "shares":   1.0,
                                 "avg_cost": info2["price"],
-                                "added":    _dt.datetime.utcnow().strftime("%Y-%m-%d"),
+                                "added":    _dt.datetime.now(_dt.UTC).strftime("%Y-%m-%d"),
                             }
                             st.rerun()
 
@@ -5265,7 +5421,7 @@ Be specific with numbers. Max 350 words. Use the investor's actual position data
                 if an_sym in st.session_state.portfolio_notes:
                     st.markdown(
                         f'<div class="ai-analysis-card">'
-                        f'<div class="aac-header">AI Analysis · {an_sym} · {_dt.datetime.utcnow().strftime("%Y-%m-%d")}</div>'
+                        f'<div class="aac-header">AI Analysis · {an_sym} · {_dt.datetime.now(_dt.UTC).strftime("%Y-%m-%d")}</div>'
                         f'<div class="aac-body">{st.session_state.portfolio_notes[an_sym].replace(chr(10),"<br>")}</div>'
                         f'</div>',
                         unsafe_allow_html=True,
@@ -6008,21 +6164,6 @@ def render_ai_timeframe_panel(
 
     # ── Auto-load AI text ─────────────────────────────────────────────────
     cached_text = st.session_state.get(text_key, "")
-    if not cached_text and groq_api_key and symbols:
-        with st.spinner(f"Analysing {tf_label.lower()} price action + news…"):
-            stats = []
-            for sym in symbols[:6]:
-                s = _compute_tf_stats(sym, period, interval)
-                if s.get("current_price"):
-                    stats.append(s)
-            if stats:
-                # Fetch news headlines for this asset class
-                news_ctx = fetch_market_news_context(news_topic)
-                context_str = f"{tf_label} ({current_tf}) · {', '.join(symbols[:6])}"
-                text = ai_market_analysis(stats, groq_api_key,
-                                          context=context_str, news_context=news_ctx)
-                st.session_state[text_key] = text
-                cached_text = text
 
     if cached_text:
         st.markdown(
@@ -6033,7 +6174,10 @@ def render_ai_timeframe_panel(
     else:
         st.markdown(
             '<div style="font-family:Space Mono,monospace;font-size:.6rem;color:#4A3858;'
-            'padding:.5rem 0;">Add a Groq API key in the sidebar to enable AI analysis.</div>',
+            'padding:.5rem 0;">'
+            + ('Click refresh analysis to generate the AI view for this panel.' if groq_api_key else
+               'Add a Groq API key in the sidebar to enable AI analysis.')
+            + '</div>',
             unsafe_allow_html=True,
         )
 
@@ -6081,6 +6225,19 @@ def render_ai_timeframe_panel(
                      use_container_width=True, help="Re-run AI analysis with fresh data"):
             st.session_state[text_key] = ""
             st.session_state[news_key] = ""
+            if groq_api_key and symbols:
+                with st.spinner(f"Analysing {tf_label.lower()} price action + news…"):
+                    stats = []
+                    for sym in symbols[:6]:
+                        s = _compute_tf_stats(sym, period, interval)
+                        if s.get("current_price"):
+                            stats.append(s)
+                    if stats:
+                        news_ctx = fetch_market_news_context(news_topic)
+                        context_str = f"{tf_label} ({current_tf}) · {', '.join(symbols[:6])}"
+                        text = ai_market_analysis(stats, groq_api_key,
+                                                  context=context_str, news_context=news_ctx)
+                        st.session_state[text_key] = text
             st.rerun()
 
     # Show news deep-dive result if available
@@ -7315,7 +7472,7 @@ _TAPE_SYMS = [
     ("^IXIC","NASDAQ"),("GC=F","Gold"),("BTC-USD","BTC"),("ETH-USD","ETH"),
     ("USDINR=X","USD/INR"),("^NSEI","NIFTY"),("CL=F","Oil WTI"),
 ]
-_tape_quotes = fetch_multi_quotes(tuple(s for s,_ in _TAPE_SYMS))
+_tape_quotes = snapshot_quotes(tuple(s for s,_ in _TAPE_SYMS))
 
 def _tape_item(sym: str, label: str, info: dict) -> str:
     arrow = "▲" if info["pct"] >= 0 else "▼"
@@ -7420,11 +7577,11 @@ st.markdown('<div class="section-gap"></div>', unsafe_allow_html=True)
 # ─────────────────────────────────────────────────────────────────────────────
 # MARKET MOOD + GLOBAL INDICES
 # ─────────────────────────────────────────────────────────────────────────────
-fng = fetch_fear_greed(); fng_val = fng["value"]; fng_label = fng["label"]
+fng = dict(_SNAPSHOT_FEAR_GREED); fng_val = fng["value"]; fng_label = fng["label"]
 INDEX_SYMS = {"^GSPC":{"name":"S&P 500","flag":"🇺🇸"},"^IXIC":{"name":"NASDAQ","flag":"🇺🇸"},
               "^FTSE":{"name":"FTSE 100","flag":"🇬🇧"},"^NSEI":{"name":"NIFTY 50","flag":"🇮🇳"},
               "^N225":{"name":"Nikkei","flag":"🇯🇵"},"^GDAXI":{"name":"DAX","flag":"🇩🇪"}}
-idx_quotes = fetch_multi_quotes(tuple(INDEX_SYMS.keys()))
+idx_quotes = snapshot_quotes(tuple(INDEX_SYMS.keys()))
 idx_chips  = ""
 for sym, meta in INDEX_SYMS.items():
     info = idx_quotes.get(sym)
@@ -7663,8 +7820,8 @@ if st.session_state.show_chat:
 # NEWS CAROUSELS
 # ─────────────────────────────────────────────────────────────────────────────
 st.markdown('<div class="section-gap"></div>', unsafe_allow_html=True)
-news_items   = get_all_news()
-policy_items = get_policy_news()
+news_items   = snapshot_news_items()
+policy_items = snapshot_policy_items()
 car_col1, car_col2 = st.columns(2)
 with car_col1:
     if news_items:
@@ -7681,7 +7838,7 @@ with car_col2:
 # COMMODITIES
 # ─────────────────────────────────────────────────────────────────────────────
 st.markdown('<div class="section-gap"></div>', unsafe_allow_html=True)
-comm_quotes = fetch_multi_quotes(tuple(COMMODITY_SYMS.keys()))
+comm_quotes = snapshot_quotes(tuple(COMMODITY_SYMS.keys()))
 comm_chips  = "".join(
     make_chip_html(sym, f"{name} · {unit}", info["price"], info["pct"], prefix="$", decimals=dec, icon=icon)
     for sym, (name, unit, icon, dec) in COMMODITY_SYMS.items() if (info := comm_quotes.get(sym))
@@ -7697,7 +7854,7 @@ if comm_chips:
     def _comm_chart_fn(period, interval):
         data = {}
         for sym, (name, unit, icon, dec) in COMMODITY_SYMS.items():
-            s = fetch_tf_series(sym, period, interval)
+            s = snapshot_tf_series(sym, period, interval)
             if s is not None and len(s) > 1:
                 data[f"{icon} {name}"] = s
         return data
@@ -7719,7 +7876,7 @@ if comm_chips:
 # ─────────────────────────────────────────────────────────────────────────────
 # CRYPTO
 # ─────────────────────────────────────────────────────────────────────────────
-crypto_quotes = fetch_multi_quotes(tuple(CRYPTO_SYMS.keys()))
+crypto_quotes = snapshot_quotes(tuple(CRYPTO_SYMS.keys()))
 crypto_chips  = "".join(
     make_chip_html(ticker, name, info["price"], info["pct"], prefix="$", decimals=dec, icon=icon)
     for sym, (name, ticker, icon, dec) in CRYPTO_SYMS.items() if (info := crypto_quotes.get(sym))
@@ -7735,7 +7892,7 @@ if crypto_chips:
     def _crypto_chart_fn(period, interval):
         data = {}
         for sym, (name, ticker, icon, dec) in CRYPTO_SYMS.items():
-            s = fetch_tf_series(sym, period, interval)
+            s = snapshot_tf_series(sym, period, interval)
             if s is not None and len(s) > 1:
                 data[f"{icon} {name}"] = s
         return data
@@ -7788,7 +7945,7 @@ period_map   = {"1M":"1mo","3M":"3mo","6M":"6mo","1Y":"1y"}
 interval_map = {"1M":"1d","3M":"1d","6M":"1d","1Y":"1d"}
 
 if symbols:
-    sq = fetch_multi_quotes(tuple(symbols))
+    sq = snapshot_quotes(tuple(symbols))
     cps = []
     for sym in symbols:
         info = sq.get(sym)
@@ -7810,12 +7967,11 @@ if symbols:
     # ── Fetch 1Y history ────────────────────────────────────────────────
     hist_frames: dict[str, pd.DataFrame] = {}
     series_dict: dict[str, pd.Series] = {}
-    with st.spinner("Loading 1 year of historical data…"):
-        for sym in symbols:
-            df = fetch_stock_history_1y(sym)
-            if not df.empty:
-                hist_frames[sym] = df
-                series_dict[sym] = df["close"]
+    for sym in symbols:
+        df = snapshot_stock_history(sym, period_map[rng])
+        if not df.empty:
+            hist_frames[sym] = df
+            series_dict[sym] = df["close"]
 
     if series_dict:
         is_candle = (chart_type == "Candlestick (1 symbol)")
@@ -7853,7 +8009,7 @@ if symbols:
         def _stock_chart_fn(period, interval):
             data = {}
             for sym in _syms_for_news:
-                s = fetch_tf_series(sym, period, interval)
+                s = snapshot_tf_series(sym, period, interval)
                 if s is not None and len(s) > 1:
                     data[sym] = s
             return data
@@ -7897,7 +8053,7 @@ if selected_syms:
     fx_series: dict[str, pd.Series] = {}
     fx_hist:   dict[str, pd.DataFrame] = {}
     for sym in selected_syms:
-        meta = ALL_FX[sym]; s = fetch_yahoo_series(sym, fx_period[fx_rng], fx_interval[fx_rng])
+        meta = ALL_FX[sym]; s = snapshot_tf_series(sym, fx_period[fx_rng], fx_interval[fx_rng])
         if s is not None and not s.empty:
             if meta["invert"]: s = 1.0 / s
             label = meta["flag"]+" "+meta["label"]
@@ -7929,7 +8085,7 @@ if selected_syms:
             news_topic="forex currency dollar rupee yen euro central bank interest rates",
         )
 
-    fx_quotes = fetch_multi_quotes(tuple(selected_syms))
+    fx_quotes = snapshot_quotes(tuple(selected_syms))
     fx_chips  = []
     for sym in selected_syms:
         meta = ALL_FX[sym]; info = fx_quotes.get(sym)
@@ -7947,7 +8103,7 @@ if selected_syms:
                 f'<div class="pc-chg {cls}">{arr} {abs(pct):.3f}%</div></div>'
             )
     if fx_chips:
-        now_ist = _dt.datetime.utcnow() + _dt.timedelta(hours=5, minutes=30)
+        now_ist = _dt.datetime.now(_dt.UTC) + _dt.timedelta(hours=5, minutes=30)
         st.markdown('<div class="chips-row" style="margin-top:.75rem;">'+"".join(fx_chips)
                     +f'</div><div style="font-family:Space Mono,monospace;font-size:.5rem;color:#4A3858;'
                     f'margin-top:.6rem;text-align:right;">Live · {now_ist.strftime("%H:%M")} IST · 60s cache</div>',
@@ -7983,9 +8139,11 @@ active_sources = [s for s in sel_sources if news_filter=="All" or NEWS_SOURCES[s
 if active_sources:
     all_articles = []
     for src_name in active_sources:
-        src_cfg  = NEWS_SOURCES[src_name]
-        articles = fetch_rss(src_cfg["rss"], max_items=n_per_source)
-        for a in articles: a["source"]=src_name; a["src_tag"]=src_cfg["tag"]
+        src_cfg = NEWS_SOURCES[src_name]
+        articles = snapshot_india_articles([src_name])[:n_per_source]
+        for a in articles:
+            a["source"] = src_name
+            a["src_tag"] = src_cfg["tag"]
         all_articles.extend(articles)
     if all_articles:
         def render_card(a):
@@ -8010,7 +8168,7 @@ if active_sources:
         col_l, col_r = st.columns(2)
         with col_l: st.markdown("".join(render_card(a) for a in all_articles[0::2]), unsafe_allow_html=True)
         with col_r: st.markdown("".join(render_card(a) for a in all_articles[1::2]), unsafe_allow_html=True)
-        now_ist_n = _dt.datetime.utcnow() + _dt.timedelta(hours=5, minutes=30)
+        now_ist_n = _dt.datetime.now(_dt.UTC) + _dt.timedelta(hours=5, minutes=30)
         st.markdown(f'<div style="font-family:Space Mono,monospace;font-size:.5rem;color:#4A3858;'
                     f'text-align:right;margin-top:.2rem;">Fetched {now_ist_n.strftime("%H:%M")} IST · '
                     f'{len(all_articles)} articles · 10min cache</div>', unsafe_allow_html=True)
@@ -8160,7 +8318,7 @@ if q:
                     _sg = "+" if _fxi["pct"] >= 0 else ""
                     fx_lines.append(f"  {ALL_FX.get(_fxsym,{}).get('label',_fxsym)}: {_rs} ({_sg}{_fxi['pct']:.3f}%)")
 
-            utc_now = _dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+            utc_now = _dt.datetime.now(_dt.UTC).strftime("%Y-%m-%d %H:%M UTC")
 
             # Fetch recent news headlines (cached 5 min) to ground the LLM in current events
             _news_ctx = ""
