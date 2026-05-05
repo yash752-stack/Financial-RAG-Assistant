@@ -26,6 +26,14 @@ configure_page()
 # ─────────────────────────────────────────────────────────────────────────────
 ensure_session_defaults()
 
+
+def _safe_secret(name: str, default: str = "") -> str:
+    """Return a Streamlit secret when available without requiring secrets.toml."""
+    try:
+        return str(st.secrets.get(name, os.getenv(name, default)))
+    except Exception:
+        return os.getenv(name, default)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # HIDE STREAMLIT CHROME + RESPONSIVE
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2359,7 +2367,7 @@ class _TokenBucket:
 @st.cache_resource
 def _get_bucket(): return _TokenBucket(capacity=30, refill_every=60.0)
 
-def _throttled_get(url, timeout=10):
+def _throttled_get(url, timeout=4):
     if not _get_bucket().acquire(timeout=4.0):
         raise RuntimeError("Rate limit reached — wait a few seconds.")
     return requests.get(url, headers=_HEADERS, timeout=timeout)
@@ -2379,7 +2387,7 @@ def fetch_yahoo_series(symbol, period, interval):
 def fetch_quote(symbol):
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=2d&interval=1d"
     try:
-        r = _throttled_get(url, timeout=8); r.raise_for_status()
+        r = _throttled_get(url, timeout=4); r.raise_for_status()
         data = r.json()
         q = [x for x in data["chart"]["result"][0]["indicators"]["quote"][0]["close"] if x is not None]
         if not q: return None
@@ -2392,7 +2400,7 @@ def fetch_multi_quotes(symbols): return {s:i for s in symbols if (i:=fetch_quote
 @st.cache_data(ttl=300)
 def fetch_fear_greed():
     try:
-        r = _throttled_get("https://api.alternative.me/fng/?limit=1", timeout=8)
+        r = _throttled_get("https://api.alternative.me/fng/?limit=1", timeout=4)
         d = r.json()["data"][0]
         return {"value":int(d["value"]),"label":d["value_classification"]}
     except: return {"value":50,"label":"Neutral"}
@@ -2406,7 +2414,7 @@ def fetch_rss_with_images(feed_url, source_name, accent, max_items=8):
                 "CNBC":"https://www.cnbc.com/2020/07/21/cnbc-social-card-2019.jpg"}
     import html as _h
     try:
-        r = requests.get(feed_url, headers={**_HEADERS,"Accept":"application/rss+xml,*/*"}, timeout=10)
+        r = requests.get(feed_url, headers={**_HEADERS,"Accept":"application/rss+xml,*/*"}, timeout=4)
         r.raise_for_status(); text = r.text
     except: return []
     results = []
@@ -5667,7 +5675,7 @@ def fetch_rss(url, max_items=6):
     import xml.etree.ElementTree as ET
     headers = {"User-Agent":"Mozilla/5.0 (compatible; NewsBot/1.0)","Accept":"application/rss+xml,*/*"}
     try:
-        r = requests.get(url, headers=headers, timeout=12); r.raise_for_status()
+        r = requests.get(url, headers=headers, timeout=4); r.raise_for_status()
         root = ET.fromstring(r.content)
         items = root.findall(".//item"); results = []
         for item in items[:max_items]:
@@ -6153,13 +6161,13 @@ with st.sidebar:
 
     st.markdown('<div class="sb-lbl" style="border-top:none;padding-top:0;margin-top:0;">⚙️ Configuration</div>',
                 unsafe_allow_html=True)
-    default_key = st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY",""))
+    default_key = _safe_secret("GROQ_API_KEY")
     if default_key:
         GROQ_API_KEY = default_key
         st.markdown('<div class="key-ok"><div class="key-dot"></div>API Key Active</div>',
                     unsafe_allow_html=True)
     else:
-        GROQ_API_KEY = st.text_input("", type="password", placeholder="gsk_…",
+        GROQ_API_KEY = st.text_input("Groq API key", type="password", placeholder="gsk_…",
                                      label_visibility="collapsed")
         st.markdown("<span style='font-family:Space Mono,monospace;font-size:.56rem;color:#4A3858;'>"
                     "console.groq.com → free key</span>", unsafe_allow_html=True)
@@ -6362,12 +6370,12 @@ st.markdown("""
 _pf_open_js = "true"  if st.session_state.show_portfolio else "false"
 _up_open_js = "true"  if st.session_state.show_upload    else "false"
 
-# ── Hidden real Streamlit buttons (invisible, triggered by JS .click()) ──────
+# ── Fallback real Streamlit buttons (also triggered by JS .click()) ──────────
 _hbtn_col1, _hbtn_col2 = st.columns(2)
 with _hbtn_col1:
-    _upload_clicked = st.button("↑", key="hidden_upload_btn")
+    _upload_clicked = st.button("↑ Upload", key="hidden_upload_btn", use_container_width=True)
 with _hbtn_col2:
-    _portf_clicked  = st.button("◈", key="hidden_portf_btn")
+    _portf_clicked  = st.button("◈ Portfolio", key="hidden_portf_btn", use_container_width=True)
 
 if _upload_clicked:
     st.session_state.show_upload    = not st.session_state.show_upload
@@ -6376,19 +6384,11 @@ if _portf_clicked:
     st.session_state.show_portfolio = not st.session_state.show_portfolio
     st.rerun()
 
-# ── CSS: completely hide the trigger button row ───────────────────────────────
+# ── Keep the fallback row subtle without hiding entire layout blocks ──────────
 st.markdown("""
 <style>
-/* Hide hidden trigger buttons by their unique keys */
-div[data-testid="stHorizontalBlock"]:has(button[data-testid="baseButton-secondary"]) {
-  visibility: hidden !important;
-  height: 0 !important;
-  min-height: 0 !important;
-  overflow: hidden !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  max-height: 0 !important;
-  pointer-events: none !important;
+div[data-testid="stButton"] > button[kind="secondary"] {
+  min-height: 2.4rem !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -6900,11 +6900,11 @@ function clickParentBtn(text){{
 
 function doUpload(){{
   document.getElementById('upload-btn').classList.toggle('active');
-  clickParentBtn('↑');
+  clickParentBtn('↑ Upload');
 }}
 function doPortfolio(){{
   document.getElementById('globe').classList.toggle('active');
-  clickParentBtn('◈');
+  clickParentBtn('◈ Portfolio');
 }}
 
 // ── Mood Square logic ──────────────────────────────────────────────────
