@@ -4,6 +4,12 @@ AI-native financial intelligence platform for document-grounded Q&A, market anal
 
 Built with Streamlit, Groq Llama 3.3, hybrid BM25 retrieval, financial metric extraction, live market data, and interactive Plotly dashboards.
 
+## Live demo
+
+[financial-rag-assistant.streamlit.app](https://financial-rag-assistant.streamlit.app/)
+
+The public Streamlit deployment uses a cloud-safe hosted entrypoint for faster first render. The original immersive studio UI is still preserved in `studio_app.py`.
+
 ## What it does
 
 Financial RAG Assistant combines document intelligence with live finance workflows in one interface:
@@ -80,9 +86,12 @@ flowchart TD
 ```text
 financial-rag-assistant/
 ├── app.py
+├── streamlit_app.py
+├── studio_app.py
 ├── src/
 │   ├── analytics.py
 │   ├── config.py
+│   ├── deploy_ui.py
 │   ├── document_parser.py
 │   ├── llm.py
 │   ├── market_data.py
@@ -107,6 +116,11 @@ pip install -r requirements.txt
 cp .env.example .env
 streamlit run app.py
 ```
+
+### Entry points
+
+- `app.py` and `streamlit_app.py`: lightweight hosted demo used for Streamlit deployment
+- `studio_app.py`: original full-screen studio UI preserved for local exploration
 
 ### Environment
 
