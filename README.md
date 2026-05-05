@@ -4,6 +4,8 @@ AI-native financial intelligence platform for document-grounded Q&A, market anal
 
 Built with Streamlit, Groq Llama 3.3, hybrid BM25 retrieval, financial metric extraction, live market data, and interactive Plotly dashboards.
 
+**Live Demo:** [Open Financial RAG Assistant](https://financial-rag-assistant.streamlit.app/)
+
 ## Live demo
 
 [financial-rag-assistant.streamlit.app](https://financial-rag-assistant.streamlit.app/)
